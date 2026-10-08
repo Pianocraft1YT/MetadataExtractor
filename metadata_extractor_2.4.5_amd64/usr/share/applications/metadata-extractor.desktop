@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Version=2.1.2
+Name=Metadata Extractor
+Comment=Extracts Date and Time from Image Files
+Exec=/usr/local/bin/metadata
+Terminal=false
+Categories=Utility;

@@ -1,0 +1,7 @@
+Package: metadata-extractor
+Version: 2.4.5
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: Pianocraft1YT
+Description: Metadata Extractor for Image Files, Extracts Date and  Time. Built with Python 3, last updated July 28th, 2026.
