@@ -24,6 +24,8 @@ from tkinter import filedialog
 EXIF_DATETIME = 306
 EXIF_DATETIME_ORIGINAL = 36867
 EXIF_DATETIME_DIGITIZED = 36868
+MAX_PHOTOS_BEFORE_VIDEO = 5
+SHEET_NAME_MAX_CHARS = 31
 
 #Cosmetic only, adds placeholder text in entry boxes
 def nameFocusIn(event):
@@ -131,11 +133,11 @@ def check_recursive(directory_path):
             "Invalid path(s) specified.", message="Please set an image/video directory path OR output path.")
         return
     val = series_entry.get().strip() #Pull once, use for both checks below
-    if val.isdigit() and val != "1": #Make sure starting index is valid digit
+    if val.isdigit() and int(val) > 0 and val != "1": #Make sure starting index is valid digit
         modifier = int(val) - 1 #We start at 1 by default, so minus 1 to not get off by one
     elif not (val == "Starting index (Img # Series)" or val == "" or val == "1"):
         #Placeholder, empty, or "1" means modifier stays 0; anything else errors
-        messagebox.showerror("Numbers only.", message="Starting index must be a number.")
+        messagebox.showerror("Numbers only.", message="Starting index must be a whole number greater than zero.")
         return
     reset() #Clear old data
     if name_entry.get() != "Filename (default output.xlsx)": #Placeholder text
@@ -159,7 +161,7 @@ def verify_name(name):
     illegal_chars = ("[", "]", ":", "*", "?", "/", "\\") #Can't be in a sheet name
     for c in illegal_chars:
         name = name.replace(c, "_") #Replace any instances with "_"
-    name = name[:31] #Truncate to 31 characters max
+    name = name[:SHEET_NAME_MAX_CHARS] #Truncate to SHEET_NAME_MAX_CHARS (31) characters max
     # Excel restrictions: apostrophes at start/end, reserved name "History"
     if name.startswith("'") or name.endswith("'"):
         name = name.strip("'")
@@ -173,7 +175,7 @@ def verify_name(name):
     f = 2
     while True: #Name was used already
         suffix = "_" + str(f) #Infinitely try increasing _X numbers, from 2
-        candidate = name[:31 - len(suffix)] + suffix #Truncate original name
+        candidate = name[:SHEET_NAME_MAX_CHARS - len(suffix)] + suffix #Truncate original name
         if candidate.lower() not in used:
             used.add(candidate.lower())
             return candidate
@@ -206,7 +208,7 @@ def sort_and_extract_irregular(directory_path, recursive, final_output, modifier
     global output_series, processed, skipped
     processed = 0
     skipped = 0
-    output_series = True #If photos_before_video is less than 5.
+    output_series = True #If photos_before_video is less than MAX_PHOTOS_BEFORE_VIDEO.
     list_of_dates = []
     list_of_images = []
     img_series = []
@@ -245,7 +247,7 @@ def sort_and_extract_irregular(directory_path, recursive, final_output, modifier
                                 initial_check+=1
                             else:
                                 photos_before_video_updated = True
-                                if photos_before_video > 5: #Pattern not found, usually not more than 4 images + 1 video. Do not output series.
+                                if photos_before_video > MAX_PHOTOS_BEFORE_VIDEO: #Pattern not found, usually not more than 4 images + 1 video. Do not output series.
                                     output_series = False
                         else: #All photos found
                             photos_before_video_updated = True
@@ -457,7 +459,7 @@ def create_dataframe(img_series, final_images, final_dates, final_times, recursi
                         "Time": final_times,
                     }
                 )
-                messagebox.showerror( #If irregular pattern starts with more than 5 images in a row, will break program, so error.
+                messagebox.showerror( #If irregular pattern starts with more than MAX_PHOTOS_BEFORE_VIDEO images in a row, will break program, so error.
                     "An error occurred.", message="Unpredictable pattern found with directory\n" + directory_path.as_posix() + ".\nPlease add mock files to the beginning to set correct pattern." \
                     " For example, if the pattern is 3 photos and 1 video, choose 3 photos and 1 video and duplicate them, naming them to be first when sorted, like DCSF0000."
                 )
@@ -481,7 +483,7 @@ def create_dataframe(img_series, final_images, final_dates, final_times, recursi
                         "Time": final_times,
                     }
                 )
-                messagebox.showerror( #If irregular pattern starts with more than 5 images in a row, will break program, so error.
+                messagebox.showerror( #If irregular pattern starts with more than MAX_PHOTOS_BEFORE_VIDEO images in a row, will break program, so error.
                     "An error occurred.", message="Unpredictable pattern found with directory\n" + directory_path.as_posix() + ".\nPlease add mock files to the beginning to set correct pattern." \
                     " For example, if the pattern is 3 photos and 1 video, choose 3 photos and 1 video and duplicate them, naming them to be first when sorted, like DCSF0000."
                 )
