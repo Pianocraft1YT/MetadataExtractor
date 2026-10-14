@@ -59,8 +59,14 @@ output_path = None
 debug = False
 #To clean up any past executions
 def reset():
+    global total_skipped, total_processed, skipped, processed, output_series
     used.clear()
     results.clear()
+    total_skipped = 0
+    total_processed = 0
+    skipped = 0
+    processed = 0
+    output_series = True
 #Gets called on set directory button press to set image directory
 def set_dir():
     global directory_path
@@ -75,31 +81,23 @@ def set_output():
         output_path = Path(selected)
 #Image metadata extractor helper function
 def scan_image(directory_path, files_and_dirs, i, list_of_dates, list_of_images):
-    global skipped
     try:
         with Image.open(Path(directory_path) / files_and_dirs[i]) as img: #open the image
             exif_data = img.getexif() #get the exif metadata
         dt = exif_data.get(EXIF_DATETIME_ORIGINAL) or exif_data.get(EXIF_DATETIME_DIGITIZED) or exif_data.get(EXIF_DATETIME) #only extract date and time
         if dt is None:
             messagebox.showerror("Metadata missing", message=str(f"No metadata found for {files_and_dirs[i]}"))
-            skipped+=1
-            raise ValueError(f"No metadata found for {files_and_dirs[i]}")
+            return False
     except UnidentifiedImageError as e:
         messagebox.showerror("Image couldn't be scanned.", message="Image couldn't be scanned, is it corrupt? \nError caught: " + str(e) + "\nPlease check the specified file.")
-        skipped+=1
-        raise ValueError(f"Non-image scanned, culprit file {files_and_dirs[i]}")
+        return False
     else: #No errors
-        global processed
-        processed+=1
         list_of_dates.append(dt) #Add to lists
         list_of_images.append(files_and_dirs[i])
+        return True
 #Finds subdirectories for recursive mode
 def find_directories(directory_path, final_output, modifier):
-    global current_sheet_name #Used to create seperate named sheets
-    global total_processed
-    global total_skipped
-    global processed
-    global skipped
+    global current_sheet_name, total_processed, total_skipped, processed, skipped #Used to create seperate named sheets; processed and skipped for summary counts
     total_processed = 0
     total_skipped = 0
     name_index = 0 #For indexing over sheet_names list
@@ -205,9 +203,7 @@ def clean_name(name):
 #Gets called initially, assumes irregular pattern, calls sort_and_extract() if regular
 #Paths supplied by user or debug mode
 def sort_and_extract_irregular(directory_path, recursive, final_output, modifier):
-    global output_series
-    global processed
-    global skipped
+    global output_series, processed, skipped
     processed = 0
     skipped = 0
     output_series = True #If photos_before_video is less than 5.
@@ -269,25 +265,28 @@ def sort_and_extract_irregular(directory_path, recursive, final_output, modifier
                         if (i+pattern_check < len(files_and_dirs) and files_and_dirs[i+pattern_check].lower().endswith((video_types))): #Verifies expected pattern
                             regular_pattern_found = True
                         else:
-                            try:
-                                scan_image(directory_path, files_and_dirs, i, list_of_dates, list_of_images) #Scan image as one-off
-                                if not video_first:
-                                    img_series.append(str(index+modifier)) #Incorrect pattern found, images first
-                                else:
-                                    img_series.append(str(index-1+modifier)) #Incorrect pattern found, videos first, fixing index
-                            except ValueError:
+                            ok = scan_image(directory_path, files_and_dirs, i, list_of_dates, list_of_images) #Scan image as one-off
+                            if not ok:
                                 i += 1
                                 index += 1 #Skipped image still consumes a series number
+                                skipped += 1
                                 continue
+                            processed += 1
+                            if not video_first:
+                                img_series.append(str(index+modifier)) #Incorrect pattern found, images first
+                            else:
+                                img_series.append(str(index-1+modifier)) #Incorrect pattern found, videos first, fixing index
                     else:
                         for r in range(photos_before_video): #End of files to scan found
                             if (i+r<len(files_and_dirs)): #Scan all remaining files
                                 if files_and_dirs[i+r].lower().endswith(photo_types):
-                                    try:
-                                        scan_image(directory_path, files_and_dirs, i+r, list_of_dates, list_of_images)
-                                        img_series.append(str(index+r+modifier))
-                                    except ValueError:
+                                    ok = scan_image(directory_path, files_and_dirs, i+r, list_of_dates, list_of_images)
+                                    if not ok:
+                                        skipped +=1
                                         continue
+                                    processed+=1
+                                    img_series.append(str(index+r+modifier))
+                                    
                 pattern_check = 1
                 i += 1 #increment
                 index+=1
@@ -300,22 +299,29 @@ def sort_and_extract_irregular(directory_path, recursive, final_output, modifier
                     photos_before_video_updated = True #Do not update photos_before_video again
                 if video_first and scanned_first_set == False: #To catch up on unadded series
                     scanned_first_set = True
-                    try:
-                        scan_image(directory_path, files_and_dirs, i-1, list_of_dates, list_of_images)
-                        img_series.append(str(i-photos_before_video+modifier) + "-" + str(i+modifier))
-                    except ValueError:
-                        pass
+                    ok = scan_image(directory_path, files_and_dirs, i-1, list_of_dates, list_of_images)
+                    if not ok:
+                        skipped +=1
+                        i+=1
+                        index += 1
+                        continue
+                    processed += 1
+                    img_series.append(str(i-photos_before_video+modifier) + "-" + str(i+modifier))
                 if (i==0):
                     video_first = True #Last so all checks work correctly
                 if regular_pattern_found: #Normal pattern found
-                    try:
-                        scan_image(directory_path, files_and_dirs, i-1, list_of_dates, list_of_images)
-                        if not video_first: #Images first mode
-                            img_series.append(str(index-photos_before_video+modifier) + "-" + str(index+modifier)) #Image + video series
-                        else: #Adjust by one to account for video first
-                            img_series.append(str(i-photos_before_video+modifier) + "-" + str(i+modifier)) 
-                    except ValueError:
-                        pass
+                    ok = scan_image(directory_path, files_and_dirs, i-1, list_of_dates, list_of_images)
+                    if not ok:
+                        i+=1
+                        index+=1
+                        skipped+=1
+                        regular_pattern_found = False
+                        continue
+                    processed +=1
+                    if not video_first: #Images first mode
+                        img_series.append(str(index-photos_before_video+modifier) + "-" + str(index+modifier)) #Image + video series
+                    else: #Adjust by one to account for video first
+                        img_series.append(str(i-photos_before_video+modifier) + "-" + str(i+modifier)) 
                     regular_pattern_found = False
                 i += 1 #increment, essentially skipping videos
                 index+=1
@@ -349,11 +355,12 @@ def sort_and_extract(directory_path, recursive, final_output, modifier):
         while i < len(files_and_dirs):
             #If file is not a video, extract metadata from the image.
             if not files_and_dirs[i].lower().endswith((video_types)):
-                try:
-                    scan_image(directory_path, files_and_dirs, i, list_of_dates, list_of_images)
-                except ValueError:
+                ok = scan_image(directory_path, files_and_dirs, i, list_of_dates, list_of_images)
+                if not ok:
                     i+=1
+                    skipped+=1
                     continue
+                processed+=1
             else:
                 if output_series:
                     if not photos_before_video_updated: #If a video hasn't been found before
@@ -364,7 +371,6 @@ def sort_and_extract(directory_path, recursive, final_output, modifier):
                             photos_before_video_updated = True #Do not update photos_before_video again
                         else:
                             video_first = True #Video was found first
-                            messagebox.showerror("Video found first.", message="Please manually catalog the first video file, which doesn't have an image pair.")
             i += 1 #increment, essentially skipping videos
     except Exception as e:
         messagebox.showerror("An error occurred.", message="An error occurred. \nError caught: " + str(e))
@@ -390,7 +396,11 @@ def make_series(list_of_images, photos_before_video_updated, photos_before_video
                     final_images.append(list_of_images[i-1])
                     final_dates.append(fixed_date[i-1])
                     final_times.append(fixed_time[i-1])
-                    img_series.append(str(i - photos_before_video + 1 + modifier) + "-" + str(i + 1 + modifier)) #For Img # Series to correctly count the series
+                    # Each group consumes N photos + 1 video. group is 0-indexed.
+                    group = (i // photos_before_video) - 1
+                    start = i - photos_before_video + 1 + group + modifier
+                    end   = i + 1 + group + modifier
+                    img_series.append(f"{start}-{end}")
                 i+=1
             else: #If only images were found, add all photos and increment series normally
                 final_images.append(list_of_images[i-1])
@@ -514,36 +524,60 @@ def create_sheet(output_path, recursive, df): #File creation
             if not keepopen_var.get():
                 root.destroy()
                 sys.exit()
-            
-root = tk.Tk() #Tkinter root
-frame = tk.Frame(root) #Tkinter frame window
-execute_button = tk.Button(frame, command=lambda:check_recursive(directory_path), text="Execute")
-#Buttons to click
-set_directory_button = tk.Button(frame, command=set_dir, text="Set folder with images")
-set_output_button = tk.Button(frame, command=set_output, text="Set output folder")
-#Checkbox options
-keepopen_var = tk.BooleanVar(value=False)  # default unchecked
-keepopen_checkbox = tk.Checkbutton(frame, text="Keep open?", variable=keepopen_var)
-recursive_var = tk.BooleanVar(value=False)  # default unchecked
-recursive_checkbox = tk.Checkbutton(frame, text="Scan subfolders", variable=recursive_var)
-#Entry options
-name_entry = tk.Entry(frame, width=30, foreground="gray")
-name_entry.insert(0, "Filename (default output.xlsx)")
-series_entry = tk.Entry(frame, width=30, foreground="gray")
-series_entry.insert(0, "Starting index (Img # Series)")
-#For placeholder text
-name_entry.bind("<FocusIn>", nameFocusIn)
-name_entry.bind("<FocusOut>", nameFocusOut)
-series_entry.bind("<FocusIn>", seriesFocusIn)
-series_entry.bind("<FocusOut>", seriesFocusOut)
-#Pack frame and buttons in order
-frame.pack()
-set_directory_button.pack()
-set_output_button.pack()
-name_entry.pack()
-series_entry.pack()
-recursive_checkbox.pack()
-execute_button.pack()
-keepopen_checkbox.pack()
-root.geometry("240x180") #Set dimensions of window to open
-root.mainloop() #Ensure window only closes by user choice
+
+# Module-level widget placeholders (assigned inside main()).
+# Type annotations give Pylance the widget type; the # type: ignore
+# comments suppress the "None is not assignable" warning on the
+# placeholder assignment. Without these, every .get() / .delete() call
+# downstream shows "not a known attribute of None".
+root: tk.Tk = None  # type: ignore[assignment]
+frame: tk.Frame = None  # type: ignore[assignment]
+execute_button: tk.Button = None  # type: ignore[assignment]
+set_directory_button: tk.Button = None  # type: ignore[assignment]
+set_output_button: tk.Button = None  # type: ignore[assignment]
+keepopen_var: tk.BooleanVar = None  # type: ignore[assignment]
+keepopen_checkbox: tk.Checkbutton = None  # type: ignore[assignment]
+recursive_var: tk.BooleanVar = None  # type: ignore[assignment]
+recursive_checkbox: tk.Checkbutton = None  # type: ignore[assignment]
+name_entry: tk.Entry = None  # type: ignore[assignment]
+series_entry: tk.Entry = None  # type: ignore[assignment]
+
+def main():
+    global root, frame, execute_button, set_directory_button, set_output_button
+    global keepopen_var, keepopen_checkbox, recursive_var, recursive_checkbox
+    global name_entry, series_entry
+
+    root = tk.Tk()
+    root.title("Metadata Extractor")
+    frame = tk.Frame(root)
+    execute_button = tk.Button(frame, command=lambda: check_recursive(directory_path), text="Execute")
+    set_directory_button = tk.Button(frame, command=set_dir, text="Set folder with images")
+    set_output_button = tk.Button(frame, command=set_output, text="Set output folder")
+    keepopen_var = tk.BooleanVar(value=False)
+    keepopen_checkbox = tk.Checkbutton(frame, text="Keep open?", variable=keepopen_var)
+    recursive_var = tk.BooleanVar(value=False)
+    recursive_checkbox = tk.Checkbutton(frame, text="Scan subfolders", variable=recursive_var)
+    name_entry = tk.Entry(frame, width=30, foreground="gray")
+    name_entry.insert(0, "Filename (default output.xlsx)")
+    series_entry = tk.Entry(frame, width=30, foreground="gray")
+    series_entry.insert(0, "Starting index (Img # Series)")
+
+    name_entry.bind("<FocusIn>", nameFocusIn)
+    name_entry.bind("<FocusOut>", nameFocusOut)
+    series_entry.bind("<FocusIn>", seriesFocusIn)
+    series_entry.bind("<FocusOut>", seriesFocusOut)
+
+    frame.pack()
+    set_directory_button.pack()
+    set_output_button.pack()
+    name_entry.pack()
+    series_entry.pack()
+    recursive_checkbox.pack()
+    execute_button.pack()
+    keepopen_checkbox.pack()
+    root.geometry("240x180")
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()

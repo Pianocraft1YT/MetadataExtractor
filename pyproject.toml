@@ -1,0 +1,11 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+markers = [
+    "real_create_sheet: skip the conftest create_sheet mock",
+]
+[tool.black]
+line-length = 120
+
+[tool.ruff]
+line-length = 120
