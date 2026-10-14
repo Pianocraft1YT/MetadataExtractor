@@ -75,22 +75,33 @@ def set_output():
         output_path = Path(selected)
 #Image metadata extractor helper function
 def scan_image(directory_path, files_and_dirs, i, list_of_dates, list_of_images):
+    global skipped
     try:
         with Image.open(Path(directory_path) / files_and_dirs[i]) as img: #open the image
             exif_data = img.getexif() #get the exif metadata
         dt = exif_data.get(EXIF_DATETIME_ORIGINAL) or exif_data.get(EXIF_DATETIME_DIGITIZED) or exif_data.get(EXIF_DATETIME) #only extract date and time
         if dt is None:
             messagebox.showerror("Metadata missing", message=str(f"No metadata found for {files_and_dirs[i]}"))
+            skipped+=1
             raise ValueError(f"No metadata found for {files_and_dirs[i]}")
     except UnidentifiedImageError as e:
         messagebox.showerror("Image couldn't be scanned.", message="Image couldn't be scanned, is it corrupt? \nError caught: " + str(e) + "\nPlease check the specified file.")
+        skipped+=1
         raise ValueError(f"Non-image scanned, culprit file {files_and_dirs[i]}")
     else: #No errors
+        global processed
+        processed+=1
         list_of_dates.append(dt) #Add to lists
         list_of_images.append(files_and_dirs[i])
 #Finds subdirectories for recursive mode
 def find_directories(directory_path, final_output, modifier):
     global current_sheet_name #Used to create seperate named sheets
+    global total_processed
+    global total_skipped
+    global processed
+    global skipped
+    total_processed = 0
+    total_skipped = 0
     name_index = 0 #For indexing over sheet_names list
     directories_found = os.listdir(directory_path) #Only one level of recursion
     directories_found.sort() # ensure consistent sheet order
@@ -109,6 +120,8 @@ def find_directories(directory_path, final_output, modifier):
         current_sheet_name = sheet_names[name_index]
         name_index+=1
         sort_and_extract_irregular(directory_path, True, final_output, modifier)
+        total_processed+=processed
+        total_skipped+=skipped
     create_sheet(final_output, True, None)
 def check_recursive(directory_path):
     global output_path
@@ -193,6 +206,10 @@ def clean_name(name):
 #Paths supplied by user or debug mode
 def sort_and_extract_irregular(directory_path, recursive, final_output, modifier):
     global output_series
+    global processed
+    global skipped
+    processed = 0
+    skipped = 0
     output_series = True #If photos_before_video is less than 5.
     list_of_dates = []
     list_of_images = []
@@ -312,6 +329,10 @@ def sort_and_extract_irregular(directory_path, recursive, final_output, modifier
 #For images-only or no Img # Series collumn
 def sort_and_extract(directory_path, recursive, final_output, modifier):
     global output_series
+    global processed
+    global skipped
+    processed = 0
+    skipped = 0
     list_of_dates = []
     list_of_images = []
     video_first = False
@@ -477,10 +498,11 @@ def create_sheet(output_path, recursive, df): #File creation
                     with pd.ExcelWriter(output_path) as writer:
                         for df, sheet_name in results:
                             df.to_excel(writer, sheet_name=sheet_name, index=False)
+                    messagebox.showinfo("Success!", message="Images successfully scanned: " + str(total_processed) + "\nImages skipped: " + str(total_skipped) + "\nOutput: " + output_path.as_posix())
                 else:
                     #Single folder output
                     df.to_excel(out_file, sheet_name="Output", index=False)
-                messagebox.showinfo("Success!", message="Success, outputted at " + output_path.as_posix())
+                    messagebox.showinfo("Success!", message="Images successfully scanned: " + str(processed) + "\nImages skipped: " + str(skipped) + "\nOutput: " + output_path.as_posix())
             else:
                 messagebox.showinfo("Cancelled", message="File not overwritten. Cancelled successfully.")
             if not keepopen_var.get(): #Checks to close program or not

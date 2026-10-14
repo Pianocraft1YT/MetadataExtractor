@@ -6,7 +6,7 @@
 # Please increment this counter as a warning
 # For the next person:
 # 
-# hours_wasted_here = 41
+# hours_wasted_here = 42
 
 # Coded by Pianocraft1YT
 # Tutorial: https://youtu.be/ruWNKBdbYoo
@@ -20,6 +20,10 @@ import pandas as pd
 import tkinter as tk
 from tkinter import messagebox
 from tkinter import filedialog
+
+EXIF_DATETIME = 306
+EXIF_DATETIME_ORIGINAL = 36867
+EXIF_DATETIME_DIGITIZED = 36868
 
 #Cosmetic only, adds placeholder text in entry boxes
 def nameFocusIn(event):
@@ -71,17 +75,33 @@ def set_output():
         output_path = Path(selected)
 #Image metadata extractor helper function
 def scan_image(directory_path, files_and_dirs, i, list_of_dates, list_of_images):
-    with Image.open(Path(directory_path) / files_and_dirs[i]) as img: #Open the image in code
-        exif_data = img.getexif() #Get the exif metadata
-        dt = exif_data.get(306) or exif_data.get(36867) #Only extract date and time
-    filename = files_and_dirs[i] #Get filename
-    if dt is None:
-        raise ValueError(f"No metadata found for {filename}")
-    list_of_dates.append(dt) #Add to lists
-    list_of_images.append(filename)
+    global skipped
+    try:
+        with Image.open(Path(directory_path) / files_and_dirs[i]) as img: #open the image
+            exif_data = img.getexif() #get the exif metadata
+        dt = exif_data.get(EXIF_DATETIME_ORIGINAL) or exif_data.get(EXIF_DATETIME_DIGITIZED) or exif_data.get(EXIF_DATETIME) #only extract date and time
+        if dt is None:
+            messagebox.showerror("Metadata missing", message=str(f"No metadata found for {files_and_dirs[i]}"))
+            skipped+=1
+            raise ValueError(f"No metadata found for {files_and_dirs[i]}")
+    except UnidentifiedImageError as e:
+        messagebox.showerror("Image couldn't be scanned.", message="Image couldn't be scanned, is it corrupt? \nError caught: " + str(e) + "\nPlease check the specified file.")
+        skipped+=1
+        raise ValueError(f"Non-image scanned, culprit file {files_and_dirs[i]}")
+    else: #No errors
+        global processed
+        processed+=1
+        list_of_dates.append(dt) #Add to lists
+        list_of_images.append(files_and_dirs[i])
 #Finds subdirectories for recursive mode
 def find_directories(directory_path, final_output, modifier):
     global current_sheet_name #Used to create seperate named sheets
+    global total_processed
+    global total_skipped
+    global processed
+    global skipped
+    total_processed = 0
+    total_skipped = 0
     name_index = 0 #For indexing over sheet_names list
     directories_found = os.listdir(directory_path) #Only one level of recursion
     directories_found.sort() # ensure consistent sheet order
@@ -100,6 +120,8 @@ def find_directories(directory_path, final_output, modifier):
         current_sheet_name = sheet_names[name_index]
         name_index+=1
         sort_and_extract_irregular(directory_path, True, final_output, modifier)
+        total_processed+=processed
+        total_skipped+=skipped
     create_sheet(final_output, True, None)
 def check_recursive(directory_path):
     global output_path
@@ -184,6 +206,10 @@ def clean_name(name):
 #Paths supplied by user or debug mode
 def sort_and_extract_irregular(directory_path, recursive, final_output, modifier):
     global output_series
+    global processed
+    global skipped
+    processed = 0
+    skipped = 0
     output_series = True #If photos_before_video is less than 5.
     list_of_dates = []
     list_of_images = []
@@ -243,17 +269,25 @@ def sort_and_extract_irregular(directory_path, recursive, final_output, modifier
                         if (i+pattern_check < len(files_and_dirs) and files_and_dirs[i+pattern_check].lower().endswith((video_types))): #Verifies expected pattern
                             regular_pattern_found = True
                         else:
-                            if not video_first:
-                                img_series.append(str(index+modifier)) #Incorrect pattern found, images first
-                            else:
-                                img_series.append(str(index-1+modifier)) #Incorrect pattern found, videos first, fixing index
-                            scan_image(directory_path, files_and_dirs, i, list_of_dates, list_of_images) #Scan image as one-off
+                            try:
+                                scan_image(directory_path, files_and_dirs, i, list_of_dates, list_of_images) #Scan image as one-off
+                                if not video_first:
+                                    img_series.append(str(index+modifier)) #Incorrect pattern found, images first
+                                else:
+                                    img_series.append(str(index-1+modifier)) #Incorrect pattern found, videos first, fixing index
+                            except ValueError:
+                                i += 1
+                                index += 1 #Skipped image still consumes a series number
+                                continue
                     else:
                         for r in range(photos_before_video): #End of files to scan found
                             if (i+r<len(files_and_dirs)): #Scan all remaining files
                                 if files_and_dirs[i+r].lower().endswith(photo_types):
-                                    scan_image(directory_path, files_and_dirs, i+r, list_of_dates, list_of_images)
-                                    img_series.append(str(index+r+modifier))
+                                    try:
+                                        scan_image(directory_path, files_and_dirs, i+r, list_of_dates, list_of_images)
+                                        img_series.append(str(index+r+modifier))
+                                    except ValueError:
+                                        continue
                 pattern_check = 1
                 i += 1 #increment
                 index+=1
@@ -266,25 +300,25 @@ def sort_and_extract_irregular(directory_path, recursive, final_output, modifier
                     photos_before_video_updated = True #Do not update photos_before_video again
                 if video_first and scanned_first_set == False: #To catch up on unadded series
                     scanned_first_set = True
-                    img_series.append(str(i-photos_before_video+modifier) + "-" + str(i+modifier))
-                    scan_image(directory_path, files_and_dirs, i-1, list_of_dates, list_of_images)
+                    try:
+                        scan_image(directory_path, files_and_dirs, i-1, list_of_dates, list_of_images)
+                        img_series.append(str(i-photos_before_video+modifier) + "-" + str(i+modifier))
+                    except ValueError:
+                        pass
                 if (i==0):
                     video_first = True #Last so all checks work correctly
                 if regular_pattern_found: #Normal pattern found
-                    if not video_first: #Images first mode
-                        img_series.append(str(index-photos_before_video+modifier) + "-" + str(index+modifier)) #Image + video series
-                    else: #Adjust by one to account for video first
-                        img_series.append(str(i-photos_before_video+modifier) + "-" + str(i+modifier)) 
-                    scan_image(directory_path, files_and_dirs, i-1, list_of_dates, list_of_images)
+                    try:
+                        scan_image(directory_path, files_and_dirs, i-1, list_of_dates, list_of_images)
+                        if not video_first: #Images first mode
+                            img_series.append(str(index-photos_before_video+modifier) + "-" + str(index+modifier)) #Image + video series
+                        else: #Adjust by one to account for video first
+                            img_series.append(str(i-photos_before_video+modifier) + "-" + str(i+modifier)) 
+                    except ValueError:
+                        pass
                     regular_pattern_found = False
                 i += 1 #increment, essentially skipping videos
                 index+=1
-    except ValueError as e:
-        messagebox.showerror("Metadata missing", message=str(e))
-        return
-    except UnidentifiedImageError as e:
-        messagebox.showerror("Image couldn't be scanned.", message="Image couldn't be scanned, is it corrupt? \nError caught: " + str(e) + "\nPlease delete the specified file.")
-        return
     except Exception as e:
         messagebox.showerror("An error occurred.", message="An error occurred. \nError caught: " + str(e))
         return
@@ -295,6 +329,10 @@ def sort_and_extract_irregular(directory_path, recursive, final_output, modifier
 #For images-only or no Img # Series collumn
 def sort_and_extract(directory_path, recursive, final_output, modifier):
     global output_series
+    global processed
+    global skipped
+    processed = 0
+    skipped = 0
     list_of_dates = []
     list_of_images = []
     video_first = False
@@ -311,15 +349,11 @@ def sort_and_extract(directory_path, recursive, final_output, modifier):
         while i < len(files_and_dirs):
             #If file is not a video, extract metadata from the image.
             if not files_and_dirs[i].lower().endswith((video_types)):
-                with Image.open(Path(directory_path) / files_and_dirs[i]) as img: #open the image
-                    exif_data = img.getexif() #get the exif metadata
-                    dt = exif_data.get(306) or exif_data.get(36867) #only extract date and time
-                if dt is None:
-                    raise ValueError(f"No metadata found for {files_and_dirs[i]}")
-                filename = files_and_dirs[i] #get filename
-                list_of_dates.append(dt) #add to lists
-                list_of_images.append(filename)
-                i += 1 #increment
+                try:
+                    scan_image(directory_path, files_and_dirs, i, list_of_dates, list_of_images)
+                except ValueError:
+                    i+=1
+                    continue
             else:
                 if output_series:
                     if not photos_before_video_updated: #If a video hasn't been found before
@@ -331,13 +365,7 @@ def sort_and_extract(directory_path, recursive, final_output, modifier):
                         else:
                             video_first = True #Video was found first
                             messagebox.showerror("Video found first.", message="Please manually catalog the first video file, which doesn't have an image pair.")
-                i += 1 #increment, essentially skipping videos
-    except ValueError as e:
-        messagebox.showerror("Metadata missing", message=str(e))
-        return
-    except UnidentifiedImageError as e:
-        messagebox.showerror("Image couldn't be scanned.", message="Image couldn't be scanned, is it corrupt? \nError caught: " + str(e) + "\nPlease delete the specified file.")
-        return
+            i += 1 #increment, essentially skipping videos
     except Exception as e:
         messagebox.showerror("An error occurred.", message="An error occurred. \nError caught: " + str(e))
         return
@@ -470,10 +498,11 @@ def create_sheet(output_path, recursive, df): #File creation
                     with pd.ExcelWriter(output_path) as writer:
                         for df, sheet_name in results:
                             df.to_excel(writer, sheet_name=sheet_name, index=False)
+                    messagebox.showinfo("Success!", message="Images successfully scanned: " + str(total_processed) + "\nImages skipped: " + str(total_skipped) + "\nOutput: " + output_path.as_posix())
                 else:
                     #Single folder output
                     df.to_excel(out_file, sheet_name="Output", index=False)
-                messagebox.showinfo("Success!", message="Success, outputted at " + output_path.as_posix())
+                    messagebox.showinfo("Success!", message="Images successfully scanned: " + str(processed) + "\nImages skipped: " + str(skipped) + "\nOutput: " + output_path.as_posix())
             else:
                 messagebox.showinfo("Cancelled", message="File not overwritten. Cancelled successfully.")
             if not keepopen_var.get(): #Checks to close program or not
