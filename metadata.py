@@ -20,6 +20,7 @@ import pandas as pd
 import tkinter as tk
 from tkinter import messagebox
 from tkinter import filedialog
+import traceback
 
 EXIF_DATETIME = 306
 EXIF_DATETIME_ORIGINAL = 36867
@@ -323,8 +324,11 @@ def sort_and_extract_irregular(directory_path, recursive, final_output, modifier
                     regular_pattern_found = False
                 i += 1 #increment, essentially skipping videos
                 index+=1
+    except (FileNotFoundError, PermissionError, OSError) as e:
+        collected_warnings.append(f"[{directory_path}] Can't read directory: {e}")
+        return
     except Exception as e:
-        collected_warnings.append(f"[{directory_path}] An error {e} was caught. Please report this to the maintainer.")
+        collected_warnings.append(f"[{directory_path}] Unexpected error: {e}\n{traceback.format_exc()}")
         return
     fixed_date, fixed_time = fix_time(list_of_dates)
     df = create_dataframe(img_series, list_of_images, fixed_date, fixed_time, recursive, directory_path)
@@ -365,8 +369,11 @@ def sort_and_extract(directory_path, recursive, final_output, modifier):
                             photos_before_video = i  #For Img # Series use
                             photos_before_video_updated = True #Do not update photos_before_video again
             i += 1 #increment, essentially skipping videos
+    except (FileNotFoundError, PermissionError, OSError) as e:
+        collected_warnings.append(f"[{directory_path}] Can't read directory: {e}")
+        return
     except Exception as e:
-        collected_warnings.append(f"An error {e} was caught. Please report this to the maintainer.")
+        collected_warnings.append(f"[{directory_path}] Unexpected error: {e}\n{traceback.format_exc()}")
         return
     fixed_date, fixed_time = fix_time(list_of_dates)
     img_series, final_images, final_dates, final_times = make_series(list_of_images,photos_before_video_updated,photos_before_video,fixed_date,fixed_time, modifier)
@@ -511,10 +518,14 @@ def create_sheet(output_path, recursive, df): #File creation
             if not keepopen_var.get(): #Checks to close program or not
                 root.destroy() #End program
                 sys.exit()
-        except Exception as e:
+        except (PermissionError, OSError) as e:
             messagebox.showerror(
                 "Error writing output",
                 f"Is another program using {output_path.as_posix()}?\n\nError: {e}")
+        except Exception as e:
+            messagebox.showerror(
+                "Unexpected error",
+                f"{e}\n\n{traceback.format_exc()}")
             if not keepopen_var.get():
                 root.destroy()
                 sys.exit()
