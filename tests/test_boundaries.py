@@ -120,27 +120,25 @@ def test_fix_time_with_timezone_suffix():
 # ---------------------------------------------------------------------------
 
 def test_clean_name_very_long():
-    """A 300-char name — no truncation currently. Record it."""
+    """Long names get their stem truncated to 200 chars."""
     long_name = "a" * 300
     result = metadata.clean_name(long_name)
-    # Currently no truncation. If you add it, update this assertion.
     assert result.endswith(".xlsx")
-    assert len(result) == 305  # 300 + 5 for ".xlsx"
+    assert len(result) == 205  # 200 + len(".xlsx")
 
 
 def test_clean_name_reserved_with_extension():
-    """'CON.xlsx' — does the reserved check fire before the extension check?"""
-    result = metadata.clean_name("CON.xlsx")
-    # Current code checks reserved before appending extension.
-    # "CON.xlsx".upper() is not in reserved set (which only contains CON, not CON.XLSX).
-    # So it stays as "CON.xlsx" — Windows may reject it.
-    assert result == "CON.xlsx"
-
-
+    """'CON.xlsx' must be sanitized — Windows rejects it otherwise."""
+    assert metadata.clean_name("CON.xlsx") == "_CON.xlsx"
+    assert metadata.clean_name("nul.xlsx") == "_nul.xlsx"
+    assert metadata.clean_name("com1.XLSX") == "_com1.XLSX"  # extension case preserved
 def test_clean_name_unicode_preserved():
     result = metadata.clean_name("café_résumé")
     assert result == "café_résumé.xlsx"
 
+def test_clean_name_already_sanitized_reserved():
+    """'_CON.xlsx' should not get a second underscore."""
+    assert metadata.clean_name("_CON.xlsx") == "_CON.xlsx"
 
 def test_clean_name_emoji_preserved():
     result = metadata.clean_name("📸_shoot")

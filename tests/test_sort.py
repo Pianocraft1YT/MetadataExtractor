@@ -101,20 +101,18 @@ def test_irregular_all_photos_falls_through_to_sort_and_extract(
 
 
 def test_irregular_video_first_shows_error_and_returns(tmp_path):
-    """A folder starting with a video aborts with an error, no output."""
+    """A folder starting with a video aborts with a warning, no output."""
     folder = tmp_path / "video_first"
     folder.mkdir()
     (folder / "A_video.mp4").write_bytes(b"fake")
     make_jpeg_with_exif(folder / "B_photo.jpg", "2024:05:15 12:30:45")
 
-    metadata.messagebox.showerror.reset_mock()
+    metadata.collected_warnings.clear()
     metadata.sort_and_extract_irregular(
         folder, recursive=False,
         final_output=Path("out.xlsx"), modifier=0,
     )
-    assert metadata.messagebox.showerror.called
-    # No DataFrame written — create_sheet was never called (it's mocked).
-
+    assert any("Video found first" in w for w in metadata.collected_warnings)
 
 def test_irregular_with_modifier(photos_and_videos, monkeypatch):
     """starting index 5 → series 5-8, 9-12, 13-16."""
