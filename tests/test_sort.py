@@ -112,7 +112,8 @@ def test_irregular_video_first_shows_error_and_returns(tmp_path):
         folder, recursive=False,
         final_output=Path("out.xlsx"), modifier=0,
     )
-    assert any("Video found first" in w for w in metadata.collected_warnings)
+    assert "Video First" in metadata.collected_warnings
+    assert metadata.collected_warnings["Video First"]  # non-empty list
 
 def test_irregular_with_modifier(photos_and_videos, monkeypatch):
     """starting index 5 → series 5-8, 9-12, 13-16."""

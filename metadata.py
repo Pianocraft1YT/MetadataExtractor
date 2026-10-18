@@ -20,6 +20,7 @@ import pandas as pd
 import tkinter as tk
 from tkinter import messagebox
 from tkinter import filedialog
+from collections import defaultdict
 import traceback
 
 EXIF_DATETIME = 306
@@ -29,7 +30,7 @@ MAX_PHOTOS_BEFORE_VIDEO = 5
 SHEET_NAME_MAX_CHARS = 31
 
 #Collect warnings
-collected_warnings = []
+collected_warnings = defaultdict(list) #Makes a list out of keys if not found in dictionary
 
 #Cosmetic only, adds placeholder text in entry boxes
 def nameFocusIn(event):
@@ -93,13 +94,10 @@ def scan_image(directory_path, files_and_dirs, i, list_of_dates, list_of_images)
             exif_data = img.getexif() #get the exif metadata
         dt = exif_data.get(EXIF_DATETIME_ORIGINAL) or exif_data.get(EXIF_DATETIME_DIGITIZED) or exif_data.get(EXIF_DATETIME) #only extract date and time
         if dt is None:
-            collected_warnings.append(f"[{directory_path}] No metadata found for {files_and_dirs[i]}")
+            collected_warnings["No Metadata"].append(f"[{directory_path}]\\{files_and_dirs[i]}")
             return False
-    except UnidentifiedImageError as e:
-        collected_warnings.append(f"[{directory_path}] File {files_and_dirs[i]} couldn't be scanned. Likely corrupt.")
-        return False
-    except (OSError, SyntaxError, ValueError) as e:
-        collected_warnings.append(f"[{directory_path}] File {files_and_dirs[i]} couldn't be read: {e}")
+    except (OSError, SyntaxError, ValueError, UnidentifiedImageError) as e:
+        collected_warnings["Scan Error"].append(f"[{directory_path}]\\{files_and_dirs[i]}")
         return False
     else: #No errors
         list_of_dates.append(dt) #Add to lists
@@ -250,7 +248,7 @@ def sort_and_extract_irregular(directory_path, recursive, final_output, modifier
         files_and_dirs.sort(key=lambda x: os.path.splitext(x)[0].lower())
         # Early check: if the first file is a video, show error and return
         if files_and_dirs and files_and_dirs[0].lower().endswith(video_types):
-            collected_warnings.append(f"Video found first on directory {directory_path}. Please manually catalog the first video file.")
+            collected_warnings["Video First"].append(f"{directory_path}")
             return
         #Iterates through every file in the directory
         for file in files_and_dirs:
@@ -324,11 +322,14 @@ def sort_and_extract_irregular(directory_path, recursive, final_output, modifier
                     regular_pattern_found = False
                 i += 1 #increment, essentially skipping videos
                 index+=1
-    except (FileNotFoundError, PermissionError, OSError) as e:
-        collected_warnings.append(f"[{directory_path}] Can't read directory: {e}")
+    except (FileNotFoundError, PermissionError) as e:
+        collected_warnings["Directory Error"].append(f"{directory_path}")
         return
+    except OSError as e:
+            collected_warnings["Scan Error"].append(f"[{directory_path}]\\{files_and_dirs[i]}")
+            return
     except Exception as e:
-        collected_warnings.append(f"[{directory_path}] Unexpected error: {e}\n{traceback.format_exc()}")
+        collected_warnings["Unexpected"].append(f"[{directory_path}]: {e}\n{traceback.format_exc()}")
         return
     fixed_date, fixed_time = fix_time(list_of_dates)
     df = create_dataframe(img_series, list_of_images, fixed_date, fixed_time, recursive, directory_path)
@@ -369,11 +370,14 @@ def sort_and_extract(directory_path, recursive, final_output, modifier):
                             photos_before_video = i  #For Img # Series use
                             photos_before_video_updated = True #Do not update photos_before_video again
             i += 1 #increment, essentially skipping videos
-    except (FileNotFoundError, PermissionError, OSError) as e:
-        collected_warnings.append(f"[{directory_path}] Can't read directory: {e}")
+    except (FileNotFoundError, PermissionError) as e:
+        collected_warnings["Directory Error"].append(f"{directory_path}")
         return
+    except OSError as e:
+            collected_warnings["Scan Error"].append(f"[{directory_path}]\\{files_and_dirs[i]}")
+            return
     except Exception as e:
-        collected_warnings.append(f"[{directory_path}] Unexpected error: {e}\n{traceback.format_exc()}")
+        collected_warnings["Unexpected"].append(f"[{directory_path}]: {e}\n{traceback.format_exc()}")
         return
     fixed_date, fixed_time = fix_time(list_of_dates)
     img_series, final_images, final_dates, final_times = make_series(list_of_images,photos_before_video_updated,photos_before_video,fixed_date,fixed_time, modifier)
@@ -457,8 +461,8 @@ def create_dataframe(img_series, final_images, final_dates, final_times, recursi
                         "Time": final_times,
                     }
                 )
-                collected_warnings.append( #If irregular pattern starts with more than MAX_PHOTOS_BEFORE_VIDEO images in a row, will break program, so error.
-                    f"Unpredictable pattern found with directory\n{directory_path.as_posix()}.\nPlease add mock files to the beginning to set correct pattern.\nFor example, if the pattern is 3 photos and 1 video, choose 3 photos and 1 video and duplicate them, naming them to be first when sorted, like DCSF0000.")
+                collected_warnings["Irregular"].append( #If irregular pattern starts with more than MAX_PHOTOS_BEFORE_VIDEO images in a row, will break program, so error.
+                    f"{directory_path.as_posix()}")
             return df
         else:
             global current_sheet_name #Recursive mode
@@ -479,8 +483,8 @@ def create_dataframe(img_series, final_images, final_dates, final_times, recursi
                         "Time": final_times,
                     }
                 )
-                collected_warnings.append( #If irregular pattern starts with more than MAX_PHOTOS_BEFORE_VIDEO images in a row, will break program, so error.
-                    f"Unpredictable pattern found with directory\n{directory_path.as_posix()}.\nPlease add mock files to the beginning to set correct pattern.\nFor example, if the pattern is 3 photos and 1 video, choose 3 photos and 1 video and duplicate them, naming them to be first when sorted, like DCSF0000.")
+                collected_warnings["Irregular"].append( #If irregular pattern starts with more than MAX_PHOTOS_BEFORE_VIDEO images in a row, will break program, so error.
+                                    f"{directory_path.as_posix()}")
         if final_images: #Make sure images are present.
             current_sheet_name = verify_name(current_sheet_name)
             results.append((df, current_sheet_name))
@@ -499,19 +503,37 @@ def create_sheet(output_path, recursive, df): #File creation
             if output_path.exists(): #Overwrite checking
                 proceed = messagebox.askyesno("Overwrite?", message=output_path.as_posix() + " \nalready exists. Overwrite?")
             if proceed:
+                if collected_warnings:
+                    output = ""
+                    for error, file in collected_warnings.items():
+                        output += f"{error}\n"
+                        if error == "No Metadata":
+                            output+="These files had no metadata to scan and were excluded."
+                        elif error == "Scan Error":
+                            output+="These files are corrupt or non-image files, and were excluded."
+                        elif error == "Directory Error":
+                            output+="File/Directory couldn't be accessed."
+                        elif error == "Video First":
+                            output+="Video File was found first. Please manually catalog"
+                        elif error == "Unexpected":
+                            output+= "Unexpected Errors - please report at https://github.com/Pianocraft1YT/MetadataExtractor/"
+                        elif error == "Irregular":
+                            output+= f"Irregular pattern (started with more than {MAX_PHOTOS_BEFORE_VIDEO} before a video. Please add mock files to the beginning to set correct pattern.\nFor example, if the pattern is 3 photos and 1 video, choose 3 photos and 1 video and duplicate them, naming them to be first when sorted, like DCSF0000."
+                        for filename in file:
+                            output+=f"\n{filename}"
                 if recursive:
                     #Data was found
                     with pd.ExcelWriter(output_path) as writer:
                         for df, sheet_name in results:
                             df.to_excel(writer, sheet_name=sheet_name, index=False)
                     if collected_warnings:
-                        messagebox.showwarning("Warning(s)", message="\n".join(collected_warnings))
+                        messagebox.showwarning("Warning(s)", message=output)
                     messagebox.showinfo("Success!", message="Images successfully scanned: " + str(total_processed) + "\nImages skipped: " + str(total_skipped) + "\nOutput: " + output_path.as_posix())
                 else:
                     #Single folder output
                     df.to_excel(out_file, sheet_name="Output", index=False)
                     if collected_warnings:
-                        messagebox.showwarning("Warning(s)", message="\n".join(collected_warnings))
+                        messagebox.showwarning("Warning(s)", message=output)
                     messagebox.showinfo("Success!", message="Images successfully scanned: " + str(processed) + "\nImages skipped: " + str(skipped) + "\nOutput: " + output_path.as_posix())
             else:
                 messagebox.showinfo("Cancelled", message="File not overwritten. Cancelled successfully.")
@@ -522,6 +544,9 @@ def create_sheet(output_path, recursive, df): #File creation
             messagebox.showerror(
                 "Error writing output",
                 f"Is another program using {output_path.as_posix()}?\n\nError: {e}")
+            if not keepopen_var.get():
+                root.destroy()
+                sys.exit()
         except Exception as e:
             messagebox.showerror(
                 "Unexpected error",
