@@ -6,10 +6,11 @@
 # Please increment this counter as a warning
 # For the next person:
 # 
-# hours_wasted_here = 44
+# hours_wasted_here = 45
 
 # Coded by Pianocraft1YT
 # Tutorial: https://youtu.be/ruWNKBdbYoo
+# GitHub Repo: https://github.com/Pianocraft1YT/MetadataExtractor/
 
 #Imports
 from PIL import Image, UnidentifiedImageError
