@@ -386,35 +386,32 @@ def sort_and_extract(directory_path, recursive, final_output, modifier, output_s
 
 # Handles series construction for all folders routed to sort_and_extract
 def make_series(list_of_images, photos_before_video_updated, photos_before_video, fixed_date, fixed_time, modifier, output_series):
-    if output_series:
-        i = 1 #Set i to 1 to start at image 1.
-        final_images = []
-        final_dates = []
-        final_times = []
-        img_series = []
-        while i <= len(list_of_images):
-            if photos_before_video_updated and photos_before_video > 0: 
-                if (i % photos_before_video)==0:   #For image + video folders, only add the first image data to the final lists    
-                    final_images.append(list_of_images[i-1])
-                    final_dates.append(fixed_date[i-1])
-                    final_times.append(fixed_time[i-1])
-                    # Each group consumes N photos + 1 video. group is 0-indexed.
-                    group = (i // photos_before_video) - 1
-                    start = i - photos_before_video + 1 + group + modifier
-                    end   = i + 1 + group + modifier
-                    img_series.append(f"{start}-{end}")
-                i+=1
-            else: #If only images were found, add all photos and increment series normally
+    if not output_series:
+        return None, list_of_images, fixed_date, fixed_time
+
+    i = 1 #Set i to 1 to start at image 1.
+    img_series = []
+    final_images = []
+    final_dates = []
+    final_times = []
+    while i <= len(list_of_images):
+        if photos_before_video_updated and photos_before_video > 0: 
+            if (i % photos_before_video)==0:   #For image + video folders, only add the last image data to the final lists    
                 final_images.append(list_of_images[i-1])
                 final_dates.append(fixed_date[i-1])
                 final_times.append(fixed_time[i-1])
-                img_series.append(str(i + modifier))
-                i+=1
-    else: #Don't output series collumn
-        final_images = list_of_images
-        final_dates = fixed_date
-        final_times = fixed_time
-        img_series = None
+                # Each group consumes N photos + 1 video. group is 0-indexed.
+                group = (i // photos_before_video) - 1
+                start = i - photos_before_video + 1 + group + modifier
+                end   = i + 1 + group + modifier
+                img_series.append(f"{start}-{end}")
+            i+=1
+        else: #If only images were found, add all photos and increment series normally
+            final_images.append(list_of_images[i-1])
+            final_dates.append(fixed_date[i-1])
+            final_times.append(fixed_time[i-1])
+            img_series.append(str(i + modifier))
+            i+=1
     return img_series, final_images, final_dates, final_times
 
 def fix_time(list_of_dates):
@@ -440,51 +437,22 @@ def fix_time(list_of_dates):
 #Variable for use with recursive directories, list of dataframes
 results = []
 def create_dataframe(img_series, final_images, final_dates, final_times, recursive, directory_path, output_series):
+    global current_sheet_name #Recursive mode
+    if final_images: #Make sure images are present.
+        data = {"Files": final_images, "Dates": final_dates, "Time": final_times}
+        if output_series:
+            data["Img # Series"] = img_series
+        else:
+            collected_warnings["Irregular"].append(f"{directory_path.as_posix()}") #If irregular pattern starts with more than MAX_PHOTOS_BEFORE_VIDEO images in a row, will break program, so error. 
         if not recursive: #Single folder mode
-            if output_series:
-                df = pd.DataFrame( #Create DataFrame
-                    {
-                        "Files": final_images,
-                        "Dates": final_dates,
-                        "Time": final_times,
-                        "Image # Series": img_series,
-                    }
-                )
-            else:
-                df = pd.DataFrame( #Create DataFrame
-                    {
-                        "Files": final_images,
-                        "Dates": final_dates,
-                        "Time": final_times,
-                    }
-                )
-                collected_warnings["Irregular"].append( #If irregular pattern starts with more than MAX_PHOTOS_BEFORE_VIDEO images in a row, will break program, so error.
-                    f"{directory_path.as_posix()}")
+            df = pd.DataFrame(data) #Create DataFrae
             return df
         else:
-            global current_sheet_name #Recursive mode
-            if output_series:
-                df = pd.DataFrame( #Create DataFrame
-                    {
-                        "Files": final_images,
-                        "Dates": final_dates,
-                        "Time": final_times,
-                        "Image # Series": img_series,
-                    }
-                )
-            else:
-                df = pd.DataFrame( #Create DataFrame
-                    {
-                        "Files": final_images,
-                        "Dates": final_dates,
-                        "Time": final_times,
-                    }
-                )
-                collected_warnings["Irregular"].append( #If irregular pattern starts with more than MAX_PHOTOS_BEFORE_VIDEO images in a row, will break program, so error.
-                                    f"{directory_path.as_posix()}")
-        if final_images: #Make sure images are present.
+            df = pd.DataFrame(data) #Create DataFrame
             current_sheet_name = verify_name(current_sheet_name)
             results.append((df, current_sheet_name))
+    else:
+        return pd.DataFrame({"Files": [], "Dates": [], "Time": []})
 
 def create_sheet(output_path, recursive, df): #File creation
         try:
