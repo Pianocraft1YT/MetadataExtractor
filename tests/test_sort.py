@@ -25,8 +25,11 @@ def _capture_df(monkeypatch):
 
 def test_sort_and_extract_all_photos(photos_only, monkeypatch):
     captured = _capture_df(monkeypatch)
-    metadata.sort_and_extract(photos_only, recursive=False,
-                              final_output=Path("out.xlsx"), modifier=0)
+    metadata.sort_and_extract(
+        photos_only, recursive=False,
+        final_output=Path("out.xlsx"), modifier=0,
+        output_series=True,
+    )
     df = captured["df"]
     assert len(df) == 3
     assert list(df["Files"]) == ["IMG_001.jpg", "IMG_002.jpg", "IMG_003.jpg"]
@@ -34,8 +37,11 @@ def test_sort_and_extract_all_photos(photos_only, monkeypatch):
 
 def test_sort_and_extract_missing_exif_skips_file(folder_missing_exif, monkeypatch):
     captured = _capture_df(monkeypatch)
-    metadata.sort_and_extract(folder_missing_exif, recursive=False,
-                              final_output=Path("out.xlsx"), modifier=0)
+    metadata.sort_and_extract(
+        folder_missing_exif, recursive=False,
+        final_output=Path("out.xlsx"), modifier=0,
+        output_series=True,
+    )
     df = captured["df"]
     assert len(df) == 2
     assert "IMG_002.jpg" not in list(df["Files"])
@@ -46,8 +52,11 @@ def test_sort_and_extract_missing_exif_skips_file(folder_missing_exif, monkeypat
 def test_sort_and_extract_corrupt_file_does_not_hang(folder_with_corrupt_photo, monkeypatch):
     """Regression: the original code could infinite-loop on a bad file."""
     captured = _capture_df(monkeypatch)
-    metadata.sort_and_extract(folder_with_corrupt_photo, recursive=False,
-                              final_output=Path("out.xlsx"), modifier=0)
+    metadata.sort_and_extract(
+        folder_with_corrupt_photo, recursive=False,
+        final_output=Path("out.xlsx"), modifier=0,
+        output_series=True,
+    )
     df = captured["df"]
     assert len(df) == 6
     assert metadata.skipped == 1
@@ -63,8 +72,11 @@ def test_sort_and_extract_no_exif_gap_in_series(tmp_path, monkeypatch):
     make_jpeg_no_exif(folder / "IMG_002.jpg")
 
     captured = _capture_df(monkeypatch)
-    metadata.sort_and_extract(folder, recursive=False,
-                              final_output=Path("out.xlsx"), modifier=0)
+    metadata.sort_and_extract(
+        folder, recursive=False,
+        final_output=Path("out.xlsx"), modifier=0,
+        output_series=True,
+    )
     # 2 valid files, but no crash and counters are correct.
     assert metadata.processed == 2
     assert metadata.skipped == 1
@@ -100,7 +112,7 @@ def test_irregular_all_photos_falls_through_to_sort_and_extract(
     assert len(df) == 3
 
 
-def test_irregular_video_first_shows_error_and_returns(tmp_path):
+def test_irregular_video_first_shows_warning_and_returns(tmp_path):
     """A folder starting with a video aborts with a warning, no output."""
     folder = tmp_path / "video_first"
     folder.mkdir()
@@ -113,7 +125,8 @@ def test_irregular_video_first_shows_error_and_returns(tmp_path):
         final_output=Path("out.xlsx"), modifier=0,
     )
     assert "Video First" in metadata.collected_warnings
-    assert metadata.collected_warnings["Video First"]  # non-empty list
+    assert metadata.collected_warnings["Video First"]
+
 
 def test_irregular_with_modifier(photos_and_videos, monkeypatch):
     """starting index 5 → series 5-8, 9-12, 13-16."""

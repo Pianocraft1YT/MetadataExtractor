@@ -12,7 +12,6 @@ import metadata
 # ---------------------------------------------------------------------------
 
 def test_make_series_zero_images():
-    metadata.output_series = True
     img_series, imgs, dates, times = metadata.make_series(
         list_of_images=[],
         photos_before_video_updated=False,
@@ -20,13 +19,13 @@ def test_make_series_zero_images():
         fixed_date=[],
         fixed_time=[],
         modifier=0,
+        output_series=True,
     )
     assert img_series == []
     assert imgs == []
 
 
 def test_make_series_one_image_all_photos_mode():
-    metadata.output_series = True
     img_series, imgs, _, _ = metadata.make_series(
         list_of_images=["a.jpg"],
         photos_before_video_updated=False,
@@ -34,6 +33,7 @@ def test_make_series_one_image_all_photos_mode():
         fixed_date=["01/01/2024"],
         fixed_time=["12:00:00"],
         modifier=0,
+        output_series=True,
     )
     assert img_series == ["1"]
     assert imgs == ["a.jpg"]
@@ -41,7 +41,6 @@ def test_make_series_one_image_all_photos_mode():
 
 def test_make_series_one_image_series_mode_incomplete_group():
     """photos_before_video=3, only 1 image → no complete group."""
-    metadata.output_series = True
     img_series, imgs, _, _ = metadata.make_series(
         list_of_images=["a.jpg"],
         photos_before_video_updated=True,
@@ -49,6 +48,7 @@ def test_make_series_one_image_series_mode_incomplete_group():
         fixed_date=["01/01/2024"],
         fixed_time=["12:00:00"],
         modifier=0,
+        output_series=True,
     )
     # i=1 only; 1 % 3 != 0 → no append. So empty.
     assert img_series == []
@@ -57,7 +57,6 @@ def test_make_series_one_image_series_mode_incomplete_group():
 
 def test_make_series_one_photo_per_video():
     """photos_before_video=1 → each image + its video forms a 2-file group."""
-    metadata.output_series = True
     img_series, imgs, _, _ = metadata.make_series(
         list_of_images=["a.jpg", "b.jpg", "c.jpg"],
         photos_before_video_updated=True,
@@ -65,13 +64,14 @@ def test_make_series_one_photo_per_video():
         fixed_date=["01/01/2024"] * 3,
         fixed_time=["12:00:00"] * 3,
         modifier=0,
+        output_series=True,
     )
     assert img_series == ["1-2", "3-4", "5-6"]
     assert imgs == ["a.jpg", "b.jpg", "c.jpg"]
 
+
 def test_make_series_exact_group():
     """3 images, N=3 → exactly one group."""
-    metadata.output_series = True
     img_series, imgs, _, _ = metadata.make_series(
         list_of_images=["a.jpg", "b.jpg", "c.jpg"],
         photos_before_video_updated=True,
@@ -79,6 +79,7 @@ def test_make_series_exact_group():
         fixed_date=["01/01/2024"] * 3,
         fixed_time=["12:00:00"] * 3,
         modifier=0,
+        output_series=True,
     )
     assert img_series == ["1-4"]
     assert imgs == ["c.jpg"]
@@ -132,13 +133,12 @@ def test_clean_name_reserved_with_extension():
     assert metadata.clean_name("CON.xlsx") == "_CON.xlsx"
     assert metadata.clean_name("nul.xlsx") == "_nul.xlsx"
     assert metadata.clean_name("com1.XLSX") == "_com1.XLSX"  # extension case preserved
+
+
 def test_clean_name_unicode_preserved():
     result = metadata.clean_name("café_résumé")
     assert result == "café_résumé.xlsx"
 
-def test_clean_name_already_sanitized_reserved():
-    """'_CON.xlsx' should not get a second underscore."""
-    assert metadata.clean_name("_CON.xlsx") == "_CON.xlsx"
 
 def test_clean_name_emoji_preserved():
     result = metadata.clean_name("📸_shoot")

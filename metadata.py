@@ -67,7 +67,7 @@ output_path = None
 debug = False
 #To clean up any past executions
 def reset():
-    global total_skipped, total_processed, skipped, processed, output_series
+    global total_skipped, total_processed, skipped, processed
     used.clear()
     results.clear()
     collected_warnings.clear()
@@ -75,7 +75,6 @@ def reset():
     total_processed = 0
     skipped = 0
     processed = 0
-    output_series = True
 #Gets called on set directory button press to set image directory
 def set_dir():
     global directory_path
@@ -227,7 +226,7 @@ def clean_name(name):
 #Gets called initially, assumes irregular pattern, calls sort_and_extract() if regular
 #Paths supplied by user or debug mode
 def sort_and_extract_irregular(directory_path, recursive, final_output, modifier):
-    global output_series, processed, skipped
+    global processed, skipped
     processed = 0
     skipped = 0
     output_series = True #If photos_before_video is less than MAX_PHOTOS_BEFORE_VIDEO.
@@ -270,7 +269,7 @@ def sort_and_extract_irregular(directory_path, recursive, final_output, modifier
                             photos_before_video_updated = True
                             photos_before_video = 0
                 if (i == 0 and photos_before_video == 0) or output_series == False: #Runs if all photos, or pattern couldn't be found
-                    sort_and_extract(directory_path,recursive, final_output, modifier) 
+                    sort_and_extract(directory_path,recursive, final_output, modifier, output_series) 
                     return
                 if photos_before_video_updated and regular_pattern_found == False:
                     end = False #For scanning last files in a pattern
@@ -333,12 +332,11 @@ def sort_and_extract_irregular(directory_path, recursive, final_output, modifier
         collected_warnings["Unexpected"].append(f"[{directory_path}]: {e}\n{traceback.format_exc()}")
         return
     fixed_date, fixed_time = fix_time(list_of_dates)
-    df = create_dataframe(img_series, list_of_images, fixed_date, fixed_time, recursive, directory_path)
+    df = create_dataframe(img_series, list_of_images, fixed_date, fixed_time, recursive, directory_path, output_series)
     if not recursive:
         create_sheet(final_output, recursive, df) #One folder only, output time
 #For images-only or no Img # Series collumn
-def sort_and_extract(directory_path, recursive, final_output, modifier):
-    global output_series
+def sort_and_extract(directory_path, recursive, final_output, modifier, output_series):
     global processed
     global skipped
     processed = 0
@@ -381,14 +379,13 @@ def sort_and_extract(directory_path, recursive, final_output, modifier):
         collected_warnings["Unexpected"].append(f"[{directory_path}]: {e}\n{traceback.format_exc()}")
         return
     fixed_date, fixed_time = fix_time(list_of_dates)
-    img_series, final_images, final_dates, final_times = make_series(list_of_images,photos_before_video_updated,photos_before_video,fixed_date,fixed_time, modifier)
-    df = create_dataframe(img_series, final_images, final_dates, final_times, recursive, directory_path)
+    img_series, final_images, final_dates, final_times = make_series(list_of_images,photos_before_video_updated,photos_before_video,fixed_date,fixed_time, modifier, output_series)
+    df = create_dataframe(img_series, final_images, final_dates, final_times, recursive, directory_path, output_series)
     if not recursive:
         create_sheet(final_output, recursive, df)
 
 # Handles series construction for all folders routed to sort_and_extract
-def make_series(list_of_images, photos_before_video_updated, photos_before_video, fixed_date, fixed_time, modifier):
-    global output_series
+def make_series(list_of_images, photos_before_video_updated, photos_before_video, fixed_date, fixed_time, modifier, output_series):
     if output_series:
         i = 1 #Set i to 1 to start at image 1.
         final_images = []
@@ -442,8 +439,7 @@ def fix_time(list_of_dates):
 
 #Variable for use with recursive directories, list of dataframes
 results = []
-def create_dataframe(img_series, final_images, final_dates, final_times, recursive, directory_path):
-        global output_series
+def create_dataframe(img_series, final_images, final_dates, final_times, recursive, directory_path, output_series):
         if not recursive: #Single folder mode
             if output_series:
                 df = pd.DataFrame( #Create DataFrame
