@@ -17,7 +17,9 @@ def test_end_to_end_single_folder(photos_only, monkeypatch, tmp_path):
 
     output = tmp_path / "output.xlsx"
     metadata.sort_and_extract(
-        photos_only, recursive=False, final_output=output, modifier=0,
+        photos_only, recursive=False,
+        final_output=output, modifier=0,
+        output_series=True,
     )
 
     assert output.exists()
@@ -37,7 +39,8 @@ def test_end_to_end_custom_filename_and_starting_index(
 
     output = tmp_path / "series.xlsx"
     metadata.sort_and_extract_irregular(
-        photos_and_videos, recursive=False, final_output=output, modifier=4,
+        photos_and_videos, recursive=False,
+        final_output=output, modifier=4,
     )
 
     assert output.exists()
