@@ -67,14 +67,9 @@ output_path = None
 debug = False
 #To clean up any past executions
 def reset():
-    global total_skipped, total_processed, skipped, processed
     used.clear()
     results.clear()
     collected_warnings.clear()
-    total_skipped = 0
-    total_processed = 0
-    skipped = 0
-    processed = 0
 #Gets called on set directory button press to set image directory
 def set_dir():
     global directory_path
@@ -105,9 +100,9 @@ def scan_image(directory_path, files_and_dirs, i, list_of_dates, list_of_images)
         return True
 #Finds subdirectories for recursive mode
 def find_directories(directory_path, final_output, modifier):
-    global current_sheet_name, total_processed, total_skipped, processed, skipped #Used to create seperate named sheets; processed and skipped for summary counts
-    total_processed = 0
+    global current_sheet_name #Used to create seperate named sheets
     total_skipped = 0
+    total_processed = 0
     name_index = 0 #For indexing over sheet_names list
     directories_found = os.listdir(directory_path) #Only one level of recursion
     directories_found.sort() # ensure consistent sheet order
@@ -125,10 +120,10 @@ def find_directories(directory_path, final_output, modifier):
     for directory_path in directories_to_scan:
         current_sheet_name = sheet_names[name_index]
         name_index+=1
-        sort_and_extract_irregular(directory_path, True, final_output, modifier)
-        total_processed+=processed
-        total_skipped+=skipped
-    create_sheet(final_output, True, None)
+        p, s = sort_and_extract_irregular(directory_path, True, final_output, modifier)
+        total_processed+=p
+        total_skipped+=s
+    create_sheet(final_output, True, None, total_processed, total_skipped)
 def check_recursive(directory_path):
     global output_path
     modifier = 0 #For starting index of img_series
@@ -157,10 +152,10 @@ def check_recursive(directory_path):
         with os.scandir(directory_path) as entries:
                 photo_count = sum(1 for entry in entries if entry.is_file() and entry.name.lower().endswith((photo_types)))
                 if photo_count > 0:
-                    sort_and_extract_irregular(directory_path, False, final_output, modifier)
+                    p, s = sort_and_extract_irregular(directory_path, False, final_output, modifier)
                 else:
-                        messagebox.showerror("Empty directory", message="No files were found. Please select a valid directory")
-                        return
+                    messagebox.showerror("Empty directory", message="No files were found. Please select a valid directory")
+                    return
 #For verify_name
 used = set()
 def verify_name(name):
@@ -226,7 +221,6 @@ def clean_name(name):
 #Gets called initially, assumes irregular pattern, calls sort_and_extract() if regular
 #Paths supplied by user or debug mode
 def sort_and_extract_irregular(directory_path, recursive, final_output, modifier):
-    global processed, skipped
     processed = 0
     skipped = 0
     output_series = True #If photos_before_video is less than MAX_PHOTOS_BEFORE_VIDEO.
@@ -249,7 +243,7 @@ def sort_and_extract_irregular(directory_path, recursive, final_output, modifier
         # Early check: if the first file is a video, show error and return
         if files_and_dirs and files_and_dirs[0].lower().endswith(video_types):
             collected_warnings["Video First"].append(f"{directory_path}")
-            return
+            return 0, 0
         #Iterates through every file in the directory
         for file in files_and_dirs:
             #If file is not a video, extract metadata from the image.
@@ -269,8 +263,7 @@ def sort_and_extract_irregular(directory_path, recursive, final_output, modifier
                             photos_before_video_updated = True
                             photos_before_video = 0
                 if (i == 0 and photos_before_video == 0) or output_series == False: #Runs if all photos, or pattern couldn't be found
-                    sort_and_extract(directory_path,recursive, final_output, modifier, output_series) 
-                    return
+                    return sort_and_extract(directory_path,recursive, final_output, modifier, output_series) 
                 if photos_before_video_updated and regular_pattern_found == False:
                     end = False #For scanning last files in a pattern
                     while pattern_check < photos_before_video:
@@ -324,21 +317,20 @@ def sort_and_extract_irregular(directory_path, recursive, final_output, modifier
                 index+=1
     except (FileNotFoundError, PermissionError) as e:
         collected_warnings["Directory Error"].append(f"{directory_path}")
-        return
+        return 0, 0
     except OSError as e:
             collected_warnings["Scan Error"].append(f"[{directory_path}]\\{files_and_dirs[i]}")
-            return
+            return 0, 0
     except Exception as e:
         collected_warnings["Unexpected"].append(f"[{directory_path}]: {e}\n{traceback.format_exc()}")
-        return
+        return 0, 0
     fixed_date, fixed_time = fix_time(list_of_dates)
     df = create_dataframe(img_series, list_of_images, fixed_date, fixed_time, recursive, directory_path, output_series)
     if not recursive:
-        create_sheet(final_output, recursive, df) #One folder only, output time
+        create_sheet(final_output, recursive, df, processed, skipped) #One folder only, output time
+    return processed, skipped
 #For images-only or no Img # Series collumn
 def sort_and_extract(directory_path, recursive, final_output, modifier, output_series):
-    global processed
-    global skipped
     processed = 0
     skipped = 0
     list_of_dates = []
@@ -371,24 +363,24 @@ def sort_and_extract(directory_path, recursive, final_output, modifier, output_s
             i += 1 #increment, essentially skipping videos
     except (FileNotFoundError, PermissionError) as e:
         collected_warnings["Directory Error"].append(f"{directory_path}")
-        return
+        return 0, 0
     except OSError as e:
             collected_warnings["Scan Error"].append(f"[{directory_path}]\\{files_and_dirs[i]}")
-            return
+            return 0, 0
     except Exception as e:
         collected_warnings["Unexpected"].append(f"[{directory_path}]: {e}\n{traceback.format_exc()}")
-        return
+        return 0, 0
     fixed_date, fixed_time = fix_time(list_of_dates)
     img_series, final_images, final_dates, final_times = make_series(list_of_images,photos_before_video_updated,photos_before_video,fixed_date,fixed_time, modifier, output_series)
     df = create_dataframe(img_series, final_images, final_dates, final_times, recursive, directory_path, output_series)
     if not recursive:
-        create_sheet(final_output, recursive, df)
+        create_sheet(final_output, recursive, df, processed, skipped)
+    return processed, skipped
 
 # Handles series construction for all folders routed to sort_and_extract
 def make_series(list_of_images, photos_before_video_updated, photos_before_video, fixed_date, fixed_time, modifier, output_series):
     if not output_series:
         return None, list_of_images, fixed_date, fixed_time
-
     i = 1 #Set i to 1 to start at image 1.
     img_series = []
     final_images = []
@@ -454,7 +446,7 @@ def create_dataframe(img_series, final_images, final_dates, final_times, recursi
     else:
         return pd.DataFrame({"Files": [], "Dates": [], "Time": []})
 
-def create_sheet(output_path, recursive, df): #File creation
+def create_sheet(output_path, recursive, df, total_processed, total_skipped): #File creation
         try:
             out_file = Path(output_path)
             #Check for empty results before prompting so the user isn't asked to overwrite for nothing
@@ -499,7 +491,7 @@ def create_sheet(output_path, recursive, df): #File creation
                     df.to_excel(out_file, sheet_name="Output", index=False)
                     if collected_warnings:
                         messagebox.showwarning("Warning(s)", message=output)
-                    messagebox.showinfo("Success!", message="Images successfully scanned: " + str(processed) + "\nImages skipped: " + str(skipped) + "\nOutput: " + output_path.as_posix())
+                    messagebox.showinfo("Success!", message="Images successfully scanned: " + str(total_processed) + "\nImages skipped: " + str(total_skipped) + "\nOutput: " + output_path.as_posix())
             else:
                 messagebox.showinfo("Cancelled", message="File not overwritten. Cancelled successfully.")
             if not keepopen_var.get(): #Checks to close program or not

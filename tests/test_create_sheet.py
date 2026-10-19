@@ -7,21 +7,15 @@ window is created. sys.exit is patched so the test survives when
 create_sheet tries to close the app.
 """
 
-from unittest.mock import MagicMock
-
-import pandas as pd
 import pytest
+import pandas as pd
+from unittest.mock import MagicMock
 
 import metadata
 
 
-# Opt out of the conftest-level create_sheet mock for every test here.
 pytestmark = pytest.mark.real_create_sheet
 
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
 
 @pytest.fixture
 def simple_df():
@@ -36,10 +30,6 @@ def simple_df():
 
 @pytest.fixture(autouse=True)
 def mock_tk_variables(monkeypatch):
-    """
-    keepopen_var, root, etc. only exist after main() runs. Replace them
-    with mocks so create_sheet doesn't touch None.
-    """
     mock_keepopen = MagicMock()
     mock_keepopen.get.return_value = False
     monkeypatch.setattr(metadata, "keepopen_var", mock_keepopen)
@@ -48,7 +38,6 @@ def mock_tk_variables(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def patch_sys_exit(monkeypatch):
-    """Turn sys.exit into a SystemExit raise so tests can catch it."""
     import sys
 
     def fake_exit(code=0):
@@ -57,14 +46,13 @@ def patch_sys_exit(monkeypatch):
     monkeypatch.setattr(sys, "exit", fake_exit)
 
 
-# ---------------------------------------------------------------------------
-# Basic write
-# ---------------------------------------------------------------------------
-
 def test_writes_new_file(tmp_path, simple_df):
     output = tmp_path / "out.xlsx"
     try:
-        metadata.create_sheet(output, recursive=False, df=simple_df)
+        metadata.create_sheet(
+            output, recursive=False, df=simple_df,
+            total_processed=2, total_skipped=0,
+        )
     except SystemExit:
         pass
 
@@ -80,7 +68,10 @@ def test_overwrite_confirmed(tmp_path, simple_df, monkeypatch):
     monkeypatch.setattr(metadata.messagebox, "askyesno", lambda *a, **k: True)
 
     try:
-        metadata.create_sheet(output, recursive=False, df=simple_df)
+        metadata.create_sheet(
+            output, recursive=False, df=simple_df,
+            total_processed=2, total_skipped=0,
+        )
     except SystemExit:
         pass
 
@@ -101,7 +92,10 @@ def test_overwrite_declined(tmp_path, simple_df, monkeypatch):
     )
 
     try:
-        metadata.create_sheet(output, recursive=False, df=simple_df)
+        metadata.create_sheet(
+            output, recursive=False, df=simple_df,
+            total_processed=2, total_skipped=0,
+        )
     except SystemExit:
         pass
 
@@ -121,7 +115,10 @@ def test_recursive_no_data(tmp_path, monkeypatch):
     )
 
     try:
-        metadata.create_sheet(output, recursive=True, df=None)
+        metadata.create_sheet(
+            output, recursive=True, df=None,
+            total_processed=0, total_skipped=0,
+        )
     except SystemExit:
         pass
 

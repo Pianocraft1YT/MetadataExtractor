@@ -5,17 +5,12 @@ Policy: integer > 0 is accepted, everything else shows an error and
 aborts the run. "0" is rejected.
 """
 
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
 import metadata
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _mock_widgets(monkeypatch, series_value, name_value="Filename (default output.xlsx)", recursive=False):
     for name, value in [
@@ -34,19 +29,15 @@ def _mock_widgets(monkeypatch, series_value, name_value="Filename (default outpu
     keep.get.return_value = False
     monkeypatch.setattr(metadata, "keepopen_var", keep)
 
+
 def _capture_errors(monkeypatch):
     errors = []
-    # messagebox.showerror(title, message="...") — title positional, message kw
     monkeypatch.setattr(
         metadata.messagebox, "showerror",
         lambda *a, **k: errors.append(a[0] if a else k.get("title", "")),
     )
     return errors
 
-
-# ---------------------------------------------------------------------------
-# Invalid values
-# ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("value", ["0", "abc", "-1", "5.5", "1.0", ""])
 def test_invalid_starting_index_rejected(value, monkeypatch, tmp_path):
@@ -58,10 +49,6 @@ def test_invalid_starting_index_rejected(value, monkeypatch, tmp_path):
 
     assert errors, f"expected rejection for {value!r}"
 
-
-# ---------------------------------------------------------------------------
-# Valid values
-# ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("value,expected_modifier", [
     ("1", 0),
@@ -76,10 +63,11 @@ def test_valid_starting_index_accepted(value, expected_modifier, monkeypatch, tm
     (tmp_path / "IMG_001.jpg").write_bytes(b"fake")
 
     captured = {}
-    monkeypatch.setattr(
-        metadata, "sort_and_extract_irregular",
-        lambda dp, r, fo, m: captured.update({"modifier": m}),
-    )
+    def fake_scan(dp, r, fo, m):
+        captured["modifier"] = m
+        return 0, 0
+
+    monkeypatch.setattr(metadata, "sort_and_extract_irregular", fake_scan)
 
     metadata.output_path = tmp_path
     metadata.check_recursive(tmp_path)

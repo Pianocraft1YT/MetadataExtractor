@@ -8,12 +8,14 @@ from tests.conftest import make_jpeg_with_exif, make_jpeg_no_exif
 
 
 def _capture_df(monkeypatch):
-    """Install a create_sheet mock that captures the DataFrame argument."""
+    """Install a create_sheet mock that captures DataFrame and counts."""
     captured = {}
 
-    def fake_create_sheet(final_output, recursive, df):
+    def fake_create_sheet(final_output, recursive, df, processed, skipped):
         captured["df"] = df
         captured["final_output"] = final_output
+        captured["processed"] = processed
+        captured["skipped"] = skipped
 
     monkeypatch.setattr(metadata, "create_sheet", fake_create_sheet)
     return captured
@@ -45,8 +47,8 @@ def test_sort_and_extract_missing_exif_skips_file(folder_missing_exif, monkeypat
     df = captured["df"]
     assert len(df) == 2
     assert "IMG_002.jpg" not in list(df["Files"])
-    assert metadata.skipped == 1
-    assert metadata.processed == 2
+    assert captured["skipped"] == 1
+    assert captured["processed"] == 2
 
 
 def test_sort_and_extract_corrupt_file_does_not_hang(folder_with_corrupt_photo, monkeypatch):
@@ -59,8 +61,8 @@ def test_sort_and_extract_corrupt_file_does_not_hang(folder_with_corrupt_photo, 
     )
     df = captured["df"]
     assert len(df) == 6
-    assert metadata.skipped == 1
-    assert metadata.processed == 6
+    assert captured["skipped"] == 1
+    assert captured["processed"] == 6
 
 
 def test_sort_and_extract_no_exif_gap_in_series(tmp_path, monkeypatch):
@@ -77,9 +79,8 @@ def test_sort_and_extract_no_exif_gap_in_series(tmp_path, monkeypatch):
         final_output=Path("out.xlsx"), modifier=0,
         output_series=True,
     )
-    # 2 valid files, but no crash and counters are correct.
-    assert metadata.processed == 2
-    assert metadata.skipped == 1
+    assert captured["processed"] == 2
+    assert captured["skipped"] == 1
 
 
 # ---------------------------------------------------------------------------
