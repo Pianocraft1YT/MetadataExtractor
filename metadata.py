@@ -59,9 +59,10 @@ class MetadataExtractor:
 
     #To clean up any past executions
     def reset(self):
-        self.used.clear()
+        self.used = set()
         self.results.clear()
         self.collected_warnings.clear()
+        self.current_sheet_name = "Sheet"
     #Gets called on set directory button press to set image directory
     def set_dir(self):
         selected = filedialog.askdirectory(title="Select a Directory")
@@ -145,7 +146,7 @@ class MetadataExtractor:
                         messagebox.showerror("Empty directory", message="No files were found. Please select a valid directory")
                         return
                     
-    def verify_name(self, name):
+    def verify_name(self, name, used):
         illegal_chars = ("[", "]", ":", "*", "?", "/", "\\") #Can't be in a sheet name
         for c in illegal_chars:
             name = name.replace(c, "_") #Replace any instances with "_"
@@ -157,15 +158,15 @@ class MetadataExtractor:
             name = "History_"
         if len(name) < 1: #If no name, make default "Sheet"
             name = "Sheet"
-        if name.lower() not in self.used: #Check if used already, duplicate sheet names not allowed
-            self.used.add(name.lower())
+        if name.lower() not in used: #Check if used already, duplicate sheet names not allowed
+            used.add(name.lower())
             return name
         f = 2
         while True: #Name was used already
             suffix = "_" + str(f) #Infinitely try increasing _X numbers, from 2
             candidate = name[:SHEET_NAME_MAX_CHARS - len(suffix)] + suffix #Truncate original name
-            if candidate.lower() not in self.used:
-                self.used.add(candidate.lower())
+            if candidate.lower() not in used:
+                used.add(candidate.lower())
                 return candidate
             f += 1
     def clean_name(self, name):
@@ -425,7 +426,7 @@ class MetadataExtractor:
                 return df
             else:
                 df = pd.DataFrame(data) #Create DataFrame
-                current_sheet_name = self.verify_name(self.current_sheet_name)
+                current_sheet_name = self.verify_name(self.current_sheet_name, self.used)
                 self.results.append((df, current_sheet_name))
         else:
             return pd.DataFrame({"Files": [], "Dates": [], "Time": []})
@@ -465,8 +466,8 @@ class MetadataExtractor:
                     if recursive:
                         #Data was found
                         with pd.ExcelWriter(output_path) as writer:
-                            for df, sheet_name in self.results:
-                                df.to_excel(writer, sheet_name=sheet_name, index=False)
+                            for sheet_df, sheet_name in self.results:
+                                sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
                         if self.collected_warnings:
                             messagebox.showwarning("Warning(s)", message=output)
                         messagebox.showinfo("Success!", message="Images successfully scanned: " + str(total_processed) + "\nImages skipped: " + str(total_skipped) + "\nOutput: " + output_path.as_posix())
@@ -500,7 +501,7 @@ class MetadataExtractor:
         self.root = tk.Tk()
         self.root.title("Metadata Extractor")
         self.frame = tk.Frame(self.root)
-        self.execute_button = tk.Button(self.frame, command=lambda: self.check_recursive(), text="Execute")
+        self.execute_button = tk.Button(self.frame, command=self.check_recursive, text="Execute")
         self.set_directory_button = tk.Button(self.frame, command=self.set_dir, text="Set folder with images")
         self.set_output_button = tk.Button(self.frame, command=self.set_output, text="Set output folder")
         self.keepopen_var = tk.BooleanVar(value=False)

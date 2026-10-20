@@ -121,23 +121,24 @@ def test_clean_name_emoji_preserved(extractor):
     assert extractor.clean_name("📸_shoot") == "📸_shoot.xlsx"
 
 
-# verify_name
+# verify_name — each test passes its own set
 
 def test_verify_name_31_char_collision(extractor):
     name = "a" * 31
-    first = extractor.verify_name(name)
-    second = extractor.verify_name(name)
+    used = set()
+    first = extractor.verify_name(name, used)
+    second = extractor.verify_name(name, used)
     assert len(second) <= 31
     assert first != second
 
 
 def test_verify_name_only_apostrophes(extractor):
-    assert extractor.verify_name("'''") == "Sheet"
+    assert extractor.verify_name("'''", set()) == "Sheet"
 
 
 def test_verify_name_history_lowercase(extractor):
-    assert extractor.verify_name("history") == "History_"
+    assert extractor.verify_name("history", set()) == "History_"
 
 
 def test_verify_name_history_uppercase(extractor):
-    assert extractor.verify_name("HISTORY") == "History_"
+    assert extractor.verify_name("HISTORY", set()) == "History_"

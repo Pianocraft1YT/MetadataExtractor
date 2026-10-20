@@ -1,22 +1,18 @@
 """End-to-end tests using the real Excel writer."""
 
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
 
-import metadata
-from tests.conftest import make_jpeg_with_exif
+
+pytestmark = pytest.mark.real_create_sheet
 
 
-def test_end_to_end_single_folder(photos_only, monkeypatch, tmp_path):
-    """Un-mock create_sheet so a real xlsx gets written."""
-    real_create_sheet = metadata.create_sheet
-    monkeypatch.setattr(metadata, "create_sheet", real_create_sheet)
-
+def test_end_to_end_single_folder(extractor, photos_only, tmp_path):
+    """The marker opts out of the conftest create_sheet mock."""
     output = tmp_path / "output.xlsx"
-    metadata.sort_and_extract(
+    extractor.sort_and_extract(
         photos_only, recursive=False,
         final_output=output, modifier=0,
         output_series=True,
@@ -30,21 +26,16 @@ def test_end_to_end_single_folder(photos_only, monkeypatch, tmp_path):
 
 
 def test_end_to_end_custom_filename_and_starting_index(
-    photos_and_videos, monkeypatch, tmp_path
+    extractor, photos_and_videos, tmp_path
 ):
-    real_create_sheet = metadata.create_sheet
-    monkeypatch.setattr(metadata, "create_sheet", real_create_sheet)
-    # Auto-confirm overwrite if it happens
-    metadata.messagebox.askyesno.return_value = True
-
     output = tmp_path / "series.xlsx"
-    metadata.sort_and_extract_irregular(
+    extractor.sort_and_extract_irregular(
         photos_and_videos, recursive=False,
         final_output=output, modifier=4,
     )
 
     assert output.exists()
     df = pd.read_excel(output, sheet_name="Output")
-    if "Image # Series" in df.columns:
+    if "Img # Series" in df.columns:
         # modifier=4 → starts at 5
-        assert all(str(s).startswith(("5", "9", "13")) for s in df["Image # Series"])
+        assert all(str(s).startswith(("5", "9", "13")) for s in df["Img # Series"])
