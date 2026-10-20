@@ -1,17 +1,15 @@
 """
-Shared fixtures and Tkinter mocking for the metadata test suite.
+Shared fixtures for the metadata test suite.
 
-Tkinter is replaced with MagicMock before metadata.py is imported, so
-`root = tk.Tk()` and `root.mainloop()` at module scope don't try to open
-a real window. This lets the whole suite run headless on CI.
+Tkinter is mocked before metadata.py is imported, so MetadataExtractor's
+__init__ creates Mock widgets instead of real ones. Each test gets a fresh
+instance — no module-level state to reset.
 """
 
 import sys
 from unittest.mock import MagicMock
 
-# ---------------------------------------------------------------------------
 # Mock tkinter BEFORE importing metadata
-# ---------------------------------------------------------------------------
 sys.modules["tkinter"] = MagicMock()
 sys.modules["tkinter.messagebox"] = MagicMock()
 sys.modules["tkinter.filedialog"] = MagicMock()
@@ -21,53 +19,36 @@ import pytest
 from pathlib import Path
 from PIL import Image
 
-import metadata  # safe now
-
-
-# ---------------------------------------------------------------------------
-# Auto-use fixtures — reset state and neuter side-effecting calls
-# ---------------------------------------------------------------------------
-
-@pytest.fixture(autouse=True)
-def reset_module_state():
-    """Wipe module-level state before and after every test."""
-    metadata.reset()
-    metadata.directory_path = None
-    metadata.output_path = None
-    yield
-    metadata.reset()
-    metadata.directory_path = None
-    metadata.output_path = None
+import metadata
 
 
 @pytest.fixture(autouse=True)
 def silence_messageboxes(monkeypatch):
-    """
-    Replace every messagebox call with a MagicMock so nothing blocks.
-    askyesno defaults to True (proceed). Individual tests can override.
-    """
     monkeypatch.setattr(metadata.messagebox, "showerror", MagicMock())
     monkeypatch.setattr(metadata.messagebox, "showinfo", MagicMock())
     monkeypatch.setattr(metadata.messagebox, "showwarning", MagicMock())
     monkeypatch.setattr(metadata.messagebox, "askyesno", MagicMock(return_value=True))
 
 
-@pytest.fixture(autouse=True)
-def mute_create_sheet(request, monkeypatch):
+@pytest.fixture
+def extractor(request):
     """
-    Block the default Excel-writing path — except for tests that need
-    the real one. Those should use @pytest.mark.real_create_sheet.
+    Fresh MetadataExtractor with create_sheet mocked by default.
+
+    Tests marked with @pytest.mark.real_create_sheet keep the real
+    create_sheet and can assert on the actual xlsx output.
     """
-    if request.node.get_closest_marker("real_create_sheet"):
-        return  # don't mock — let the test use the real function
-    monkeypatch.setattr(metadata, "create_sheet", MagicMock())
+    app = metadata.MetadataExtractor()
+    if not request.node.get_closest_marker("real_create_sheet"):
+        app.create_sheet = MagicMock()
+    return app
+
 
 # ---------------------------------------------------------------------------
-# Helpers for building test images
+# Image builders
 # ---------------------------------------------------------------------------
 
 def make_jpeg_with_exif(path: Path, date_str: str, field: int = metadata.EXIF_DATETIME_ORIGINAL) -> Path:
-    """Create a tiny JPEG with one EXIF date field set."""
     img = Image.new("RGB", (10, 10), color="red")
     exif = Image.Exif()
     exif[field] = date_str
@@ -76,14 +57,12 @@ def make_jpeg_with_exif(path: Path, date_str: str, field: int = metadata.EXIF_DA
 
 
 def make_jpeg_no_exif(path: Path) -> Path:
-    """Create a tiny JPEG with no EXIF date fields."""
     img = Image.new("RGB", (10, 10), color="blue")
     img.save(path, format="JPEG")
     return path
 
 
 def make_corrupt_file(path: Path) -> Path:
-    """Write text to a .jpg so Image.open() raises UnidentifiedImageError."""
     path.write_text("this is not an image")
     return path
 
@@ -94,7 +73,6 @@ def make_corrupt_file(path: Path) -> Path:
 
 @pytest.fixture
 def photos_only(tmp_path):
-    """3 JPEGs with EXIF, no videos."""
     folder = tmp_path / "photos_only"
     folder.mkdir()
     for i, name in enumerate(["IMG_001.jpg", "IMG_002.jpg", "IMG_003.jpg"]):
@@ -104,13 +82,6 @@ def photos_only(tmp_path):
 
 @pytest.fixture
 def photos_and_videos(tmp_path):
-    """
-    Classic 3-photos + 1-video pattern, repeated 3 times:
-        P P P V | P P P V | P P P V
-    Files are numbered so videos sort *between* photo groups, not after
-    them. Using "IMG_" and "VID_" prefixes would put all photos first,
-    because "IMG" < "VID" alphabetically.
-    """
     folder = tmp_path / "photos_and_videos"
     folder.mkdir()
     counter = 1
@@ -122,9 +93,9 @@ def photos_and_videos(tmp_path):
         counter += 1
     return folder
 
+
 @pytest.fixture
 def folder_with_corrupt_photo(tmp_path):
-    """3 valid JPEGs + 1 corrupt 'jpg' + 3 more valid."""
     folder = tmp_path / "with_corrupt"
     folder.mkdir()
     for name in ["IMG_001.jpg", "IMG_002.jpg", "IMG_003.jpg"]:
@@ -137,7 +108,6 @@ def folder_with_corrupt_photo(tmp_path):
 
 @pytest.fixture
 def folder_missing_exif(tmp_path):
-    """2 valid JPEGs + 1 JPEG missing all EXIF dates."""
     folder = tmp_path / "missing_exif"
     folder.mkdir()
     make_jpeg_with_exif(folder / "IMG_001.jpg", "2024:05:15 12:30:45")

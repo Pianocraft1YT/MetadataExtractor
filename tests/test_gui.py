@@ -1,12 +1,23 @@
-# tests/test_gui.py
-import pytest
-from unittest.mock import MagicMock, patch
-import metadata
-def test_placeholder_focus_in():
-    # Directly test the helper functions with a mocked entry
-    mock_entry = MagicMock()
-    mock_entry.get.return_value = "Filename (default output.xlsx)"
+"""Tests for the GUI placeholder handlers."""
 
-    with patch('metadata.name_entry', mock_entry):
-        metadata.nameFocusIn(None)
-        mock_entry.delete.assert_called_once_with(0, "end")
+from unittest.mock import MagicMock
+
+
+def test_placeholder_focus_in(extractor):
+    extractor.name_entry = MagicMock()
+    extractor.name_entry.get.return_value = "Filename (default output.xlsx)"
+
+    extractor.nameFocusIn(None)
+
+    extractor.name_entry.delete.assert_called_once_with(0, "end")
+    extractor.name_entry.config.assert_called_once_with(foreground="black")
+
+
+def test_placeholder_focus_out(extractor):
+    extractor.name_entry = MagicMock()
+    extractor.name_entry.get.return_value = ""
+
+    extractor.nameFocusOut(None)
+
+    extractor.name_entry.insert.assert_called_once_with(0, "Filename (default output.xlsx)")
+    extractor.name_entry.config.assert_called_once_with(foreground="gray")
