@@ -6,7 +6,7 @@
 # Please increment this counter as a warning
 # For the next person:
 # 
-# hours_wasted_here = 47
+# hours_wasted_here = 49
 
 # Coded by Pianocraft1YT
 # Tutorial: https://youtu.be/ruWNKBdbYoo
@@ -77,7 +77,8 @@ class MetadataExtractor:
         if selected:
             self.output_path = Path(selected)
     #Image metadata extractor helper function
-    def scan_image(self, directory_path, files_and_dirs, i, list_of_dates, list_of_images):
+    def scan_image(self, directory_path, files_and_dirs, i, list_of_dates, list_of_images, list_of_offsets):
+        offset = None
         try:
             with Image.open(Path(directory_path) / files_and_dirs[i]) as img: #open the image
                 exif_data = img.getexif() #get the exif metadata
@@ -85,16 +86,15 @@ class MetadataExtractor:
             if dt is None:
                 self.collected_warnings["No Metadata"].append(f"[{directory_path}]\\{files_and_dirs[i]}")
                 return False
-            # if self.timezone_var.get():
-            #     offset = exif_data.get(EXIF_OFFSET_TIME_ORIGINAL)
-            #     if offset:
-            #         dt+=offset
+            if self.timezone_var.get():
+                offset = exif_data.get(EXIF_OFFSET_TIME_ORIGINAL)
         except (OSError, SyntaxError, ValueError, UnidentifiedImageError):
             self.collected_warnings["Scan Error"].append(f"[{directory_path}]\\{files_and_dirs[i]}")
             return False
         else: #No errors
             list_of_dates.append(dt) #Add to lists
             list_of_images.append(files_and_dirs[i])
+            list_of_offsets.append(offset)
             return True
     #Finds subdirectories for recursive mode
     def find_directories(self, directory_path, final_output, modifier):
@@ -219,6 +219,7 @@ class MetadataExtractor:
         output_series = True #If photos_before_video is less than MAX_PHOTOS_BEFORE_VIDEO.
         list_of_dates = []
         list_of_images = []
+        list_of_offsets = []
         img_series = []
         photos_before_video_updated = False
         i = 0 #Internal usage to scan files
@@ -269,7 +270,7 @@ class MetadataExtractor:
                             if (i+pattern_check < len(files_and_dirs) and files_and_dirs[i+pattern_check].lower().endswith(VIDEO_TYPES)): #Verifies expected pattern
                                 regular_pattern_found = True
                             else:
-                                ok = self.scan_image(directory_path, files_and_dirs, i, list_of_dates, list_of_images) #Scan image as one-off
+                                ok = self.scan_image(directory_path, files_and_dirs, i, list_of_dates, list_of_images, list_of_offsets) #Scan image as one-off
                                 if not ok:
                                     i += 1
                                     index += 1 #Skipped image still consumes a series number
@@ -280,7 +281,7 @@ class MetadataExtractor:
                         else:
                             for r in range(photos_before_video): #End of files to scan found
                                 if (i+r<len(files_and_dirs)) and files_and_dirs[i+r].lower().endswith(PHOTO_TYPES): #Scan all remaining files
-                                    ok = self.scan_image(directory_path, files_and_dirs, i+r, list_of_dates, list_of_images)
+                                    ok = self.scan_image(directory_path, files_and_dirs, i+r, list_of_dates, list_of_images, list_of_offsets)
                                     if not ok:
                                         skipped +=1
                                         continue
@@ -295,7 +296,7 @@ class MetadataExtractor:
                         photos_before_video = i  #For Img # Series use
                         photos_before_video_updated = True #Do not update photos_before_video again
                     if regular_pattern_found: #Normal pattern found
-                        ok = self.scan_image(directory_path, files_and_dirs, i-1, list_of_dates, list_of_images)
+                        ok = self.scan_image(directory_path, files_and_dirs, i-1, list_of_dates, list_of_images, list_of_offsets)
                         if not ok:
                             i+=1
                             index+=1
@@ -316,7 +317,7 @@ class MetadataExtractor:
         except Exception as e:  # noqa: BLE001
             self.collected_warnings["Unexpected"].append(f"[{directory_path}]: {e}\n{traceback.format_exc()}")
             return 0, 0
-        fixed_date, fixed_time = self.fix_time(list_of_dates)
+        fixed_date, fixed_time = self.fix_time(list_of_dates, list_of_offsets)
         df = self.create_dataframe(img_series, list_of_images, fixed_date, fixed_time, recursive, directory_path, output_series)
         if not recursive:
             self.create_sheet(final_output, recursive, df, processed, skipped) #One folder only, output time
@@ -327,6 +328,7 @@ class MetadataExtractor:
         skipped = 0
         list_of_dates = []
         list_of_images = []
+        list_of_offsets = []
         i = 0
         photos_before_video = 0
         photos_before_video_updated = False
@@ -340,7 +342,7 @@ class MetadataExtractor:
             while i < len(files_and_dirs):
                 #If file is not a video, extract metadata from the image.
                 if not files_and_dirs[i].lower().endswith(VIDEO_TYPES):
-                    ok = self.scan_image(directory_path, files_and_dirs, i, list_of_dates, list_of_images)
+                    ok = self.scan_image(directory_path, files_and_dirs, i, list_of_dates, list_of_images, list_of_offsets)
                     if not ok:
                         i+=1
                         skipped+=1
@@ -360,7 +362,7 @@ class MetadataExtractor:
         except Exception as e:  # noqa: BLE001
             self.collected_warnings["Unexpected"].append(f"[{directory_path}]: {e}\n{traceback.format_exc()}")
             return 0, 0
-        fixed_date, fixed_time = self.fix_time(list_of_dates)
+        fixed_date, fixed_time = self.fix_time(list_of_dates, list_of_offsets)
         img_series, final_images, final_dates, final_times = self.make_series(list_of_images,photos_before_video_updated,photos_before_video,fixed_date,fixed_time, modifier, output_series)
         df = self.create_dataframe(img_series, final_images, final_dates, final_times, recursive, directory_path, output_series)
         if not recursive:
@@ -396,24 +398,42 @@ class MetadataExtractor:
                 i+=1
         return img_series, final_images, final_dates, final_times
 
-    def fix_time(self, list_of_dates):
+    def fix_time(self, list_of_dates, list_of_offsets):
+        #Input format: "YYYY:MM:DD HH:MM:SS"
         fixed_time = []
         fixed_date = []
-        for date in list_of_dates: #Split the exif metadata into a date list and time list (24h)
+        check_timezone = self.timezone_var.get()
+        for offset_index, date in enumerate(list_of_dates): #Split the exif metadata into a date list and time list (24h)
             date_str = str(date)
             if " " in date_str:
-                dateslist = date_str.split(" ", maxsplit=1)
-                fixed_date.append(dateslist[0])
-                fixed_time.append(dateslist[1])
+                try:
+                    dt = datetime.strptime(date_str, "%Y:%m:%d %H:%M:%S")
+                except ValueError:
+                    fixed_date.append(date_str)
+                    fixed_time.append("")
+                    continue
+                if check_timezone:
+                    offset = list_of_offsets[offset_index]
+                    if offset:
+                        offset = offset.split(":") #Format is +-XX:00 so turn into +-XX
+                        hours = offset[0]
+                        minutes = int(offset[1])
+                        sign = hours[0:1]
+                        hours = int(hours[1:])
+                        if sign == "+":
+                            dt-=timedelta(hours=hours, minutes=minutes)
+                        else: 
+                            dt+=timedelta(hours=hours, minutes=minutes)
+                dt = dt.strftime("%m/%d/%Y %H:%M:%S")
+                dt = dt.split(" ")
+                fixed_time.append(dt[1])
+                fixed_date.append(dt[0])
             else:
-                fixed_date.append(date_str)
+                try:
+                    fixed_date.append(datetime.strptime(date_str, "%Y:%m:%d").strftime("%m/%d/%Y"))
+                except ValueError:
+                    fixed_date.append(date_str)
                 fixed_time.append("")  # or "00:00:00" if preferred
-        #Create dataframe to manipulate formatting of dates
-        df = pd.DataFrame({"Dates": fixed_date})
-        df["Date_Datetime"] = pd.to_datetime(df["Dates"], format="%Y:%m:%d")
-        formatted_dates = df["Date_Datetime"].dt.strftime("%m/%d/%Y")
-        #Turn dataframe back into list for further use
-        fixed_date = formatted_dates.to_list()
         return fixed_date, fixed_time
 
     def create_dataframe(self, img_series, final_images, final_dates, final_times, recursive, directory_path, output_series):
@@ -423,7 +443,7 @@ class MetadataExtractor:
                 data["Img # Series"] = img_series
             else:
                 self.collected_warnings["Irregular"].append(f"{directory_path.as_posix()}") #If irregular pattern starts with more than MAX_PHOTOS_BEFORE_VIDEO images in a row, will break program, so error. 
-            if not recursive: #Single folder mode
+            if not recursive: #Single folder mode/
                 df = pd.DataFrame(data) #Create DataFrae
                 return df
             else:
@@ -544,7 +564,7 @@ class MetadataExtractor:
         self.name_entry.pack()
         self.series_entry.pack()
         self.recursive_checkbox.pack()
-        # self.timezone_checkbox.pack()
+        self.timezone_checkbox.pack()
         self.execute_button.pack()
         self.keepopen_checkbox.pack()
         self.root.geometry("240x200")

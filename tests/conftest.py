@@ -18,9 +18,17 @@ sys.modules["tkinter.ttk"] = MagicMock()
 import pytest
 from pathlib import Path
 from PIL import Image
-
+from typing import cast
+from unittest.mock import MagicMock
 import metadata
+def _set_timezone(app, value: bool) -> None:
+    """Set timezone_var.get() return value on a mocked BooleanVar.
 
+    tkinter is mocked at runtime, so app.timezone_var is a MagicMock here.
+    Pylance still sees tk.BooleanVar.get as MethodType, so cast() bridges
+    the gap without a runtime cost.
+    """
+    cast(MagicMock, app.timezone_var).get.return_value = value
 
 @pytest.fixture(autouse=True)
 def silence_messageboxes(monkeypatch):
@@ -29,20 +37,26 @@ def silence_messageboxes(monkeypatch):
     monkeypatch.setattr(metadata.messagebox, "showwarning", MagicMock())
     monkeypatch.setattr(metadata.messagebox, "askyesno", MagicMock(return_value=True))
 
-
 @pytest.fixture
 def extractor(request):
-    """
-    Fresh MetadataExtractor with create_sheet mocked by default.
-
-    Tests marked with @pytest.mark.real_create_sheet keep the real
-    create_sheet and can assert on the actual xlsx output.
-    """
     app = metadata.MetadataExtractor()
     if not request.node.get_closest_marker("real_create_sheet"):
         app.create_sheet = MagicMock()
+    _set_timezone(app, False)
     return app
 
+
+@pytest.fixture
+def extractor_tz_off(extractor):
+    return extractor
+
+@pytest.fixture
+def extractor_tz_on(request):
+    app = metadata.MetadataExtractor()
+    if not request.node.get_closest_marker("real_create_sheet"):
+        app.create_sheet = MagicMock()
+    _set_timezone(app, True)
+    return app
 
 # ---------------------------------------------------------------------------
 # Image builders
@@ -114,3 +128,52 @@ def folder_missing_exif(tmp_path):
     make_jpeg_no_exif(folder / "IMG_002.jpg")
     make_jpeg_with_exif(folder / "IMG_003.jpg", "2024:05:17 12:30:45")
     return folder
+# ---------------------------------------------------------------------------
+# Fixtures for scan / timezone tests.
+# Uses the same module-level design as the existing conftest.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def extractor_tz_off(request):
+    """MetadataExtractor with timezone_var.get() → False (GUI default)."""
+    app = metadata.MetadataExtractor()
+    if not request.node.get_closest_marker("real_create_sheet"):
+        app.create_sheet = MagicMock()
+    app.timezone_var.get.return_value = False
+    return app
+
+
+@pytest.fixture
+def extractor_tz_on(request):
+    """MetadataExtractor with timezone_var.get() → True."""
+    app = metadata.MetadataExtractor()
+    if not request.node.get_closest_marker("real_create_sheet"):
+        app.create_sheet = MagicMock()
+    app.timezone_var.get.return_value = True
+    return app
+
+
+@pytest.fixture
+def make_jpeg(tmp_path):
+    """Factory for a small JPEG with controlled EXIF datetime/offset tags.
+
+    Usage:
+        make_jpeg("a.jpg", datetime_original="2024:05:15 12:30:45",
+                  offset_original="+05:30")
+    """
+    def _make(filename, *, datetime_original=None, datetime_digitized=None,
+              datetime_general=None, offset_original=None):
+        img = Image.new("RGB", (10, 10), color="red")
+        exif = Image.Exif()
+        if datetime_general is not None:
+            exif[metadata.EXIF_DATETIME] = datetime_general
+        if datetime_original is not None:
+            exif[metadata.EXIF_DATETIME_ORIGINAL] = datetime_original
+        if datetime_digitized is not None:
+            exif[metadata.EXIF_DATETIME_DIGITIZED] = datetime_digitized
+        if offset_original is not None:
+            exif[metadata.EXIF_OFFSET_TIME_ORIGINAL] = offset_original
+        path = tmp_path / filename
+        img.save(path, format="JPEG", exif=exif)
+        return path
+    return _make
