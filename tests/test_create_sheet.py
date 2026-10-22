@@ -1,9 +1,9 @@
 """
-Tests for create_sheet — the Excel writer.
+Tests for MetadataExtractor.create_sheet.
 
-Uses the real create_sheet (opting out of the extractor fixture's mock
-via the `real_create_sheet` marker). tkinter keepopen_var is mocked to
-return False so create_sheet takes the destroy+exit path, which we catch.
+Opts out of the conftest create_sheet mock via the `real_create_sheet`
+marker. tkinter keepopen_var is mocked to return False so the method
+takes the destroy+exit path, which we catch.
 """
 
 import sys
@@ -41,32 +41,35 @@ def isolated(extractor, monkeypatch):
 
 
 def test_writes_new_file(isolated, tmp_path, simple_df):
+    isolated.results.append((simple_df, "Sheet"))
     output = tmp_path / "out.xlsx"
     try:
-        isolated.create_sheet(output, recursive=False, df=simple_df, total_processed=2, total_skipped=0)
+        isolated.create_sheet(output, recursive=False, total_processed=2, total_skipped=0)
     except SystemExit:
         pass
 
     assert output.exists()
-    df = pd.read_excel(output, sheet_name="Output")
+    df = pd.read_excel(output, sheet_name="Sheet")
     assert len(df) == 2
 
 
 def test_overwrite_confirmed(isolated, tmp_path, simple_df, monkeypatch):
+    isolated.results.append((simple_df, "Sheet"))
     output = tmp_path / "out.xlsx"
     output.write_text("old data")
     monkeypatch.setattr(metadata.messagebox, "askyesno", lambda *a, **k: True)
 
     try:
-        isolated.create_sheet(output, recursive=False, df=simple_df, total_processed=2, total_skipped=0)
+        isolated.create_sheet(output, recursive=False, total_processed=2, total_skipped=0)
     except SystemExit:
         pass
 
-    df = pd.read_excel(output, sheet_name="Output")
+    df = pd.read_excel(output, sheet_name="Sheet")
     assert len(df) == 2
 
 
 def test_overwrite_declined(isolated, tmp_path, simple_df, monkeypatch):
+    isolated.results.append((simple_df, "Sheet"))
     output = tmp_path / "out.xlsx"
     output.write_text("old data")
     monkeypatch.setattr(metadata.messagebox, "askyesno", lambda *a, **k: False)
@@ -79,7 +82,7 @@ def test_overwrite_declined(isolated, tmp_path, simple_df, monkeypatch):
     )
 
     try:
-        isolated.create_sheet(output, recursive=False, df=simple_df, total_processed=2, total_skipped=0)
+        isolated.create_sheet(output, recursive=False, total_processed=2, total_skipped=0)
     except SystemExit:
         pass
 
@@ -99,7 +102,7 @@ def test_recursive_no_data(isolated, tmp_path, monkeypatch):
     )
 
     try:
-        isolated.create_sheet(output, recursive=True, df=None, total_processed=0, total_skipped=0)
+        isolated.create_sheet(output, recursive=True, total_processed=0, total_skipped=0)
     except SystemExit:
         pass
 

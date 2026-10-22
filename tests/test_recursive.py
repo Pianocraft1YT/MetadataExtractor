@@ -15,7 +15,7 @@ def _make_photos(folder, names):
 def _capture(extractor):
     calls = []
 
-    def fake(output_path, recursive, df, total_processed, total_skipped):
+    def fake(output_path, recursive, total_processed, total_skipped):
         calls.append({
             "output_path": output_path,
             "recursive": recursive,

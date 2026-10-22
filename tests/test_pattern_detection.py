@@ -1,6 +1,7 @@
 """Pattern detection edge cases for sort_and_extract_irregular."""
 
 from pathlib import Path
+import pytest
 import metadata
 from tests.conftest import make_jpeg_with_exif
 
@@ -16,41 +17,36 @@ def _build_folder(folder, layout):
 
 
 def _capture(extractor):
-    captured = {}
-
-    def fake(output_path, recursive, df, processed, skipped):
-        captured["df"] = df
-
+    def fake(output_path, recursive, processed, skipped):
+        pass
     extractor.create_sheet = fake
-    return captured
 
 
 def test_two_videos_in_a_row(extractor, tmp_path):
     folder = tmp_path / "vv"
     folder.mkdir()
     _build_folder(folder, "PPVVPPVV")
-    captured = _capture(extractor)
+    _capture(extractor)
     extractor.sort_and_extract_irregular(folder, recursive=False, final_output=Path("out.xlsx"), modifier=0)
-    assert captured.get("df") is not None
+    assert extractor.results
 
 
 def test_pattern_breaks_midway(extractor, tmp_path):
     folder = tmp_path / "break"
     folder.mkdir()
     _build_folder(folder, "PPPVPPPVPPPPP")
-    captured = _capture(extractor)
+    _capture(extractor)
     extractor.sort_and_extract_irregular(folder, recursive=False, final_output=Path("out.xlsx"), modifier=0)
-    assert captured.get("df") is not None
+    assert extractor.results
 
 
 def test_exactly_five_photos_before_video(extractor, tmp_path):
     folder = tmp_path / "five"
     folder.mkdir()
     _build_folder(folder, "PPPPPV")
-    captured = _capture(extractor)
+    _capture(extractor)
     extractor.sort_and_extract_irregular(folder, recursive=False, final_output=Path("out.xlsx"), modifier=0)
-    df = captured.get("df")
-    assert df is not None
+    df, _ = extractor.results[0]
     assert len(df) == 1
 
 
@@ -58,10 +54,9 @@ def test_exactly_six_photos_before_video(extractor, tmp_path):
     folder = tmp_path / "six"
     folder.mkdir()
     _build_folder(folder, "PPPPPPV")
-    captured = _capture(extractor)
+    _capture(extractor)
     extractor.sort_and_extract_irregular(folder, recursive=False, final_output=Path("out.xlsx"), modifier=0)
-    df = captured.get("df")
-    assert df is not None
+    df, _ = extractor.results[0]
     assert len(df) == 6
 
 
@@ -69,9 +64,9 @@ def test_trailing_photos_with_no_video(extractor, tmp_path):
     folder = tmp_path / "trailing"
     folder.mkdir()
     _build_folder(folder, "PPPVPPP")
-    captured = _capture(extractor)
+    _capture(extractor)
     extractor.sort_and_extract_irregular(folder, recursive=False, final_output=Path("out.xlsx"), modifier=0)
-    assert captured.get("df") is not None
+    assert extractor.results
 
 
 def test_all_videos_no_photos(extractor, tmp_path):
@@ -87,8 +82,7 @@ def test_starting_index_zero(extractor, tmp_path):
     folder = tmp_path / "idx0"
     folder.mkdir()
     _build_folder(folder, "PPPV")
-    captured = _capture(extractor)
+    _capture(extractor)
     extractor.sort_and_extract_irregular(folder, recursive=False, final_output=Path("out.xlsx"), modifier=-1)
-    df = captured.get("df")
-    assert df is not None
+    df, _ = extractor.results[0]
     assert len(df) == 1

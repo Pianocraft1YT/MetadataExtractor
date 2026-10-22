@@ -44,12 +44,12 @@ PHOTO_TYPES = (".jpg", ".jpeg", ".heic", ".heif", ".png", ".tiff", ".tif",
 class MetadataExtractor:
     #Cosmetic only, adds placeholder text in entry boxes
     def nameFocusIn(self, event):
-        if self.name_entry.get() == "Filename (default output.xlsx)":
+        if self.name_entry.get() == "Filename (default output.filetype)":
             self.name_entry.delete(0, "end")
             self.name_entry.config(foreground="black")
     def nameFocusOut(self, event):
         if self.name_entry.get() == "":
-            self.name_entry.insert(0, "Filename (default output.xlsx)")
+            self.name_entry.insert(0, "Filename (default output.filetype)")
             self.name_entry.config(foreground="gray")
     def seriesFocusIn(self, event):
         if self.series_entry.get() == "Starting index (Img # Series)":
@@ -118,9 +118,10 @@ class MetadataExtractor:
             p, s = self.sort_and_extract_irregular(path, True, final_output, modifier)
             total_processed += p
             total_skipped += s
-        self.create_sheet(final_output, True, None, total_processed, total_skipped)
+        self.create_sheet(final_output, True, total_processed, total_skipped)
     def check_recursive(self):
         modifier = 0 #For starting index of img_series
+        filetype = self.filetype_var.get()
         if self.debug: #No need to set output_path every time
             self.output_path = Path.home() / "Downloads"
         if self.directory_path is None or self.output_path is None:
@@ -135,22 +136,38 @@ class MetadataExtractor:
             messagebox.showerror("Numbers only.", message="Starting index must be a whole number greater than zero.")
             return
         self.reset() #Clear old data
-        if self.name_entry.get() != "Filename (default output.xlsx)": #Placeholder text
+        if self.name_entry.get() != "Filename (default output.filetype)": #Placeholder text
             final_output = Path(self.output_path) / self.clean_name(self.name_entry.get()) #Clean_name to create valid names only
         else:
-            final_output = Path(self.output_path) / "output.xlsx" #Default filename
+            ext = "csv" if filetype == "CSV" else "xlsx"
+            final_output = Path(self.output_path) / f"output.{ext}" #Default filename
+            # final_output = Path(self.output_path) / f"output.{filetype.lower() if filetype.lower() == "csv" else "xlsx"}"  #Doesn't work on Python 3.11
         recursive = self.recursive_var.get() #Get status of recursive_checkbox
-        if recursive:
-            self.find_directories(self.directory_path, final_output, modifier) #Run recursive mode
-        else:
-            with os.scandir(self.directory_path) as entries:
+        if filetype == "Excel":
+            if recursive:
+                self.find_directories(self.directory_path, final_output, modifier) #Run recursive mode
+            else:
+                with os.scandir(self.directory_path) as entries:
                     photo_count = sum(1 for entry in entries if entry.is_file() and entry.name.lower().endswith(PHOTO_TYPES))
                     if photo_count > 0:
                         self.sort_and_extract_irregular(self.directory_path, False, final_output, modifier)
                     else:
                         messagebox.showerror("Empty directory", message="No files were found. Please select a valid directory")
                         return
-                    
+        else: #Prompt for multiple CSV files output
+            if recursive:
+                ok = messagebox.askyesno("Multiple CSV Files", message="Recursive mode on CSV output will create multipls CSVs, one for each valid folder. Proceed?")
+                if ok: self.find_directories(self.directory_path, final_output, modifier)
+                else: return
+            else: 
+                with os.scandir(self.directory_path) as entries:
+                    photo_count = sum(1 for entry in entries if entry.is_file() and entry.name.lower().endswith(PHOTO_TYPES))
+                    if photo_count > 0:
+                        self.sort_and_extract_irregular(self.directory_path, False, final_output, modifier)
+                    else:
+                        messagebox.showerror("Empty directory", message="No files were found. Please select a valid directory")
+                        return
+
     def verify_name(self, name, used):
         illegal_chars = ("[", "]", ":", "*", "?", "/", "\\") #Can't be in a sheet name
         for c in illegal_chars:
@@ -192,7 +209,10 @@ class MetadataExtractor:
             ext = name[-5:]  # ".xlsx" or ".XLSX" etc.
         else:
             stem = name
-            ext = ".xlsx"
+            if self.filetype_var.get() == "Excel":
+                ext = ".xlsx"
+            else:
+                ext = ".csv"
 
         # Windows reserved names — check the stem, not the full name
         reserved = {
@@ -318,9 +338,9 @@ class MetadataExtractor:
             self.collected_warnings["Unexpected"].append(f"[{directory_path}]: {e}\n{traceback.format_exc()}")
             return 0, 0
         fixed_date, fixed_time = self.fix_time(list_of_dates, list_of_offsets)
-        df = self.create_dataframe(img_series, list_of_images, fixed_date, fixed_time, recursive, directory_path, output_series)
+        self.create_dataframe(img_series, list_of_images, fixed_date, fixed_time, recursive, directory_path, output_series)
         if not recursive:
-            self.create_sheet(final_output, recursive, df, processed, skipped) #One folder only, output time
+            self.create_sheet(final_output, recursive, processed, skipped) #One folder only, output time
         return processed, skipped
     #For images-only or no Img # Series collumn
     def sort_and_extract(self, directory_path, recursive, final_output, modifier, output_series):
@@ -364,9 +384,9 @@ class MetadataExtractor:
             return 0, 0
         fixed_date, fixed_time = self.fix_time(list_of_dates, list_of_offsets)
         img_series, final_images, final_dates, final_times = self.make_series(list_of_images,photos_before_video_updated,photos_before_video,fixed_date,fixed_time, modifier, output_series)
-        df = self.create_dataframe(img_series, final_images, final_dates, final_times, recursive, directory_path, output_series)
+        self.create_dataframe(img_series, final_images, final_dates, final_times, recursive, directory_path, output_series)
         if not recursive:
-            self.create_sheet(final_output, recursive, df, processed, skipped)
+            self.create_sheet(final_output, recursive, processed, skipped)
         return processed, skipped
 
     # Handles series construction for all folders routed to sort_and_extract
@@ -443,19 +463,16 @@ class MetadataExtractor:
                 data["Img # Series"] = img_series
             else:
                 self.collected_warnings["Irregular"].append(f"{directory_path.as_posix()}") #If irregular pattern starts with more than MAX_PHOTOS_BEFORE_VIDEO images in a row, will break program, so error. 
-            if not recursive: #Single folder mode/
-                df = pd.DataFrame(data) #Create DataFrae
-                return df
-            else:
-                df = pd.DataFrame(data) #Create DataFrame
-                current_sheet_name = self.verify_name(self.current_sheet_name, self.used)
-                self.results.append((df, current_sheet_name))
+            df = pd.DataFrame(data) #Create DataFrame
+            current_sheet_name = self.verify_name(self.current_sheet_name, self.used)
+            self.results.append((df, current_sheet_name))
         else:
-            return pd.DataFrame({"Files": [], "Dates": [], "Time": []})
+            empty_df = pd.DataFrame({"Files": [], "Dates": [], "Time": []})
+            current_sheet_name = self.verify_name(self.current_sheet_name, self.used)
+            self.results.append((empty_df, current_sheet_name))
 
-    def create_sheet(self, output_path, recursive, df, total_processed, total_skipped): #File creation
+    def create_sheet(self, output_path, recursive, total_processed, total_skipped): #File creation
             try:
-                out_file = Path(output_path)
                 #Check for empty results before prompting so the user isn't asked to overwrite for nothing
                 if recursive and not self.results:
                     messagebox.showerror("No data", message="No folders with photos were found.")
@@ -463,8 +480,9 @@ class MetadataExtractor:
                         self.root.destroy()
                         sys.exit()
                     return
+                filetype = self.filetype_var.get()
                 proceed = True
-                if output_path.exists(): #Overwrite checking
+                if filetype == "Excel" and output_path.exists():
                     proceed = messagebox.askyesno("Overwrite?", message=output_path.as_posix() + " \nalready exists. Overwrite?")
                 if proceed:
                     if self.collected_warnings:
@@ -485,20 +503,23 @@ class MetadataExtractor:
                                 output+= f"Irregular pattern (started with more than {MAX_PHOTOS_BEFORE_VIDEO} before a video. Please add mock files to the beginning to set correct pattern.\nFor example, if the pattern is 3 photos and 1 video, choose 3 photos and 1 video and duplicate them, naming them to be first when sorted, like DCSF0000."
                             for filename in file:
                                 output+=f"\n{filename}"
-                    if recursive:
-                        #Data was found
+                    #Data was found
+                    if filetype == "Excel":
                         with pd.ExcelWriter(output_path) as writer:
                             for sheet_df, sheet_name in self.results:
                                 sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
-                        if self.collected_warnings:
-                            messagebox.showwarning("Warning(s)", message=output)
                         messagebox.showinfo("Success!", message="Images successfully scanned: " + str(total_processed) + "\nImages skipped: " + str(total_skipped) + "\nOutput: " + output_path.as_posix())
-                    else:
-                        #Single folder output
-                        df.to_excel(out_file, sheet_name="Output", index=False)
-                        if self.collected_warnings:
-                            messagebox.showwarning("Warning(s)", message=output)
-                        messagebox.showinfo("Success!", message="Images successfully scanned: " + str(total_processed) + "\nImages skipped: " + str(total_skipped) + "\nOutput: " + output_path.as_posix())
+                    else: #CSV mode
+                        for sheet_df, sheet_name in self.results:
+                            csv_path = output_path.as_posix()[0:-4] + f"_{self.clean_name(sheet_name)}"
+                            if Path(csv_path).exists():
+                                proceed = messagebox.askyesno("Overwrite?", message=csv_path + " \nalready exists. Overwrite?")
+                            if proceed:
+                                sheet_df.to_csv(csv_path, index=False)
+                            else: proceed = True; continue
+                        messagebox.showinfo("Success!", message="Images successfully scanned: " + str(total_processed) + "\nImages skipped: " + str(total_skipped) + "\nFiles located at: " + output_path.as_posix() + "\\")
+                    if self.collected_warnings:
+                        messagebox.showwarning("Warning(s)", message=output)
                 else:
                     messagebox.showinfo("Cancelled", message="File not overwritten. Cancelled successfully.")
                 if not self.keepopen_var.get(): #Checks to close program or not
@@ -523,6 +544,7 @@ class MetadataExtractor:
         self.root = tk.Tk()
         self.root.title("Metadata Extractor")
         self.frame = tk.Frame(self.root)
+        self.filetype_frame = tk.Frame(self.frame)
         self.execute_button = tk.Button(self.frame, command=self.check_recursive, text="Execute")
         self.set_directory_button = tk.Button(self.frame, command=self.set_dir, text="Set folder with images")
         self.set_output_button = tk.Button(self.frame, command=self.set_output, text="Set output folder")
@@ -532,8 +554,9 @@ class MetadataExtractor:
         self.recursive_checkbox = tk.Checkbutton(self.frame, text="Scan subfolders", variable=self.recursive_var)
         self.timezone_var = tk.BooleanVar(value=False)
         self.timezone_checkbox = tk.Checkbutton(self.frame, text="Time in UTC", variable=self.timezone_var)
+        self.filetype_var = tk.StringVar(value="Excel")
         self.name_entry = tk.Entry(self.frame, width=30, foreground="gray")
-        self.name_entry.insert(0, "Filename (default output.xlsx)")
+        self.name_entry.insert(0, "Filename (default output.filetype)")
         self.series_entry = tk.Entry(self.frame, width=30, foreground="gray")
         self.series_entry.insert(0, "Starting index (Img # Series)")
 
@@ -556,6 +579,8 @@ class MetadataExtractor:
         self.used = set()
         #Variable for use with recursive directories, list of dataframes
         self.results = []
+        #For output filetypes
+        self.filetypes = ["Excel", "CSV"]
 
     def run(self):
         self.frame.pack()
@@ -565,9 +590,12 @@ class MetadataExtractor:
         self.series_entry.pack()
         self.recursive_checkbox.pack()
         self.timezone_checkbox.pack()
+        self.filetype_frame.pack(side="top")
+        for ft in self.filetypes:
+            tk.Radiobutton(self.filetype_frame, text=ft, variable=self.filetype_var, value=ft).pack(side="left")
         self.execute_button.pack()
         self.keepopen_checkbox.pack()
-        self.root.geometry("240x200")
+        self.root.geometry("280x260")
         self.root.mainloop()
 
 

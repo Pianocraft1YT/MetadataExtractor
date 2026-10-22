@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 def test_placeholder_focus_in(extractor):
     extractor.name_entry = MagicMock()
-    extractor.name_entry.get.return_value = "Filename (default output.xlsx)"
+    extractor.name_entry.get.return_value = "Filename (default output.filetype)"
 
     extractor.nameFocusIn(None)
 
@@ -19,5 +19,5 @@ def test_placeholder_focus_out(extractor):
 
     extractor.nameFocusOut(None)
 
-    extractor.name_entry.insert.assert_called_once_with(0, "Filename (default output.xlsx)")
+    extractor.name_entry.insert.assert_called_once_with(0, "Filename (default output.filetype)")
     extractor.name_entry.config.assert_called_once_with(foreground="gray")

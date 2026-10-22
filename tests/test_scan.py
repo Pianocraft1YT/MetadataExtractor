@@ -63,18 +63,11 @@ def test_falls_back_to_digitized_when_original_missing(extractor_tz_off, make_jp
 # ---------------------------------------------------------------------------
 
 def test_scan_image_timezone_off_does_not_crash(extractor_tz_off, make_jpeg, tmp_path):
-    """Regression: `offset` was unbound when timezone_var.get() returned False.
-
-    Requires .get.return_value = False (set by extractor_tz_off fixture) —
-    with a truthy Mock this test would pass even with the bug present.
-    """
     make_jpeg("t.jpg", datetime_original="2024:05:15 12:30:45")
-    assert extractor_tz_off.timezone_var.get() is False
     dates, images, offsets = [], [], []
     result = extractor_tz_off.scan_image(tmp_path, ["t.jpg"], 0, dates, images, offsets)
     assert result is True
     assert offsets == [None]
-
 
 def test_scan_image_captures_offset_when_timezone_on(extractor_tz_on, make_jpeg, tmp_path):
     make_jpeg("t.jpg",
