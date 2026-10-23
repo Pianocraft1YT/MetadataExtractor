@@ -6,7 +6,7 @@
 # Please increment this counter as a warning
 # For the next person:
 # 
-# hours_wasted_here = 51
+# hours_wasted_here = 52.5
 
 # Coded by Pianocraft1YT
 # Tutorial: https://youtu.be/ruWNKBdbYoo
@@ -22,7 +22,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from tkinter import filedialog, messagebox
 
+import openpyxl
 import pandas as pd
+from openpyxl.styles import Font
 from PIL import Image, UnidentifiedImageError
 
 #Constants
@@ -96,6 +98,23 @@ class MetadataExtractor:
             list_of_images.append(files_and_dirs[i])
             list_of_offsets.append(offset)
             return True
+    def add_hyperlinks(self, excel_file):
+        try:
+            wb = openpyxl.load_workbook(excel_file)
+            for df, sheet_name, directory in self.results:
+                if not directory:
+                    continue
+                try:
+                    ws = wb[sheet_name]
+                    for cell in ws["A"][1:]:
+                        if cell.value:
+                            cell.hyperlink = (directory / cell.value).as_posix()
+                            cell.font = Font(color="0563C1", underline="single")
+                except Exception as e:  # noqa: BLE001
+                    self.collected_warnings["Hyperlink Error"].append(sheet_name + f"\nError: {e}")
+            wb.save(excel_file)
+        except Exception as e:  # noqa: BLE001
+            self.collected_warnings["Hyperlink Error"].append(f"Hyperlinks could not be added. \nError: {e}")
     #Finds subdirectories for recursive mode
     def find_directories(self, directory_path, final_output, modifier):
         total_skipped = 0
@@ -135,39 +154,43 @@ class MetadataExtractor:
             #Placeholder, empty, or "1" means modifier stays 0; anything else errors
             messagebox.showerror("Numbers only.", message="Starting index must be a whole number greater than zero.")
             return
-        self.reset() #Clear old data
-        if self.name_entry.get() != "Filename (default output.filetype)": #Placeholder text
-            final_output = Path(self.output_path) / self.clean_name(self.name_entry.get()) #Clean_name to create valid names only
-        else:
-            ext = "csv" if filetype == "CSV" else "xlsx"
-            final_output = Path(self.output_path) / f"output.{ext}" #Default filename
-            # final_output = Path(self.output_path) / f"output.{filetype.lower() if filetype.lower() == "csv" else "xlsx"}"  #Doesn't work on Python 3.11
-        recursive = self.recursive_var.get() #Get status of recursive_checkbox
-        if filetype == "Excel":
-            if recursive:
-                self.find_directories(self.directory_path, final_output, modifier) #Run recursive mode
+        proceed = True
+        if filetype == "CSV" and self.hyperlink_var.get():
+            proceed = messagebox.askyesno("Hyperlinks Unsupported.", message="Hyperlinks are unsupported with CSV. Please select Excel for hyperlinks. Proceed without?")
+        if proceed:
+            self.reset() #Clear old data
+            if self.name_entry.get() != "Filename (default output.filetype)": #Placeholder text
+                final_output = Path(self.output_path) / self.clean_name(self.name_entry.get()) #Clean_name to create valid names only
             else:
-                with os.scandir(self.directory_path) as entries:
-                    photo_count = sum(1 for entry in entries if entry.is_file() and entry.name.lower().endswith(PHOTO_TYPES))
-                    if photo_count > 0:
-                        self.sort_and_extract_irregular(self.directory_path, False, final_output, modifier)
-                    else:
-                        messagebox.showerror("Empty directory", message="No files were found. Please select a valid directory")
-                        return
-        else: #Prompt for multiple CSV files output
-            if recursive:
-                ok = messagebox.askyesno("Multiple CSV Files", message="Recursive mode on CSV output will create multipls CSVs, one for each valid folder. Proceed?")
-                if ok: self.find_directories(self.directory_path, final_output, modifier)
-                else: return
-            else: 
-                with os.scandir(self.directory_path) as entries:
-                    photo_count = sum(1 for entry in entries if entry.is_file() and entry.name.lower().endswith(PHOTO_TYPES))
-                    if photo_count > 0:
-                        self.sort_and_extract_irregular(self.directory_path, False, final_output, modifier)
-                    else:
-                        messagebox.showerror("Empty directory", message="No files were found. Please select a valid directory")
-                        return
-
+                ext = "csv" if filetype == "CSV" else "xlsx"
+                final_output = Path(self.output_path) / f"output.{ext}" #Default filename
+                # final_output = Path(self.output_path) / f"output.{filetype.lower() if filetype.lower() == "csv" else "xlsx"}"  #Doesn't work on Python 3.11
+            recursive = self.recursive_var.get() #Get status of recursive_checkbox
+            if filetype == "Excel":
+                if recursive:
+                    self.find_directories(self.directory_path, final_output, modifier) #Run recursive mode
+                else:
+                    with os.scandir(self.directory_path) as entries:
+                        photo_count = sum(1 for entry in entries if entry.is_file() and entry.name.lower().endswith(PHOTO_TYPES))
+                        if photo_count > 0:
+                            self.sort_and_extract_irregular(self.directory_path, False, final_output, modifier)
+                        else:
+                            messagebox.showerror("Empty directory", message="No files were found. Please select a valid directory")
+                            return
+            else: #Prompt for multiple CSV files output
+                if recursive:
+                    ok = messagebox.askyesno("Multiple CSV Files", message="Recursive mode on CSV output will create multipls CSVs, one for each valid folder. Proceed?")
+                    if ok: self.find_directories(self.directory_path, final_output, modifier)
+                    else: return
+                else: 
+                    with os.scandir(self.directory_path) as entries:
+                        photo_count = sum(1 for entry in entries if entry.is_file() and entry.name.lower().endswith(PHOTO_TYPES))
+                        if photo_count > 0:
+                            self.sort_and_extract_irregular(self.directory_path, False, final_output, modifier)
+                        else:
+                            messagebox.showerror("Empty directory", message="No files were found. Please select a valid directory")
+                            return
+    #For Sheet Names
     def verify_name(self, name, used):
         illegal_chars = ("[", "]", ":", "*", "?", "/", "\\") #Can't be in a sheet name
         for c in illegal_chars:
@@ -191,6 +214,7 @@ class MetadataExtractor:
                 used.add(candidate.lower())
                 return candidate
             f += 1
+    #For filenames
     def clean_name(self, name):
         #Windows-illegal filename characters
         illegal_chars = ("<", ">", ":", "\"", "/", "\\", "|", "?", "*")
@@ -336,7 +360,7 @@ class MetadataExtractor:
             self.collected_warnings["Unexpected"].append(f"[{directory_path}]: {e}\n{traceback.format_exc()}")
             return 0, 0
         fixed_date, fixed_time = self.fix_time(list_of_dates, list_of_offsets)
-        self.create_dataframe(img_series, list_of_images, fixed_date, fixed_time, recursive, directory_path, output_series)
+        self.create_dataframe(img_series, list_of_images, fixed_date, fixed_time, directory_path, output_series)
         if not recursive:
             self.create_sheet(final_output, recursive, processed, skipped) #One folder only, output time
         return processed, skipped
@@ -382,7 +406,7 @@ class MetadataExtractor:
             return 0, 0
         fixed_date, fixed_time = self.fix_time(list_of_dates, list_of_offsets)
         img_series, final_images, final_dates, final_times = self.make_series(list_of_images,photos_before_video_updated,photos_before_video,fixed_date,fixed_time, modifier, output_series)
-        self.create_dataframe(img_series, final_images, final_dates, final_times, recursive, directory_path, output_series)
+        self.create_dataframe(img_series, final_images, final_dates, final_times, directory_path, output_series)
         if not recursive:
             self.create_sheet(final_output, recursive, processed, skipped)
         return processed, skipped
@@ -454,7 +478,7 @@ class MetadataExtractor:
                 fixed_time.append("")  # or "00:00:00" if preferred
         return fixed_date, fixed_time
 
-    def create_dataframe(self, img_series, final_images, final_dates, final_times, recursive, directory_path, output_series):
+    def create_dataframe(self, img_series, final_images, final_dates, final_times, directory_path, output_series):
         if final_images: #Make sure images are present.
             data = {"Files": final_images, "Dates": final_dates, "Time": final_times}
             if output_series:
@@ -463,11 +487,11 @@ class MetadataExtractor:
                 self.collected_warnings["Irregular"].append(f"{directory_path.as_posix()}") #If irregular pattern starts with more than MAX_PHOTOS_BEFORE_VIDEO images in a row, will break program, so error. 
             df = pd.DataFrame(data) #Create DataFrame
             current_sheet_name = self.verify_name(self.current_sheet_name, self.used)
-            self.results.append((df, current_sheet_name))
+            self.results.append((df, current_sheet_name, directory_path))
         else:
             empty_df = pd.DataFrame({"Files": [], "Dates": [], "Time": []})
             current_sheet_name = self.verify_name(self.current_sheet_name, self.used)
-            self.results.append((empty_df, current_sheet_name))
+            self.results.append((empty_df, current_sheet_name, None))
 
     def create_sheet(self, output_path, recursive, total_processed, total_skipped): #File creation
             try:
@@ -483,6 +507,23 @@ class MetadataExtractor:
                 if filetype == "Excel" and output_path.exists():
                     proceed = messagebox.askyesno("Overwrite?", message=output_path.as_posix() + " \nalready exists. Overwrite?")
                 if proceed:
+                    #Data was found
+                    if filetype == "Excel":
+                        with pd.ExcelWriter(output_path) as writer:
+                            for sheet_df, sheet_name, directory in self.results:
+                                sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                        if self.hyperlink_var.get():
+                            self.add_hyperlinks(output_path.as_posix())
+                        messagebox.showinfo("Success!", message="Images successfully scanned: " + str(total_processed) + "\nImages skipped: " + str(total_skipped) + "\nOutput: " + output_path.as_posix())
+                    else: #CSV mode
+                        for sheet_df, sheet_name, directory in self.results:
+                            csv_path = output_path.as_posix()[0:-4] + f"_{self.clean_name(sheet_name)}"
+                            if Path(csv_path).exists():
+                                proceed = messagebox.askyesno("Overwrite?", message=csv_path + " \nalready exists. Overwrite?")
+                            if proceed:
+                                sheet_df.to_csv(csv_path, index=False)
+                            else: proceed = True; continue
+                        messagebox.showinfo("Success!", message="Images successfully scanned: " + str(total_processed) + "\nImages skipped: " + str(total_skipped) + "\nFiles located at: " + output_path.parent.as_posix())
                     if self.collected_warnings:
                         output = ""
                         for error, file in self.collected_warnings.items():
@@ -494,28 +535,15 @@ class MetadataExtractor:
                             elif error == "Directory Error":
                                 output+="File/Directory couldn't be accessed."
                             elif error == "Video First":
-                                output+="Video File was found first. Please manually catalog"
-                            elif error == "Unexpected":
-                                output+= "Unexpected Errors - please report at https://github.com/Pianocraft1YT/MetadataExtractor/"
+                                output+="Video File was found first. Please manually catalog, delete video, and re-run."
                             elif error == "Irregular":
                                 output+= f"Irregular pattern (started with more than {MAX_PHOTOS_BEFORE_VIDEO} before a video. Please add mock files to the beginning to set correct pattern.\nFor example, if the pattern is 3 photos and 1 video, choose 3 photos and 1 video and duplicate them, naming them to be first when sorted, like DCSF0000."
+                            elif error == "Hyperlink Error":
+                                output += "The following sheets do not have hyperlinks."
+                            elif error == "Unexpected":
+                                output+= "Unexpected Errors - please report at https://github.com/Pianocraft1YT/MetadataExtractor/"
                             for filename in file:
-                                output+=f"\n{filename}"
-                    #Data was found
-                    if filetype == "Excel":
-                        with pd.ExcelWriter(output_path) as writer:
-                            for sheet_df, sheet_name in self.results:
-                                sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
-                        messagebox.showinfo("Success!", message="Images successfully scanned: " + str(total_processed) + "\nImages skipped: " + str(total_skipped) + "\nOutput: " + output_path.as_posix())
-                    else: #CSV mode
-                        for sheet_df, sheet_name in self.results:
-                            csv_path = output_path.as_posix()[0:-4] + f"_{self.clean_name(sheet_name)}"
-                            if Path(csv_path).exists():
-                                proceed = messagebox.askyesno("Overwrite?", message=csv_path + " \nalready exists. Overwrite?")
-                            if proceed:
-                                sheet_df.to_csv(csv_path, index=False)
-                            else: proceed = True; continue
-                        messagebox.showinfo("Success!", message="Images successfully scanned: " + str(total_processed) + "\nImages skipped: " + str(total_skipped) + "\nFiles located at: " + output_path.parent.as_posix())
+                                output+=f"\n{filename}\n"
                     if self.collected_warnings:
                         messagebox.showwarning("Warning(s)", message=output)
                 else:
@@ -553,6 +581,8 @@ class MetadataExtractor:
         self.timezone_var = tk.BooleanVar(value=False)
         self.timezone_checkbox = tk.Checkbutton(self.frame, text="Time in UTC", variable=self.timezone_var)
         self.filetype_var = tk.StringVar(value="Excel")
+        self.hyperlink_var = tk.BooleanVar(value=True)
+        self.hyperlink_checkbox = tk.Checkbutton(self.frame, text="Add Hyperlinks", variable=self.hyperlink_var)
         self.name_entry = tk.Entry(self.frame, width=30, foreground="gray")
         self.name_entry.insert(0, "Filename (default output.filetype)")
         self.series_entry = tk.Entry(self.frame, width=30, foreground="gray")
@@ -587,6 +617,7 @@ class MetadataExtractor:
         self.name_entry.pack()
         self.series_entry.pack()
         self.recursive_checkbox.pack()
+        self.hyperlink_checkbox.pack()
         self.timezone_checkbox.pack()
         self.filetype_frame.pack(side="top")
         for ft in self.filetypes:

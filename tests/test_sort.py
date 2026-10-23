@@ -22,12 +22,14 @@ def _capture_create_sheet(extractor):
 def test_sort_and_extract_all_photos(extractor, photos_only):
     _capture_create_sheet(extractor)
     extractor.sort_and_extract(
-        photos_only, recursive=False,
-        final_output=Path("out.xlsx"), modifier=0,
+        photos_only,
+        recursive=False,
+        final_output=Path("out.xlsx"),
+        modifier=0,
         output_series=True,
     )
     assert len(extractor.results) == 1
-    df, sheet_name = extractor.results[0]
+    df, _, _ = extractor.results[0]
     assert len(df) == 3
     assert list(df["Files"]) == ["IMG_001.jpg", "IMG_002.jpg", "IMG_003.jpg"]
 
@@ -35,11 +37,13 @@ def test_sort_and_extract_all_photos(extractor, photos_only):
 def test_sort_and_extract_missing_exif_skips_file(extractor, folder_missing_exif):
     captured = _capture_create_sheet(extractor)
     extractor.sort_and_extract(
-        folder_missing_exif, recursive=False,
-        final_output=Path("out.xlsx"), modifier=0,
+        folder_missing_exif,
+        recursive=False,
+        final_output=Path("out.xlsx"),
+        modifier=0,
         output_series=True,
     )
-    df, _ = extractor.results[0]
+    df, _, _ = extractor.results[0]
     assert len(df) == 2
     assert "IMG_002.jpg" not in list(df["Files"])
     assert captured["skipped"] == 1
@@ -49,11 +53,13 @@ def test_sort_and_extract_missing_exif_skips_file(extractor, folder_missing_exif
 def test_sort_and_extract_corrupt_file_does_not_hang(extractor, folder_with_corrupt_photo):
     captured = _capture_create_sheet(extractor)
     extractor.sort_and_extract(
-        folder_with_corrupt_photo, recursive=False,
-        final_output=Path("out.xlsx"), modifier=0,
+        folder_with_corrupt_photo,
+        recursive=False,
+        final_output=Path("out.xlsx"),
+        modifier=0,
         output_series=True,
     )
-    df, _ = extractor.results[0]
+    df, _, _ = extractor.results[0]
     assert len(df) == 6
     assert captured["skipped"] == 1
     assert captured["processed"] == 6
@@ -68,8 +74,10 @@ def test_sort_and_extract_no_exif_gap_in_series(extractor, tmp_path):
 
     captured = _capture_create_sheet(extractor)
     extractor.sort_and_extract(
-        folder, recursive=False,
-        final_output=Path("out.xlsx"), modifier=0,
+        folder,
+        recursive=False,
+        final_output=Path("out.xlsx"),
+        modifier=0,
         output_series=True,
     )
     assert captured["processed"] == 2
@@ -79,10 +87,12 @@ def test_sort_and_extract_no_exif_gap_in_series(extractor, tmp_path):
 def test_irregular_3_photos_1_video_pattern(extractor, photos_and_videos):
     _capture_create_sheet(extractor)
     extractor.sort_and_extract_irregular(
-        photos_and_videos, recursive=False,
-        final_output=Path("out.xlsx"), modifier=0,
+        photos_and_videos,
+        recursive=False,
+        final_output=Path("out.xlsx"),
+        modifier=0,
     )
-    df, _ = extractor.results[0]
+    df, _, _ = extractor.results[0]
     assert len(df) == 3
     if "Img # Series" in df.columns:
         assert list(df["Img # Series"]) == ["1-4", "5-8", "9-12"]
@@ -91,10 +101,12 @@ def test_irregular_3_photos_1_video_pattern(extractor, photos_and_videos):
 def test_irregular_all_photos_falls_through_to_sort_and_extract(extractor, photos_only):
     _capture_create_sheet(extractor)
     extractor.sort_and_extract_irregular(
-        photos_only, recursive=False,
-        final_output=Path("out.xlsx"), modifier=0,
+        photos_only,
+        recursive=False,
+        final_output=Path("out.xlsx"),
+        modifier=0,
     )
-    df, _ = extractor.results[0]
+    df, _, _ = extractor.results[0]
     assert len(df) == 3
 
 
@@ -105,8 +117,10 @@ def test_irregular_video_first_shows_warning_and_returns(extractor, tmp_path):
     make_jpeg_with_exif(folder / "B_photo.jpg", "2024:05:15 12:30:45")
 
     extractor.sort_and_extract_irregular(
-        folder, recursive=False,
-        final_output=Path("out.xlsx"), modifier=0,
+        folder,
+        recursive=False,
+        final_output=Path("out.xlsx"),
+        modifier=0,
     )
     assert "Video First" in extractor.collected_warnings
     assert extractor.collected_warnings["Video First"]
@@ -115,9 +129,11 @@ def test_irregular_video_first_shows_warning_and_returns(extractor, tmp_path):
 def test_irregular_with_modifier(extractor, photos_and_videos):
     _capture_create_sheet(extractor)
     extractor.sort_and_extract_irregular(
-        photos_and_videos, recursive=False,
-        final_output=Path("out.xlsx"), modifier=4,
+        photos_and_videos,
+        recursive=False,
+        final_output=Path("out.xlsx"),
+        modifier=4,
     )
-    df, _ = extractor.results[0]
+    df, _, _ = extractor.results[0]
     if "Img # Series" in df.columns:
         assert list(df["Img # Series"]) == ["5-8", "9-12", "13-16"]

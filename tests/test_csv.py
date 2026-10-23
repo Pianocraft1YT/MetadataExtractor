@@ -7,13 +7,17 @@ import pytest
 # End-to-end output
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.real_create_sheet
 def test_excel_mode_writes_xlsx(extractor, photos_only, tmp_path):
     """Default Excel mode writes a single xlsx with one 'Sheet' sheet."""
     output = tmp_path / "output.xlsx"
     extractor.sort_and_extract(
-        photos_only, recursive=False,
-        final_output=output, modifier=0, output_series=True,
+        photos_only,
+        recursive=False,
+        final_output=output,
+        modifier=0,
+        output_series=True,
     )
     assert output.exists()
     df = pd.read_excel(output, sheet_name="Sheet")
@@ -26,8 +30,11 @@ def test_csv_mode_writes_csv_per_sheet(extractor_csv, photos_only, tmp_path):
     """CSV mode writes <stem>_<sheet>.csv instead of xlsx."""
     output = tmp_path / "output.csv"
     extractor_csv.sort_and_extract(
-        photos_only, recursive=False,
-        final_output=output, modifier=0, output_series=True,
+        photos_only,
+        recursive=False,
+        final_output=output,
+        modifier=0,
+        output_series=True,
     )
     # No xlsx written
     assert not output.exists()
@@ -45,20 +52,27 @@ def test_csv_mode_includes_series_column(extractor_csv, photos_only, tmp_path):
     """CSV output preserves the Img # Series column when enabled."""
     output = tmp_path / "output.csv"
     extractor_csv.sort_and_extract(
-        photos_only, recursive=False,
-        final_output=output, modifier=0, output_series=True,
+        photos_only,
+        recursive=False,
+        final_output=output,
+        modifier=0,
+        output_series=True,
     )
     df = pd.read_csv(tmp_path / "output_Sheet.csv")
     assert list(df.columns) == ["Files", "Dates", "Time", "Img # Series"]
     assert list(df["Img # Series"]) == [1, 2, 3]
+
 
 @pytest.mark.real_create_sheet
 def test_csv_mode_without_series_column(extractor_csv, photos_only, tmp_path):
     """CSV output omits Img # Series when output_series is False."""
     output = tmp_path / "output.csv"
     extractor_csv.sort_and_extract(
-        photos_only, recursive=False,
-        final_output=output, modifier=0, output_series=False,
+        photos_only,
+        recursive=False,
+        final_output=output,
+        modifier=0,
+        output_series=False,
     )
     df = pd.read_csv(tmp_path / "output_Sheet.csv")
     assert "Img # Series" not in df.columns
@@ -67,6 +81,7 @@ def test_csv_mode_without_series_column(extractor_csv, photos_only, tmp_path):
 # ---------------------------------------------------------------------------
 # clean_name filetype behavior
 # ---------------------------------------------------------------------------
+
 
 def test_clean_name_excel_mode_appends_xlsx(extractor):
     """Excel mode: no extension typed, .xlsx appended."""
@@ -108,13 +123,17 @@ def test_clean_name_reserved_word_csv_mode(extractor_csv):
 # Sheet naming in output
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.real_create_sheet
 def test_default_sheet_name_used(extractor, photos_only, tmp_path):
     """Single-folder scans use the default 'Sheet' name."""
     output = tmp_path / "output.xlsx"
     extractor.sort_and_extract(
-        photos_only, recursive=False,
-        final_output=output, modifier=0, output_series=True,
+        photos_only,
+        recursive=False,
+        final_output=output,
+        modifier=0,
+        output_series=True,
     )
     # Verify only "Sheet" exists as a sheet name
     xl = pd.ExcelFile(output)

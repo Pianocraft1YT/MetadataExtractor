@@ -39,19 +39,24 @@ def test_invalid_starting_index_rejected(extractor, monkeypatch, tmp_path, value
     assert errors, f"expected rejection for {value!r}"
 
 
-@pytest.mark.parametrize("value,expected_modifier", [
-    ("1", 0),
-    ("5", 4),
-    ("100", 99),
-])
+@pytest.mark.parametrize(
+    "value,expected_modifier",
+    [
+        ("1", 0),
+        ("5", 4),
+        ("100", 99),
+    ],
+)
 def test_valid_starting_index_accepted(extractor, monkeypatch, tmp_path, value, expected_modifier):
     _mock_widgets(extractor, series_value=value)
     (tmp_path / "IMG_001.jpg").write_bytes(b"fake")
 
     captured = {}
+
     def fake_scan(dp, r, fo, m):
         captured["modifier"] = m
         return 0, 0
+
     extractor.sort_and_extract_irregular = fake_scan
 
     extractor.directory_path = tmp_path

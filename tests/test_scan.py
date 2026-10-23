@@ -35,10 +35,12 @@ def test_corrupt_file_returns_false(extractor_tz_off, tmp_path):
 
 
 def test_prefers_datetime_original_over_others(extractor_tz_off, make_jpeg, tmp_path):
-    make_jpeg("all_exif.jpg",
-              datetime_original="2024:01:01 01:01:01",
-              datetime_digitized="2024:02:02 02:02:02",
-              datetime_general="2024:03:03 03:03:03")
+    make_jpeg(
+        "all_exif.jpg",
+        datetime_original="2024:01:01 01:01:01",
+        datetime_digitized="2024:02:02 02:02:02",
+        datetime_general="2024:03:03 03:03:03",
+    )
     dates, images, offsets = [], [], []
     assert extractor_tz_off.scan_image(tmp_path, ["all_exif.jpg"], 0, dates, images, offsets)
     assert dates == ["2024:01:01 01:01:01"]
@@ -62,6 +64,7 @@ def test_falls_back_to_digitized_when_original_missing(extractor_tz_off, make_jp
 # Timezone-path regression coverage
 # ---------------------------------------------------------------------------
 
+
 def test_scan_image_timezone_off_does_not_crash(extractor_tz_off, make_jpeg, tmp_path):
     make_jpeg("t.jpg", datetime_original="2024:05:15 12:30:45")
     dates, images, offsets = [], [], []
@@ -69,10 +72,9 @@ def test_scan_image_timezone_off_does_not_crash(extractor_tz_off, make_jpeg, tmp
     assert result is True
     assert offsets == [None]
 
+
 def test_scan_image_captures_offset_when_timezone_on(extractor_tz_on, make_jpeg, tmp_path):
-    make_jpeg("t.jpg",
-              datetime_original="2024:05:15 12:30:45",
-              offset_original="+05:30")
+    make_jpeg("t.jpg", datetime_original="2024:05:15 12:30:45", offset_original="+05:30")
     dates, images, offsets = [], [], []
     assert extractor_tz_on.scan_image(tmp_path, ["t.jpg"], 0, dates, images, offsets)
     assert offsets == ["+05:30"]

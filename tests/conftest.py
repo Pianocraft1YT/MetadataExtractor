@@ -21,6 +21,7 @@ sys.modules["tkinter.filedialog"] = MagicMock()
 sys.modules["tkinter.ttk"] = MagicMock()
 
 import tkinter as _tk
+
 _tk.BooleanVar.side_effect = lambda *a, **k: MagicMock()
 _tk.StringVar.side_effect = lambda *a, **k: MagicMock()
 
@@ -79,14 +80,17 @@ def silence_messageboxes(monkeypatch):
 @pytest.fixture(autouse=True)
 def patch_sys_exit(monkeypatch):
     """Prevent create_sheet's final sys.exit() from aborting test runs."""
+
     def fake_exit(code=0):
         raise SystemExit(code)
+
     monkeypatch.setattr(sys, "exit", fake_exit)
 
 
 # ---------------------------------------------------------------------------
 # Image builders
 # ---------------------------------------------------------------------------
+
 
 def make_jpeg_with_exif(path: Path, date_str: str, field: int = metadata.EXIF_DATETIME_ORIGINAL) -> Path:
     img = Image.new("RGB", (10, 10), color="red")
@@ -110,6 +114,7 @@ def make_corrupt_file(path: Path) -> Path:
 # ---------------------------------------------------------------------------
 # Folder fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def photos_only(tmp_path):
@@ -159,8 +164,10 @@ def folder_missing_exif(tmp_path):
 @pytest.fixture
 def make_jpeg(tmp_path):
     """Factory for a JPEG with controlled EXIF datetime/offset tags."""
-    def _make(filename, *, datetime_original=None, datetime_digitized=None,
-              datetime_general=None, offset_original=None):
+
+    def _make(
+        filename, *, datetime_original=None, datetime_digitized=None, datetime_general=None, offset_original=None
+    ):
         img = Image.new("RGB", (10, 10), color="red")
         exif = Image.Exif()
         if datetime_general is not None:
@@ -174,7 +181,9 @@ def make_jpeg(tmp_path):
         path = tmp_path / filename
         img.save(path, format="JPEG", exif=exif)
         return path
+
     return _make
+
 
 def _build_extractor(request, filetype: str, timezone: bool = False):
     app = metadata.MetadataExtractor()
@@ -182,5 +191,5 @@ def _build_extractor(request, filetype: str, timezone: bool = False):
         app.create_sheet = MagicMock()
     _set_timezone(app, timezone)
     _set_filetype(app, filetype)
-    cast(MagicMock, app.keepopen_var).get.return_value = True   # ← new line
+    cast(MagicMock, app.keepopen_var).get.return_value = True  # ← new line
     return app

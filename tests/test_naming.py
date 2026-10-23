@@ -1,7 +1,7 @@
 """Tests for clean_name (filename) and verify_name (sheet name)."""
 
-
 # clean_name
+
 
 def test_clean_name_appends_xlsx(extractor):
     assert extractor.clean_name("report") == "report.xlsx"
@@ -45,6 +45,7 @@ def test_clean_name_empty_uses_default(extractor):
 
 
 # verify_name — each test gets its own local set, no shared state
+
 
 def test_verify_name_normal(extractor):
     assert extractor.verify_name("Vacation", set()) == "Vacation"

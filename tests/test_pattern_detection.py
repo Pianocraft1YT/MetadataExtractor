@@ -19,6 +19,7 @@ def _build_folder(folder, layout):
 def _capture(extractor):
     def fake(output_path, recursive, processed, skipped):
         pass
+
     extractor.create_sheet = fake
 
 
@@ -46,7 +47,7 @@ def test_exactly_five_photos_before_video(extractor, tmp_path):
     _build_folder(folder, "PPPPPV")
     _capture(extractor)
     extractor.sort_and_extract_irregular(folder, recursive=False, final_output=Path("out.xlsx"), modifier=0)
-    df, _ = extractor.results[0]
+    df, _, _ = extractor.results[0]
     assert len(df) == 1
 
 
@@ -56,7 +57,7 @@ def test_exactly_six_photos_before_video(extractor, tmp_path):
     _build_folder(folder, "PPPPPPV")
     _capture(extractor)
     extractor.sort_and_extract_irregular(folder, recursive=False, final_output=Path("out.xlsx"), modifier=0)
-    df, _ = extractor.results[0]
+    df, _, _ = extractor.results[0]
     assert len(df) == 6
 
 
@@ -84,5 +85,5 @@ def test_starting_index_zero(extractor, tmp_path):
     _build_folder(folder, "PPPV")
     _capture(extractor)
     extractor.sort_and_extract_irregular(folder, recursive=False, final_output=Path("out.xlsx"), modifier=-1)
-    df, _ = extractor.results[0]
+    df, _, _ = extractor.results[0]
     assert len(df) == 1
