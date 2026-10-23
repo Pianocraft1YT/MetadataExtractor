@@ -6,7 +6,7 @@
 # Please increment this counter as a warning
 # For the next person:
 # 
-# hours_wasted_here = 49
+# hours_wasted_here = 51
 
 # Coded by Pianocraft1YT
 # Tutorial: https://youtu.be/ruWNKBdbYoo
@@ -204,15 +204,13 @@ class MetadataExtractor:
 
         # Split extension once so reserved-name and length checks see the stem.
         # Preserve the case of the extension as typed by the user.
-        if name.lower().endswith(".xlsx"):
-            stem = name[:-5]
-            ext = name[-5:]  # ".xlsx" or ".XLSX" etc.
+        suffix = Path(name).suffix.lower()
+        if suffix in (".xlsx", ".csv"):
+            stem = name[:-len(suffix)]
+            ext = name[-len(suffix):]
         else:
             stem = name
-            if self.filetype_var.get() == "Excel":
-                ext = ".xlsx"
-            else:
-                ext = ".csv"
+            ext = ".xlsx" if self.filetype_var.get() == "Excel" else ".csv"
 
         # Windows reserved names — check the stem, not the full name
         reserved = {
@@ -517,7 +515,7 @@ class MetadataExtractor:
                             if proceed:
                                 sheet_df.to_csv(csv_path, index=False)
                             else: proceed = True; continue
-                        messagebox.showinfo("Success!", message="Images successfully scanned: " + str(total_processed) + "\nImages skipped: " + str(total_skipped) + "\nFiles located at: " + output_path.as_posix() + "\\")
+                        messagebox.showinfo("Success!", message="Images successfully scanned: " + str(total_processed) + "\nImages skipped: " + str(total_skipped) + "\nFiles located at: " + output_path.parent.as_posix())
                     if self.collected_warnings:
                         messagebox.showwarning("Warning(s)", message=output)
                 else:
