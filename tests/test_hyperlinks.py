@@ -178,8 +178,7 @@ def test_recursive_mode_links_each_sheet_to_its_own_directory(extractor, tmp_pat
         make_jpeg_with_exif(folder / "IMG_001.jpg", "2024:05:15 12:30:45")
 
     output = tmp_path / "output.xlsx"
-    extractor.find_directories(parent, output, modifier=0)
-
+    extractor.find_directories(parent, output, modifier=0, maxdepth=1)
     assert output.exists()
     wb = openpyxl.load_workbook(output)
 

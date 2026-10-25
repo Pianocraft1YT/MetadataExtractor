@@ -16,19 +16,21 @@ def _capture(extractor):
     calls = []
 
     def fake(output_path, recursive, total_processed, total_skipped):
-        calls.append(
-            {
-                "output_path": output_path,
-                "recursive": recursive,
-                "results": list(extractor.results),
-                "total_processed": total_processed,
-                "total_skipped": total_skipped,
-            }
-        )
+        calls.append({
+            "output_path": output_path,
+            "recursive": recursive,
+            "results": list(extractor.results),
+            "total_processed": total_processed,
+            "total_skipped": total_skipped,
+        })
 
     extractor.create_sheet = fake
     return calls
 
+
+# ---------------------------------------------------------------------------
+# Depth 1 — same behavior as the old single-level scanner
+# ---------------------------------------------------------------------------
 
 def test_two_clean_subfolders(extractor, tmp_path):
     parent = tmp_path / "parent"
@@ -36,7 +38,7 @@ def test_two_clean_subfolders(extractor, tmp_path):
     _make_photos(parent / "Trip_B", ["IMG_001.jpg", "IMG_002.jpg", "IMG_003.jpg"])
 
     calls = _capture(extractor)
-    extractor.find_directories(parent, tmp_path / "out.xlsx", modifier=0)
+    extractor.find_directories(parent, tmp_path / "out.xlsx", modifier=0, maxdepth=1)
 
     assert len(calls) == 1
     assert calls[0]["recursive"] is True
@@ -52,7 +54,7 @@ def test_subfolder_with_skips(extractor, tmp_path):
     (parent / "Messy" / "IMG_002.jpg").write_text("not an image")
 
     calls = _capture(extractor)
-    extractor.find_directories(parent, tmp_path / "out.xlsx", modifier=0)
+    extractor.find_directories(parent, tmp_path / "out.xlsx", modifier=0, maxdepth=1)
 
     assert calls[0]["total_processed"] == 3
     assert calls[0]["total_skipped"] == 1
@@ -66,7 +68,7 @@ def test_subfolder_with_no_photos_ignored(extractor, tmp_path):
     (empty / "readme.txt").write_text("nothing")
 
     calls = _capture(extractor)
-    extractor.find_directories(parent, tmp_path / "out.xlsx", modifier=0)
+    extractor.find_directories(parent, tmp_path / "out.xlsx", modifier=0, maxdepth=1)
 
     assert len(calls[0]["results"]) == 1
 
@@ -79,7 +81,7 @@ def test_subfolder_with_only_videos_ignored(extractor, tmp_path):
     (only_video / "clip.mp4").write_bytes(b"\x00\x00\x00\x18ftypmp42")
 
     calls = _capture(extractor)
-    extractor.find_directories(parent, tmp_path / "out.xlsx", modifier=0)
+    extractor.find_directories(parent, tmp_path / "out.xlsx", modifier=0, maxdepth=1)
 
     assert len(calls[0]["results"]) == 1
 
@@ -90,8 +92,82 @@ def test_no_valid_subfolders(extractor, tmp_path):
     (parent / "notes.txt").write_text("nothing")
 
     calls = _capture(extractor)
-    extractor.find_directories(parent, tmp_path / "out.xlsx", modifier=0)
+    extractor.find_directories(parent, tmp_path / "out.xlsx", modifier=0, maxdepth=1)
 
     assert calls[0]["results"] == []
     assert calls[0]["total_processed"] == 0
     assert calls[0]["total_skipped"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Depth > 1 — full recursion behavior
+# ---------------------------------------------------------------------------
+
+def test_deep_tree_produces_relative_path_sheet_names(extractor, tmp_path):
+    parent = tmp_path / "parent"
+    _make_photos(parent / "2023" / "Beach", ["IMG_001.jpg"])
+
+    calls = _capture(extractor)
+    extractor.find_directories(parent, tmp_path / "out.xlsx", modifier=0, maxdepth=5)
+
+    results = calls[0]["results"]
+    assert len(results) == 1
+    _, sheet_name, directory = results[0]
+    assert sheet_name == "2023_Beach"
+    assert directory == parent / "2023" / "Beach"
+
+
+def test_sibling_branches_with_same_leaf_name(extractor, tmp_path):
+    parent = tmp_path / "parent"
+    _make_photos(parent / "trip_a" / "photos", ["IMG.jpg"])
+    _make_photos(parent / "trip_b" / "photos", ["IMG.jpg"])
+
+    calls = _capture(extractor)
+    extractor.find_directories(parent, tmp_path / "out.xlsx", modifier=0, maxdepth=5)
+
+    sheets = [name for _, name, _ in calls[0]["results"]]
+    assert len(sheets) == 2
+    assert "trip_a_photos" in sheets
+    assert "trip_b_photos" in sheets
+    assert len(set(sheets)) == 2  # no collision
+
+
+def test_intermediate_folder_without_direct_photos_skipped(extractor, tmp_path):
+    parent = tmp_path / "parent"
+    deep = parent / "mid" / "photos"
+    deep.mkdir(parents=True)
+    make_jpeg_with_exif(deep / "IMG.jpg", "2024:05:15 12:30:45")
+    # "mid" has only a subfolder, no direct photos
+
+    calls = _capture(extractor)
+    extractor.find_directories(parent, tmp_path / "out.xlsx", modifier=0, maxdepth=5)
+
+    sheets = [name for _, name, _ in calls[0]["results"]]
+    assert sheets == ["mid_photos"]
+
+
+def test_maxdepth_cuts_off_deeper_folders(extractor, tmp_path):
+    parent = tmp_path / "parent"
+    _make_photos(parent / "shallow", ["IMG.jpg"])
+    _make_photos(parent / "a" / "b" / "deep", ["IMG.jpg"])
+
+    calls = _capture(extractor)
+    extractor.find_directories(parent, tmp_path / "out.xlsx", modifier=0, maxdepth=1)
+
+    sheets = [name for _, name, _ in calls[0]["results"]]
+    assert sheets == ["shallow"]
+
+
+def test_root_folder_with_direct_photos_named_sheet(extractor, tmp_path):
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    make_jpeg_with_exif(parent / "IMG.jpg", "2024:05:15 12:30:45")
+    _make_photos(parent / "sub", ["IMG.jpg"])
+
+    calls = _capture(extractor)
+    extractor.find_directories(parent, tmp_path / "out.xlsx", modifier=0, maxdepth=2)
+
+    sheets = [name for _, name, _ in calls[0]["results"]]
+    # Root's relative path is "." → Path(".").parts == () → "".join → "" → verify_name fallback "Sheet"
+    assert "Sheet" in sheets
+    assert "sub" in sheets

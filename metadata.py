@@ -6,7 +6,7 @@
 # Please increment this counter as a warning
 # For the next person:
 # 
-# hours_wasted_here = 52.5
+# hours_wasted_here = 54
 
 # Coded by Pianocraft1YT
 # Tutorial: https://youtu.be/ruWNKBdbYoo
@@ -61,7 +61,19 @@ class MetadataExtractor:
         if self.series_entry.get() == "":
             self.series_entry.insert(0, "Starting index (Img # Series)")
             self.series_entry.config(foreground="gray")
-
+    def maxDepthFocusIn(self, event):
+        if self.maxdepth_entry.get() == "Recursion Depth (#)":
+            self.maxdepth_entry.delete(0, "end")
+            self.maxdepth_entry.config(foreground="black")
+    def maxDepthFocusOut(self, event):
+        if self.maxdepth_entry.get() == "":
+            self.maxdepth_entry.insert(0, "Recursion Depth (#)")
+            self.maxdepth_entry.config(foreground="gray")
+    def recursive_input(self):
+        if self.recursive_var.get():
+            self.maxdepth_entry.pack(before=self.hyperlink_checkbox)
+        else:
+            self.maxdepth_entry.pack_forget()
     #To clean up any past executions
     def reset(self):
         self.used = set()
@@ -116,31 +128,52 @@ class MetadataExtractor:
         except Exception as e:  # noqa: BLE001
             self.collected_warnings["Hyperlink Error"].append(f"Hyperlinks could not be added. \nError: {e}")
     #Finds subdirectories for recursive mode
-    def find_directories(self, directory_path, final_output, modifier):
-        total_skipped = 0
-        total_processed = 0
-        directories_found = os.listdir(directory_path) #Only one level of recursion
-        directories_found.sort() # ensure consistent sheet order
+    def find_directories(self, directory_path, final_output, modifier, maxdepth):
         directories_to_scan = []
         sheet_names = []
-        for directory in directories_found:
-            current_directory = Path(directory_path.as_posix() + "/" + directory)
-            if not current_directory.is_dir():
-                continue
-            with os.scandir(current_directory) as entries:
-                has_photo = any(entry.is_file() and entry.name.lower().endswith(PHOTO_TYPES) for entry in entries)
-                if has_photo:
-                    directories_to_scan.append(current_directory)
-                    sheet_names.append(directory) #Just the directory name, not the full path
+        total_skipped = 0
+        total_processed = 0
+        for dirpath, dirs, files in self.walk_to_depth(directory_path, maxdepth): #Only one level of recursion
+            if not any(f.lower().endswith(PHOTO_TYPES) for f in files):
+                continue 
+            dirpath = Path(dirpath)
+            directories_to_scan.append(dirpath)
+            rel = Path(os.path.relpath(dirpath, directory_path))
+            sheet_name = "_".join(rel.parts)
+            if len(sheet_name) > SHEET_NAME_MAX_CHARS:
+                sheet_name = sheet_name[-SHEET_NAME_MAX_CHARS:]
+            sheet_names.append(sheet_name)
         for path, sheet_name in zip(directories_to_scan, sheet_names):
             self.current_sheet_name = sheet_name
             p, s = self.sort_and_extract_irregular(path, True, final_output, modifier)
             total_processed += p
             total_skipped += s
         self.create_sheet(final_output, True, total_processed, total_skipped)
+
+    def walk_to_depth(self, root_dir, max_depth):
+        # Normalize the path and count baseline separators
+        root_dir = os.path.abspath(root_dir)
+        baseline_depth = len(Path(root_dir).parts)
+
+        for dirpath, dirs, files in os.walk(root_dir, topdown=True):
+            dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(dirpath, d))]
+            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in {"System Volume Information", "$RECYCLE.BIN"}]
+            dirs.sort()
+            yield dirpath, dirs, files
+            
+            # Calculate current depth relative to root_dir
+            current_depth = len(Path(dirpath).parts) - baseline_depth
+            
+            # If we have reached the max depth, clear 'dirs' in-place 
+            # so os.walk won't dig any deeper
+            if current_depth >= max_depth:
+                del dirs[:]  # or dirs.clear()
+
     def check_recursive(self):
         modifier = 0 #For starting index of img_series
+        maxdepth = 1
         filetype = self.filetype_var.get()
+        recursive = self.recursive_var.get() #Get status of recursive_checkbox
         if self.debug: #No need to set output_path every time
             self.output_path = Path.home() / "Downloads"
         if self.directory_path is None or self.output_path is None:
@@ -154,6 +187,14 @@ class MetadataExtractor:
             #Placeholder, empty, or "1" means modifier stays 0; anything else errors
             messagebox.showerror("Numbers only.", message="Starting index must be a whole number greater than zero.")
             return
+        if recursive:
+            val = self.maxdepth_entry.get().strip()
+            if val.isdigit() and int(val) > 0: #Make sure starting index is valid digit
+                maxdepth = int(val) #We start at 1 by default
+            elif not (val == "Recursion Depth (#)" or val == ""):
+                #Placeholder or empty is rejected.
+                messagebox.showerror("Numbers only.", message="Recursion Depth must be a whole number greater than zero.")
+                return
         proceed = True
         if filetype == "CSV" and self.hyperlink_var.get():
             proceed = messagebox.askyesno("Hyperlinks Unsupported.", message="Hyperlinks are unsupported with CSV. Please select Excel for hyperlinks. Proceed without?")
@@ -165,10 +206,9 @@ class MetadataExtractor:
                 ext = "csv" if filetype == "CSV" else "xlsx"
                 final_output = Path(self.output_path) / f"output.{ext}" #Default filename
                 # final_output = Path(self.output_path) / f"output.{filetype.lower() if filetype.lower() == "csv" else "xlsx"}"  #Doesn't work on Python 3.11
-            recursive = self.recursive_var.get() #Get status of recursive_checkbox
             if filetype == "Excel":
                 if recursive:
-                    self.find_directories(self.directory_path, final_output, modifier) #Run recursive mode
+                    self.find_directories(self.directory_path, final_output, modifier, maxdepth) #Run recursive mode
                 else:
                     with os.scandir(self.directory_path) as entries:
                         photo_count = sum(1 for entry in entries if entry.is_file() and entry.name.lower().endswith(PHOTO_TYPES))
@@ -180,7 +220,7 @@ class MetadataExtractor:
             else: #Prompt for multiple CSV files output
                 if recursive:
                     ok = messagebox.askyesno("Multiple CSV Files", message="Recursive mode on CSV output will create multipls CSVs, one for each valid folder. Proceed?")
-                    if ok: self.find_directories(self.directory_path, final_output, modifier)
+                    if ok: self.find_directories(self.directory_path, final_output, modifier, maxdepth)
                     else: return
                 else: 
                     with os.scandir(self.directory_path) as entries:
@@ -545,7 +585,10 @@ class MetadataExtractor:
                             for filename in file:
                                 output+=f"\n{filename}\n"
                     if self.collected_warnings:
-                        messagebox.showwarning("Warning(s)", message=output)
+                        log_path = output_path.parent / "warnings.log"
+                        log_path.write_text(output, encoding="utf-8")
+                        summary = f"{len(self.collected_warnings)} warning categories.\n\nFull details: {log_path.as_posix()}"
+                        messagebox.showwarning("Warning(s)", message=summary)
                 else:
                     messagebox.showinfo("Cancelled", message="File not overwritten. Cancelled successfully.")
                 if not self.keepopen_var.get(): #Checks to close program or not
@@ -577,7 +620,7 @@ class MetadataExtractor:
         self.keepopen_var = tk.BooleanVar(value=False)
         self.keepopen_checkbox = tk.Checkbutton(self.frame, text="Keep open", variable=self.keepopen_var)
         self.recursive_var = tk.BooleanVar(value=False)
-        self.recursive_checkbox = tk.Checkbutton(self.frame, text="Scan subfolders", variable=self.recursive_var)
+        self.recursive_checkbox = tk.Checkbutton(self.frame, text="Recursive Mode", variable=self.recursive_var, command=self.recursive_input)
         self.timezone_var = tk.BooleanVar(value=False)
         self.timezone_checkbox = tk.Checkbutton(self.frame, text="Time in UTC", variable=self.timezone_var)
         self.filetype_var = tk.StringVar(value="Excel")
@@ -587,11 +630,15 @@ class MetadataExtractor:
         self.name_entry.insert(0, "Filename (default output.filetype)")
         self.series_entry = tk.Entry(self.frame, width=30, foreground="gray")
         self.series_entry.insert(0, "Starting index (Img # Series)")
+        self.maxdepth_entry = tk.Entry(self.frame, width=20, foreground="gray")
+        self.maxdepth_entry.insert(0, "Recursion Depth (#)")
 
         self.name_entry.bind("<FocusIn>", self.nameFocusIn)
         self.name_entry.bind("<FocusOut>", self.nameFocusOut)
         self.series_entry.bind("<FocusIn>", self.seriesFocusIn)
         self.series_entry.bind("<FocusOut>", self.seriesFocusOut)
+        self.maxdepth_entry.bind("<FocusIn>", self.maxDepthFocusIn)
+        self.maxdepth_entry.bind("<FocusOut>", self.maxDepthFocusOut)
 
         #Set default sheet name
         self.current_sheet_name = "Sheet"
