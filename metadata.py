@@ -6,7 +6,7 @@
 # Please increment this counter as a warning
 # For the next person:
 # 
-# hours_wasted_here = 54
+# hours_wasted_here = 56
 
 # Coded by Pianocraft1YT
 # Tutorial: https://youtu.be/ruWNKBdbYoo
@@ -15,12 +15,13 @@
 #Imports
 import os
 import sys
+import threading
 import tkinter as tk
 import traceback
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk
 
 import openpyxl
 import pandas as pd
@@ -69,17 +70,53 @@ class MetadataExtractor:
         if self.maxdepth_entry.get() == "":
             self.maxdepth_entry.insert(0, "Recursion Depth (#)")
             self.maxdepth_entry.config(foreground="gray")
+    # Show only when recursive is checked
     def recursive_input(self):
         if self.recursive_var.get():
             self.maxdepth_entry.pack(before=self.hyperlink_checkbox)
         else:
             self.maxdepth_entry.pack_forget()
+    # Helper for progress bar
+    def get_total_files(self, max_depth):
+        file_count = 0
+        for _, _, files in self.walk_to_depth(self.directory_path, max_depth): # HAve _ for unused
+            file_count += sum(1 for entry in files if entry.lower().endswith(PHOTO_TYPES))
+        return file_count
+    # Updates the progress bar
+    def update_progress(self, processed, skipped, current_dir):
+        self.scanned_count.set(f"Scanned: {processed} / {self.total_files}")
+        self.skipped_count.set(f"Skipped: {skipped}")
+        if self.total_files > 0: # No divide-by-zero errors
+            self.percentage_done.set(round(((processed + skipped) / self.total_files) * 100, 1)+"%")
+            self.progress_var.set(round(((processed + skipped) / self.total_files) * 100, 1))
+        else:
+            self.percentage_done.set("0%")
+            self.progress_var.set(0)
+        self.current_directory.set(str(current_dir)[-30:]) #Truncate to not be too long, last 30 characters
     #To clean up any past executions
-    def reset(self):
+    def reset(self, recursive):
         self.used = set()
         self.results.clear()
         self.collected_warnings.clear()
         self.current_sheet_name = "Sheet"
+        self.current_directory = ""
+        if recursive:
+            self.total_files = self.get_total_files(self.maxdepth)
+        else:
+            with os.scandir(self.directory_path) as entries:
+                self.total_files = sum(1 for entry in entries if entry.is_file() and entry.name.lower().endswith(PHOTO_TYPES+VIDEO_TYPES))
+        self.scanned_count.set(f"Scanned: 0 / {self.total_files}")
+        self.skipped_count.set("Skipped: 0")
+        self.percentage_done.set("0%")
+    # Runs the threaded versions of the scan(s)
+    def _run_scan_threaded(self, recursive, final_output, modifier):
+        if recursive:
+            scanned, skipped = self.find_directories(self.directory_path, final_output, modifier, progress_callback=lambda p, s, d: self.root.after(0, lambda p=p, s=s, d=d: self.update_progress(p, s, d))) #Run recursive mode
+        else:
+            scanned, skipped = self.sort_and_extract_irregular(self.directory_path, False, final_output, modifier, progress_callback=lambda p, s, d: self.root.after(0, lambda p=p, s=s, d=d: self.update_progress(p, s, d)))
+    def _clean_up(self):
+        # create_sheet needs to happen sometime
+        self.execute_button.config(state="normal")
     #Gets called on set directory button press to set image directory
     def set_dir(self):
         selected = filedialog.askdirectory(title="Select a Directory")
@@ -128,12 +165,12 @@ class MetadataExtractor:
         except Exception as e:  # noqa: BLE001
             self.collected_warnings["Hyperlink Error"].append(f"Hyperlinks could not be added. \nError: {e}")
     #Finds subdirectories for recursive mode
-    def find_directories(self, directory_path, final_output, modifier, maxdepth):
+    def find_directories(self, directory_path, final_output, modifier, progress_callback = None, defer_create_sheet=True):
         directories_to_scan = []
         sheet_names = []
         total_skipped = 0
         total_processed = 0
-        for dirpath, dirs, files in self.walk_to_depth(directory_path, maxdepth): #Only one level of recursion
+        for dirpath, dirs, files in self.walk_to_depth(directory_path, self.maxdepth): #Only one level of recursion
             if not any(f.lower().endswith(PHOTO_TYPES) for f in files):
                 continue 
             dirpath = Path(dirpath)
@@ -145,14 +182,15 @@ class MetadataExtractor:
             sheet_names.append(sheet_name)
         for path, sheet_name in zip(directories_to_scan, sheet_names):
             self.current_sheet_name = sheet_name
-            p, s = self.sort_and_extract_irregular(path, True, final_output, modifier)
+            p, s = self.sort_and_extract_irregular(path, True, final_output, modifier, progress_callback=progress_callback)
             total_processed += p
             total_skipped += s
-        self.create_sheet(final_output, True, total_processed, total_skipped)
-
+        if not defer_create_sheet:
+            self.create_sheet(final_output, True, total_processed, total_skipped)
+        return total_processed, total_skipped
     def walk_to_depth(self, root_dir, max_depth):
         # Normalize the path and count baseline separators
-        root_dir = os.path.abspath(root_dir)
+        root_dir = os.path.abspath(str(root_dir))
         baseline_depth = len(Path(root_dir).parts)
 
         for dirpath, dirs, files in os.walk(root_dir, topdown=True):
@@ -170,8 +208,8 @@ class MetadataExtractor:
                 del dirs[:]  # or dirs.clear()
 
     def check_recursive(self):
+        self.execute_button.config(state="disabled")
         modifier = 0 #For starting index of img_series
-        maxdepth = 1
         filetype = self.filetype_var.get()
         recursive = self.recursive_var.get() #Get status of recursive_checkbox
         if self.debug: #No need to set output_path every time
@@ -190,7 +228,7 @@ class MetadataExtractor:
         if recursive:
             val = self.maxdepth_entry.get().strip()
             if val.isdigit() and int(val) > 0: #Make sure starting index is valid digit
-                maxdepth = int(val) #We start at 1 by default
+                self.maxdepth = int(val) #We start at 1 by default
             elif not (val == "Recursion Depth (#)" or val == ""):
                 #Placeholder or empty is rejected.
                 messagebox.showerror("Numbers only.", message="Recursion Depth must be a whole number greater than zero.")
@@ -199,7 +237,7 @@ class MetadataExtractor:
         if filetype == "CSV" and self.hyperlink_var.get():
             proceed = messagebox.askyesno("Hyperlinks Unsupported.", message="Hyperlinks are unsupported with CSV. Please select Excel for hyperlinks. Proceed without?")
         if proceed:
-            self.reset() #Clear old data
+            self.reset(recursive) #Clear old data
             if self.name_entry.get() != "Filename (default output.filetype)": #Placeholder text
                 final_output = Path(self.output_path) / self.clean_name(self.name_entry.get()) #Clean_name to create valid names only
             else:
@@ -208,25 +246,25 @@ class MetadataExtractor:
                 # final_output = Path(self.output_path) / f"output.{filetype.lower() if filetype.lower() == "csv" else "xlsx"}"  #Doesn't work on Python 3.11
             if filetype == "Excel":
                 if recursive:
-                    self.find_directories(self.directory_path, final_output, modifier, maxdepth) #Run recursive mode
+                    threading.Thread(target=self._run_scan_threaded, args=(True, final_output, modifier), daemon=True).start()
                 else:
                     with os.scandir(self.directory_path) as entries:
                         photo_count = sum(1 for entry in entries if entry.is_file() and entry.name.lower().endswith(PHOTO_TYPES))
                         if photo_count > 0:
-                            self.sort_and_extract_irregular(self.directory_path, False, final_output, modifier)
+                           threading.Thread(target=self._run_scan_threaded, args=(False, final_output, modifier), daemon=True).start()
                         else:
                             messagebox.showerror("Empty directory", message="No files were found. Please select a valid directory")
                             return
             else: #Prompt for multiple CSV files output
                 if recursive:
                     ok = messagebox.askyesno("Multiple CSV Files", message="Recursive mode on CSV output will create multipls CSVs, one for each valid folder. Proceed?")
-                    if ok: self.find_directories(self.directory_path, final_output, modifier, maxdepth)
+                    if ok: threading.Thread(target=self._run_scan_threaded, args=(True, final_output, modifier), daemon=True).start()
                     else: return
                 else: 
                     with os.scandir(self.directory_path) as entries:
                         photo_count = sum(1 for entry in entries if entry.is_file() and entry.name.lower().endswith(PHOTO_TYPES))
                         if photo_count > 0:
-                            self.sort_and_extract_irregular(self.directory_path, False, final_output, modifier)
+                            threading.Thread(target=self._run_scan_threaded, args=(False, final_output, modifier), daemon=True).start()
                         else:
                             messagebox.showerror("Empty directory", message="No files were found. Please select a valid directory")
                             return
@@ -295,7 +333,7 @@ class MetadataExtractor:
         return stem + ext
     #Gets called initially, assumes irregular pattern, calls sort_and_extract() if regular
     #Paths supplied by user or debug mode
-    def sort_and_extract_irregular(self, directory_path, recursive, final_output, modifier):
+    def sort_and_extract_irregular(self, directory_path, recursive, final_output, modifier, progress_callback=None, defer_create_sheet=True):
         processed = 0
         skipped = 0
         output_series = True #If photos_before_video is less than MAX_PHOTOS_BEFORE_VIDEO.
@@ -339,7 +377,7 @@ class MetadataExtractor:
                                 photos_before_video_updated = True
                                 photos_before_video = 0
                     if (i == 0 and photos_before_video == 0) or output_series == False: #Runs if all photos, or pattern couldn't be found
-                        return self.sort_and_extract(directory_path,recursive, final_output, modifier, output_series) 
+                        return self.sort_and_extract(directory_path,recursive, final_output, modifier, output_series, progress_callback=progress_callback) 
                     if photos_before_video_updated and regular_pattern_found == False:
                         end = False #For scanning last files in a pattern
                         while pattern_check < photos_before_video:
@@ -357,18 +395,26 @@ class MetadataExtractor:
                                     i += 1
                                     index += 1 #Skipped image still consumes a series number
                                     skipped += 1
+                                    if progress_callback:
+                                        progress_callback(processed, skipped, directory_path)
                                     continue
                                 processed += 1
                                 img_series.append(str(index+modifier)) #Incorrect pattern found, images first
+                                if progress_callback:
+                                    progress_callback(processed, skipped, directory_path)
                         else:
                             for r in range(photos_before_video): #End of files to scan found
                                 if (i+r<len(files_and_dirs)) and files_and_dirs[i+r].lower().endswith(PHOTO_TYPES): #Scan all remaining files
                                     ok = self.scan_image(directory_path, files_and_dirs, i+r, list_of_dates, list_of_images, list_of_offsets)
                                     if not ok:
                                         skipped +=1
+                                        if progress_callback:
+                                            progress_callback(processed, skipped, directory_path)
                                         continue
                                     processed+=1
                                     img_series.append(str(index+r+modifier))
+                                    if progress_callback:
+                                        progress_callback(processed, skipped, directory_path)
                                         
                     pattern_check = 1
                     i += 1 #increment
@@ -387,6 +433,8 @@ class MetadataExtractor:
                             continue
                         processed +=1
                         img_series.append(str(index-photos_before_video+modifier) + "-" + str(index+modifier)) #Image + video series
+                        if progress_callback:
+                            progress_callback(processed, skipped, directory_path)
                         regular_pattern_found = False
                     i += 1 #increment, essentially skipping videos
                     index+=1
@@ -401,11 +449,11 @@ class MetadataExtractor:
             return 0, 0
         fixed_date, fixed_time = self.fix_time(list_of_dates, list_of_offsets)
         self.create_dataframe(img_series, list_of_images, fixed_date, fixed_time, directory_path, output_series)
-        if not recursive:
+        if not recursive and not defer_create_sheet:
             self.create_sheet(final_output, recursive, processed, skipped) #One folder only, output time
         return processed, skipped
     #For images-only or no Img # Series collumn
-    def sort_and_extract(self, directory_path, recursive, final_output, modifier, output_series):
+    def sort_and_extract(self, directory_path, recursive, final_output, modifier, output_series, progress_callback = None):
         processed = 0
         skipped = 0
         list_of_dates = []
@@ -428,8 +476,12 @@ class MetadataExtractor:
                     if not ok:
                         i+=1
                         skipped+=1
+                        if progress_callback:
+                            progress_callback(processed, skipped, directory_path)
                         continue
                     processed+=1
+                    if progress_callback:
+                        progress_callback(processed, skipped, directory_path)
                 else:
                     if output_series and not photos_before_video_updated and i != 0: #If a video hasn't been found before:
                         photos_before_video = i  #For Img # Series use
@@ -656,6 +708,21 @@ class MetadataExtractor:
         self.results = []
         #For output filetypes
         self.filetypes = ["Excel", "CSV"]
+        #For recursion
+        self.maxdepth = 1
+        #Progress bar stuff
+        self.current_directory = tk.StringVar()
+        self.scanned_count = tk.StringVar()
+        self.skipped_count = tk.StringVar()
+        self.percentage_done = tk.StringVar()
+        self.progress_frame = tk.Frame(self.root)
+        self.progress_var = tk.DoubleVar(value=0)
+        self.progress_bar = ttk.Progressbar(self.progress_frame, variable=self.progress_var)
+        self.directory_label = tk.Label(self.progress_frame, textvariable=self.current_directory)
+        self.scanned_label = tk.Label(self.progress_frame, textvariable=self.scanned_count)
+        self.percent_label = tk.Label(self.progress_frame, textvariable=self.percentage_done)
+        self.skipped_label = tk.Label(self.progress_frame, textvariable=self.skipped_count)
+        self.total_files = 0
 
     def run(self):
         self.frame.pack()
@@ -671,7 +738,13 @@ class MetadataExtractor:
             tk.Radiobutton(self.filetype_frame, text=ft, variable=self.filetype_var, value=ft).pack(side="left")
         self.execute_button.pack()
         self.keepopen_checkbox.pack()
-        self.root.geometry("280x260")
+        self.progress_frame.pack()
+        self.progress_bar.pack()
+        self.directory_label.pack()
+        self.scanned_label.pack()
+        self.percent_label.pack()
+        self.skipped_label.pack()
+        self.root.geometry("300x300")
         self.root.mainloop()
 
 
