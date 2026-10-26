@@ -99,24 +99,28 @@ class MetadataExtractor:
         self.results.clear()
         self.collected_warnings.clear()
         self.current_sheet_name = "Sheet"
-        self.current_directory = ""
+        self.current_directory.set("")
         if recursive:
             self.total_files = self.get_total_files(self.maxdepth)
         else:
             with os.scandir(self.directory_path) as entries:
-                self.total_files = sum(1 for entry in entries if entry.is_file() and entry.name.lower().endswith(PHOTO_TYPES+VIDEO_TYPES))
+                self.total_files = sum(1 for entry in entries if entry.is_file() and entry.name.lower().endswith(PHOTO_TYPES))
         self.scanned_count.set(f"Scanned: 0 / {self.total_files}")
         self.skipped_count.set("Skipped: 0")
         self.percentage_done.set("0%")
     # Runs the threaded versions of the scan(s)
     def _run_scan_threaded(self, recursive, final_output, modifier):
-        if recursive:
-            scanned, skipped = self.find_directories(self.directory_path, final_output, modifier, progress_callback=lambda p, s, d: self.root.after(0, lambda p=p, s=s, d=d: self.update_progress(p, s, d))) #Run recursive mode
-        else:
-            scanned, skipped = self.sort_and_extract_irregular(self.directory_path, False, final_output, modifier, progress_callback=lambda p, s, d: self.root.after(0, lambda p=p, s=s, d=d: self.update_progress(p, s, d)))
-    def _clean_up(self):
-        # create_sheet needs to happen sometime
+        total_scanned, total_skipped = 0, 0
+        try:
+            if recursive:
+                total_scanned, total_skipped = self.find_directories(self.directory_path, final_output, modifier, defer_create_sheet=True, progress_callback=lambda p, s, d: self.root.after(0, lambda p=p, s=s, d=d: self.update_progress(p, s, d))) #Run recursive mode
+            else:
+                total_scanned, total_skipped = self.sort_and_extract_irregular(self.directory_path, recursive, final_output, modifier, defer_create_sheet=True, progress_callback=lambda p, s, d: self.root.after(0, lambda p=p, s=s, d=d: self.update_progress(p, s, d)))
+        finally:
+            self.root.after(0, self._clean_up, final_output, recursive, total_scanned, total_skipped)
+    def _clean_up(self, final_output, recursive, processed, skipped):
         self.execute_button.config(state="normal")
+        self.create_sheet(final_output, recursive, processed, skipped)
     #Gets called on set directory button press to set image directory
     def set_dir(self):
         selected = filedialog.askdirectory(title="Select a Directory")
@@ -165,7 +169,7 @@ class MetadataExtractor:
         except Exception as e:  # noqa: BLE001
             self.collected_warnings["Hyperlink Error"].append(f"Hyperlinks could not be added. \nError: {e}")
     #Finds subdirectories for recursive mode
-    def find_directories(self, directory_path, final_output, modifier, progress_callback = None, defer_create_sheet=True):
+    def find_directories(self, directory_path, final_output, modifier, progress_callback = None, defer_create_sheet=False):
         directories_to_scan = []
         sheet_names = []
         total_skipped = 0
@@ -182,7 +186,7 @@ class MetadataExtractor:
             sheet_names.append(sheet_name)
         for path, sheet_name in zip(directories_to_scan, sheet_names):
             self.current_sheet_name = sheet_name
-            p, s = self.sort_and_extract_irregular(path, True, final_output, modifier, progress_callback=progress_callback)
+            p, s = self.sort_and_extract_irregular(path, True, final_output, modifier, progress_callback=progress_callback, defer_create_sheet=defer_create_sheet)
             total_processed += p
             total_skipped += s
         if not defer_create_sheet:
@@ -208,7 +212,6 @@ class MetadataExtractor:
                 del dirs[:]  # or dirs.clear()
 
     def check_recursive(self):
-        self.execute_button.config(state="disabled")
         modifier = 0 #For starting index of img_series
         filetype = self.filetype_var.get()
         recursive = self.recursive_var.get() #Get status of recursive_checkbox
@@ -244,6 +247,7 @@ class MetadataExtractor:
                 ext = "csv" if filetype == "CSV" else "xlsx"
                 final_output = Path(self.output_path) / f"output.{ext}" #Default filename
                 # final_output = Path(self.output_path) / f"output.{filetype.lower() if filetype.lower() == "csv" else "xlsx"}"  #Doesn't work on Python 3.11
+            self.execute_button.config(state="disabled")
             if filetype == "Excel":
                 if recursive:
                     threading.Thread(target=self._run_scan_threaded, args=(True, final_output, modifier), daemon=True).start()
@@ -333,7 +337,7 @@ class MetadataExtractor:
         return stem + ext
     #Gets called initially, assumes irregular pattern, calls sort_and_extract() if regular
     #Paths supplied by user or debug mode
-    def sort_and_extract_irregular(self, directory_path, recursive, final_output, modifier, progress_callback=None, defer_create_sheet=True):
+    def sort_and_extract_irregular(self, directory_path, recursive, final_output, modifier, progress_callback=None, defer_create_sheet=False):
         processed = 0
         skipped = 0
         output_series = True #If photos_before_video is less than MAX_PHOTOS_BEFORE_VIDEO.
@@ -377,7 +381,7 @@ class MetadataExtractor:
                                 photos_before_video_updated = True
                                 photos_before_video = 0
                     if (i == 0 and photos_before_video == 0) or output_series == False: #Runs if all photos, or pattern couldn't be found
-                        return self.sort_and_extract(directory_path,recursive, final_output, modifier, output_series, progress_callback=progress_callback) 
+                        return self.sort_and_extract(directory_path,recursive, final_output, modifier, output_series, progress_callback=progress_callback, defer_create_sheet=defer_create_sheet) 
                     if photos_before_video_updated and regular_pattern_found == False:
                         end = False #For scanning last files in a pattern
                         while pattern_check < photos_before_video:
@@ -453,7 +457,7 @@ class MetadataExtractor:
             self.create_sheet(final_output, recursive, processed, skipped) #One folder only, output time
         return processed, skipped
     #For images-only or no Img # Series collumn
-    def sort_and_extract(self, directory_path, recursive, final_output, modifier, output_series, progress_callback = None):
+    def sort_and_extract(self, directory_path, recursive, final_output, modifier, output_series, progress_callback = None, defer_create_sheet=False):
         processed = 0
         skipped = 0
         list_of_dates = []
@@ -499,7 +503,7 @@ class MetadataExtractor:
         fixed_date, fixed_time = self.fix_time(list_of_dates, list_of_offsets)
         img_series, final_images, final_dates, final_times = self.make_series(list_of_images,photos_before_video_updated,photos_before_video,fixed_date,fixed_time, modifier, output_series)
         self.create_dataframe(img_series, final_images, final_dates, final_times, directory_path, output_series)
-        if not recursive:
+        if not recursive and not defer_create_sheet:
             self.create_sheet(final_output, recursive, processed, skipped)
         return processed, skipped
 
