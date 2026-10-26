@@ -87,7 +87,7 @@ class MetadataExtractor:
         self.scanned_count.set(f"Scanned: {processed} / {self.total_files}")
         self.skipped_count.set(f"Skipped: {skipped}")
         if self.total_files > 0: # No divide-by-zero errors
-            self.percentage_done.set(round(((processed + skipped) / self.total_files) * 100, 1)+"%")
+            self.percentage_done.set(f"{round(((processed + skipped) / self.total_files) * 100, 1)}%")
             self.progress_var.set(round(((processed + skipped) / self.total_files) * 100, 1))
         else:
             self.percentage_done.set("0%")
@@ -108,6 +108,7 @@ class MetadataExtractor:
         self.scanned_count.set(f"Scanned: 0 / {self.total_files}")
         self.skipped_count.set("Skipped: 0")
         self.percentage_done.set("0%")
+        self.progress_var.set(0)
     # Runs the threaded versions of the scan(s)
     def _run_scan_threaded(self, recursive, final_output, modifier):
         total_scanned, total_skipped = 0, 0
@@ -186,7 +187,19 @@ class MetadataExtractor:
             sheet_names.append(sheet_name)
         for path, sheet_name in zip(directories_to_scan, sheet_names):
             self.current_sheet_name = sheet_name
-            p, s = self.sort_and_extract_irregular(path, True, final_output, modifier, progress_callback=progress_callback, defer_create_sheet=defer_create_sheet)
+
+            if progress_callback:
+                _base_p = total_processed
+                _base_s = total_skipped
+                wrapped_cb = lambda p, s, d, base_p=_base_p, base_s=_base_s: progress_callback(base_p + p, base_s + s, d)
+            else:
+                wrapped_cb = None
+
+            p, s = self.sort_and_extract_irregular(
+                path, True, final_output, modifier,
+                progress_callback=wrapped_cb,
+                defer_create_sheet=defer_create_sheet,
+            )
             total_processed += p
             total_skipped += s
         if not defer_create_sheet:
@@ -361,7 +374,8 @@ class MetadataExtractor:
             # Early check: if the first file is a video, show error and return
             if files_and_dirs and files_and_dirs[0].lower().endswith(VIDEO_TYPES):
                 self.collected_warnings["Video First"].append(f"{directory_path}")
-                return 0, 0
+                skipped_count = sum(1 for f in files_and_dirs if f.lower().endswith(PHOTO_TYPES))
+                return 0, skipped_count
             #Iterates through every file in the directory
             for file in files_and_dirs:
                 #If file is not a video, extract metadata from the image.
@@ -444,13 +458,16 @@ class MetadataExtractor:
                     index+=1
         except (FileNotFoundError, PermissionError):
             self.collected_warnings["Directory Error"].append(f"{directory_path}")
-            return 0, 0
+            skipped_count = sum(1 for f in files_and_dirs if f.lower().endswith(PHOTO_TYPES))
+            return 0, skipped_count
         except OSError:
                 self.collected_warnings["Scan Error"].append(f"[{directory_path}]\\{files_and_dirs[i]}")
-                return 0, 0
+                skipped_count = sum(1 for f in files_and_dirs if f.lower().endswith(PHOTO_TYPES))
+                return 0, skipped_count
         except Exception as e:  # noqa: BLE001
             self.collected_warnings["Unexpected"].append(f"[{directory_path}]: {e}\n{traceback.format_exc()}")
-            return 0, 0
+            skipped_count = sum(1 for f in files_and_dirs if f.lower().endswith(PHOTO_TYPES))
+            return 0, skipped_count
         fixed_date, fixed_time = self.fix_time(list_of_dates, list_of_offsets)
         self.create_dataframe(img_series, list_of_images, fixed_date, fixed_time, directory_path, output_series)
         if not recursive and not defer_create_sheet:
@@ -493,13 +510,16 @@ class MetadataExtractor:
                 i += 1 #increment, essentially skipping videos
         except (FileNotFoundError, PermissionError):
             self.collected_warnings["Directory Error"].append(f"{directory_path}")
-            return 0, 0
+            skipped_count = sum(1 for f in files_and_dirs if f.lower().endswith(PHOTO_TYPES))
+            return 0, skipped_count
         except OSError:
                 self.collected_warnings["Scan Error"].append(f"[{directory_path}]\\{files_and_dirs[i]}")
-                return 0, 0
+                skipped_count = sum(1 for f in files_and_dirs if f.lower().endswith(PHOTO_TYPES))
+                return 0, skipped_count
         except Exception as e:  # noqa: BLE001
             self.collected_warnings["Unexpected"].append(f"[{directory_path}]: {e}\n{traceback.format_exc()}")
-            return 0, 0
+            skipped_count = sum(1 for f in files_and_dirs if f.lower().endswith(PHOTO_TYPES))
+            return 0, skipped_count
         fixed_date, fixed_time = self.fix_time(list_of_dates, list_of_offsets)
         img_series, final_images, final_dates, final_times = self.make_series(list_of_images,photos_before_video_updated,photos_before_video,fixed_date,fixed_time, modifier, output_series)
         self.create_dataframe(img_series, final_images, final_dates, final_times, directory_path, output_series)
@@ -748,7 +768,7 @@ class MetadataExtractor:
         self.scanned_label.pack()
         self.percent_label.pack()
         self.skipped_label.pack()
-        self.root.geometry("300x300")
+        self.root.geometry("300x360")
         self.root.mainloop()
 
 
