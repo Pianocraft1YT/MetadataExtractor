@@ -110,21 +110,23 @@ def test_irregular_all_photos_falls_through_to_sort_and_extract(extractor, photo
     assert len(df) == 3
 
 
-def test_irregular_video_first_shows_warning_and_returns(extractor, tmp_path):
+def test_irregular_video_first_shows_warning_and_returns(extractor, tmp_path, monkeypatch):
     folder = tmp_path / "video_first"
     folder.mkdir()
     (folder / "A_video.mp4").write_bytes(b"fake")
     make_jpeg_with_exif(folder / "B_photo.jpg", "2024:05:15 12:30:45")
 
-    extractor.sort_and_extract_irregular(
-        folder,
-        recursive=False,
-        final_output=Path("out.xlsx"),
-        modifier=0,
-    )
-    assert "Video First" in extractor.collected_warnings
-    assert extractor.collected_warnings["Video First"]
+    # Tell the messagebox to click "Yes" (it's an orphan, drop the video)
+    monkeypatch.setattr("metadata.messagebox.askyesno", lambda *args, **kwargs: True)
 
+    extractor.sort_and_extract_irregular(
+        folder, recursive=False,
+        final_output=Path("out.xlsx"), modifier=0,
+    )
+    
+    # It should successfully process the photo, and NOT trigger a warning
+    assert "Video First" not in extractor.collected_warnings
+    assert extractor.results[0][0].shape[0] == 1 # The photo was processed
 
 def test_irregular_with_modifier(extractor, photos_and_videos):
     _capture_create_sheet(extractor)

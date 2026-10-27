@@ -70,14 +70,20 @@ def test_trailing_photos_with_no_video(extractor, tmp_path):
     assert extractor.results
 
 
-def test_all_videos_no_photos(extractor, tmp_path):
+def test_all_videos_no_photos(extractor, tmp_path, monkeypatch):
     folder = tmp_path / "all_videos"
     folder.mkdir()
     for i in range(3):
         (folder / f"{i:04d}_video.mp4").write_bytes(b"\x00\x00\x00\x18ftypmp42")
-    extractor.sort_and_extract_irregular(folder, recursive=False, final_output=Path("out.xlsx"), modifier=0)
-    assert "Video First" in extractor.collected_warnings
 
+    # Tell the messagebox to click "Yes" (it's an orphan)
+    monkeypatch.setattr("metadata.messagebox.askyesno", lambda *args, **kwargs: True)
+
+    extractor.sort_and_extract_irregular(folder, recursive=False, final_output=Path("out.xlsx"), modifier=0)
+    
+    # The dataframe is created, but it should be empty
+    assert len(extractor.results) == 1
+    assert extractor.results[0][0].empty
 
 def test_starting_index_zero(extractor, tmp_path):
     folder = tmp_path / "idx0"
