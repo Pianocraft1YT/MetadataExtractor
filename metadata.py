@@ -79,6 +79,11 @@ class MetadataExtractor:
         else:
             self.maxdepth_entry.pack_forget()
 
+    # For debug_checkbox warning
+    def debug_warning(self):
+        if self.debug_var.get():
+            self.debug_var.set(messagebox.askokcancel("Debug selected", message="Debug mode has been enabled.\nThis means that output directory is Path.home()/Downloads/output.filetype.\nSeries will always output regardles of irregularity.\n\nPlease disable if this was an accident."))
+
     # Helpers for progress bar
     def get_total_files(self, max_depth):
         file_count = 0
@@ -141,23 +146,23 @@ class MetadataExtractor:
             self.output_path = Path(selected)
 
     #Image metadata extractor helper function
-    def scan_image(self, directory_path, files_and_dirs, i, list_of_dates, list_of_images, list_of_offsets):
+    def scan_image(self, directory_path, media_files, i, list_of_dates, list_of_images, list_of_offsets):
         offset = None
         try:
-            with Image.open(Path(directory_path) / files_and_dirs[i]) as img: #open the image
+            with Image.open(Path(directory_path) / media_files[i]) as img: #open the image
                 exif_data = img.getexif() #get the exif metadata
             dt = exif_data.get(EXIF_DATETIME_ORIGINAL) or exif_data.get(EXIF_DATETIME_DIGITIZED) or exif_data.get(EXIF_DATETIME) #only extract date and time
             if dt is None:
-                self.collected_warnings["No Metadata"].append(f"[{directory_path}]\\{files_and_dirs[i]}")
+                self.collected_warnings["No Metadata"].append(f"[{directory_path}]\\{media_files[i]}")
                 return False
             if self.timezone_var.get():
                 offset = exif_data.get(EXIF_OFFSET_TIME_ORIGINAL)
         except (OSError, SyntaxError, ValueError, UnidentifiedImageError):
-            self.collected_warnings["Scan Error"].append(f"[{directory_path}]\\{files_and_dirs[i]}")
+            self.collected_warnings["Scan Error"].append(f"[{directory_path}]\\{media_files[i]}")
             return False
         else: #No errors
             list_of_dates.append(dt) #Add to lists
-            list_of_images.append(files_and_dirs[i])
+            list_of_images.append(media_files[i])
             list_of_offsets.append(offset)
             return True
 
@@ -243,7 +248,7 @@ class MetadataExtractor:
         modifier = 0 #For starting index of img_series
         filetype = self.filetype_var.get() #CSV or Excel
         recursive = self.recursive_var.get() #Get status of recursive_checkbox
-        if self.debug: #No need to set output_path every time on debug mode
+        if self.debug_var.get(): #No need to set output_path every time on debug mode
             self.output_path = Path.home() / "Downloads"
         if self.directory_path is None or self.output_path is None: #Validating paths
             messagebox.showerror( #If no output/directory path was set, error to allow for changes
@@ -384,28 +389,28 @@ class MetadataExtractor:
             #List all files in directory given
             all_files = os.listdir(directory_path)
             #Sorts files alphabetically, ignoring file extensions and capitalization, ignoring any non-photo or non-video files
-            files_and_dirs = [f for f in all_files if f.lower().endswith(PHOTO_TYPES + VIDEO_TYPES) and os.path.isfile(os.path.join(directory_path, f))]
-            files_and_dirs.sort(key=lambda x: os.path.splitext(x)[0].lower())
+            media_files = [f for f in all_files if f.lower().endswith(PHOTO_TYPES + VIDEO_TYPES) and os.path.isfile(os.path.join(directory_path, f))]
+            media_files.sort(key=lambda x: os.path.splitext(x)[0].lower())
             # Initial check: if the first file is a video
             first_video_orphan = False #Default not an orphaned video
-            if files_and_dirs and files_and_dirs[0].lower().endswith(VIDEO_TYPES):
+            if media_files and media_files[0].lower().endswith(VIDEO_TYPES):
                 first_video_orphan = messagebox.askyesno("Video First", message=f"Video was found first in {directory_path}. Is it an orphan? (Please check)")
                 if first_video_orphan:
-                    files_and_dirs = files_and_dirs[1:] # Chop off orphan
+                    media_files = media_files[1:] # Chop off orphan
             #Iterates through every file in the directory
-            for file in files_and_dirs:
+            for file in media_files:
                 #If file is not a video, extract metadata from the image.
                 if not file.lower().endswith(VIDEO_TYPES):
                     if i == 0: #Image found first
                         photos_before_video+=1
                         while photos_before_video_updated == False: #Find the pattern
-                            if i+initial_check < len(files_and_dirs):
-                                if files_and_dirs[i+initial_check].lower().endswith(PHOTO_TYPES): #Keep incrementing until video is found
+                            if i+initial_check < len(media_files):
+                                if media_files[i+initial_check].lower().endswith(PHOTO_TYPES): #Keep incrementing until video is found
                                     photos_before_video+=1
                                     initial_check+=1
                                 else: #Video was detected
                                     photos_before_video_updated = True
-                                    if photos_before_video > MAX_PHOTOS_BEFORE_VIDEO: #Pattern not found, usually not more than 5 images + 1 video. Do not output series.
+                                    if photos_before_video > MAX_PHOTOS_BEFORE_VIDEO and not self.debug_var.get(): #Pattern not found, usually not more than 5 images + 1 video. Do not output series.
                                         output_series = False
                             else: #All photos found
                                 photos_before_video_updated = True
@@ -415,16 +420,16 @@ class MetadataExtractor:
                     if photos_before_video_updated and regular_pattern_found == False: #No pattern found yet, or is in between sets
                         end = False #For scanning last files in a pattern
                         while pattern_check < photos_before_video:
-                            if photos_before_video+i > len(files_and_dirs)-1: 
+                            if photos_before_video+i > len(media_files)-1: 
                                 regular_pattern_found=True
                                 end = True
                                 break
                             pattern_check+=1
                         if not end: #Not nearing the end of files to scan/check yet
-                            if (i+pattern_check < len(files_and_dirs) and files_and_dirs[i+pattern_check].lower().endswith(VIDEO_TYPES)): #Verifies expected pattern
+                            if (i+pattern_check < len(media_files) and media_files[i+pattern_check].lower().endswith(VIDEO_TYPES)): #Verifies expected pattern
                                 regular_pattern_found = True
                             else: #Not regular pattern
-                                ok = self.scan_image(directory_path, files_and_dirs, i, list_of_dates, list_of_images, list_of_offsets) #Scan image as one-off
+                                ok = self.scan_image(directory_path, media_files, i, list_of_dates, list_of_images, list_of_offsets) #Scan image as one-off
                                 if not ok:
                                     i += 1
                                     index += 1 #Skipped image still consumes a series number
@@ -438,8 +443,8 @@ class MetadataExtractor:
                                     progress_callback(processed, skipped, directory_path)
                         else: #Nearing end of directory listing
                             for r in range(photos_before_video): #End of files to scan found
-                                if (i+r<len(files_and_dirs)) and files_and_dirs[i+r].lower().endswith(PHOTO_TYPES): #Scan all remaining files
-                                    ok = self.scan_image(directory_path, files_and_dirs, i+r, list_of_dates, list_of_images, list_of_offsets)
+                                if (i+r<len(media_files)) and media_files[i+r].lower().endswith(PHOTO_TYPES): #Scan all remaining files
+                                    ok = self.scan_image(directory_path, media_files, i+r, list_of_dates, list_of_images, list_of_offsets)
                                     if not ok:
                                         skipped +=1
                                         if progress_callback:
@@ -457,20 +462,20 @@ class MetadataExtractor:
                     # If the first file was a video (not orphan), count the photos after it to set the pattern
                     if (i == 0 and not first_video_orphan): #First video is part of series, so it is video, photos_before_video photos, then start of next block with video.
                         while photos_before_video_updated == False: #Find the pattern
-                            if i+initial_check < len(files_and_dirs):
-                                if files_and_dirs[i+initial_check].lower().endswith(PHOTO_TYPES):
+                            if i+initial_check < len(media_files):
+                                if media_files[i+initial_check].lower().endswith(PHOTO_TYPES):
                                     photos_before_video += 1
                                     initial_check += 1
                                 else:
                                     photos_before_video_updated = True
-                                    if photos_before_video > MAX_PHOTOS_BEFORE_VIDEO:
+                                    if photos_before_video > MAX_PHOTOS_BEFORE_VIDEO and not self.debug_var.get():
                                         output_series = False
                             else:
                                 photos_before_video_updated = True
                                 photos_before_video = 0
                     # Standard pattern found logic otherwise
                     if regular_pattern_found: 
-                        ok = self.scan_image(directory_path, files_and_dirs, i-1, list_of_dates, list_of_images, list_of_offsets)
+                        ok = self.scan_image(directory_path, media_files, i-1, list_of_dates, list_of_images, list_of_offsets)
                         if not ok:
                             i+=1
                             index+=1
@@ -486,15 +491,15 @@ class MetadataExtractor:
                     index+=1
         except (FileNotFoundError, PermissionError):
             self.collected_warnings["Directory Error"].append(f"{directory_path}")
-            skipped_count = sum(1 for f in files_and_dirs if f.lower().endswith(PHOTO_TYPES))
+            skipped_count = sum(1 for f in media_files if f.lower().endswith(PHOTO_TYPES))
             return 0, skipped_count
         except OSError:
-                self.collected_warnings["Scan Error"].append(f"[{directory_path}]\\{files_and_dirs[i]}")
-                skipped_count = sum(1 for f in files_and_dirs if f.lower().endswith(PHOTO_TYPES))
+                self.collected_warnings["Scan Error"].append(f"[{directory_path}]\\{media_files[i]}")
+                skipped_count = sum(1 for f in media_files if f.lower().endswith(PHOTO_TYPES))
                 return 0, skipped_count
         except Exception as e:  # noqa: BLE001
             self.collected_warnings["Unexpected"].append(f"[{directory_path}]: {e}\n{traceback.format_exc()}")
-            skipped_count = sum(1 for f in files_and_dirs if f.lower().endswith(PHOTO_TYPES))
+            skipped_count = sum(1 for f in media_files if f.lower().endswith(PHOTO_TYPES))
             return 0, skipped_count
         fixed_date, fixed_time = self.fix_time(list_of_dates, list_of_offsets)
         self.create_dataframe(img_series, list_of_images, fixed_date, fixed_time, directory_path, output_series)
@@ -515,14 +520,14 @@ class MetadataExtractor:
         try:
             #List all files in directory given
             all_files = os.listdir(directory_path)
-            files_and_dirs = [f for f in all_files if f.lower().endswith(PHOTO_TYPES + VIDEO_TYPES) and os.path.isfile(os.path.join(directory_path, f))]
+            media_files = [f for f in all_files if f.lower().endswith(PHOTO_TYPES + VIDEO_TYPES) and os.path.isfile(os.path.join(directory_path, f))]
             #Sorts files alphabetically, ignoring file extensions and capitalization
-            files_and_dirs.sort(key=lambda x: os.path.splitext(x)[0].lower())
+            media_files.sort(key=lambda x: os.path.splitext(x)[0].lower())
             #Iterates through every file in the directory
-            while i < len(files_and_dirs):
+            while i < len(media_files):
                 #If file is not a video, extract metadata from the image.
-                if not files_and_dirs[i].lower().endswith(VIDEO_TYPES):
-                    ok = self.scan_image(directory_path, files_and_dirs, i, list_of_dates, list_of_images, list_of_offsets)
+                if not media_files[i].lower().endswith(VIDEO_TYPES):
+                    ok = self.scan_image(directory_path, media_files, i, list_of_dates, list_of_images, list_of_offsets)
                     if not ok:
                         i+=1
                         skipped+=1
@@ -539,15 +544,15 @@ class MetadataExtractor:
                 i += 1 #increment, essentially skipping videos
         except (FileNotFoundError, PermissionError):
             self.collected_warnings["Directory Error"].append(f"{directory_path}")
-            skipped_count = sum(1 for f in files_and_dirs if f.lower().endswith(PHOTO_TYPES))
+            skipped_count = sum(1 for f in media_files if f.lower().endswith(PHOTO_TYPES))
             return 0, skipped_count
         except OSError:
-                self.collected_warnings["Scan Error"].append(f"[{directory_path}]\\{files_and_dirs[i]}")
-                skipped_count = sum(1 for f in files_and_dirs if f.lower().endswith(PHOTO_TYPES))
+                self.collected_warnings["Scan Error"].append(f"[{directory_path}]\\{media_files[i]}")
+                skipped_count = sum(1 for f in media_files if f.lower().endswith(PHOTO_TYPES))
                 return 0, skipped_count
         except Exception as e:  # noqa: BLE001
             self.collected_warnings["Unexpected"].append(f"[{directory_path}]: {e}\n{traceback.format_exc()}")
-            skipped_count = sum(1 for f in files_and_dirs if f.lower().endswith(PHOTO_TYPES))
+            skipped_count = sum(1 for f in media_files if f.lower().endswith(PHOTO_TYPES))
             return 0, skipped_count
 
         fixed_date, fixed_time = self.fix_time(list_of_dates, list_of_offsets)
@@ -730,11 +735,13 @@ class MetadataExtractor:
         self.set_directory_button = tk.Button(self.frame, command=self.set_dir, text="Set folder with images")
         self.set_output_button = tk.Button(self.frame, command=self.set_output, text="Set output folder")
         self.keepopen_var = tk.BooleanVar(value=False)
-        self.keepopen_checkbox = tk.Checkbutton(self.frame, text="Keep open", variable=self.keepopen_var)
+        self.keepopen_checkbox = tk.Checkbutton(self.frame, text="Keep Open", variable=self.keepopen_var)
         self.recursive_var = tk.BooleanVar(value=False)
         self.recursive_checkbox = tk.Checkbutton(self.frame, text="Recursive Mode", variable=self.recursive_var, command=self.recursive_input)
         self.timezone_var = tk.BooleanVar(value=False)
         self.timezone_checkbox = tk.Checkbutton(self.frame, text="Time in UTC", variable=self.timezone_var)
+        self.debug_var = tk.BooleanVar(value=False)
+        self.debug_checkbox = tk.Checkbutton(self.frame, text="Debug Mode", variable=self.debug_var, command=self.debug_warning)
         self.filetype_var = tk.StringVar(value="Excel")
         self.hyperlink_var = tk.BooleanVar(value=True)
         self.hyperlink_checkbox = tk.Checkbutton(self.frame, text="Add Hyperlinks", variable=self.hyperlink_var)
@@ -760,8 +767,6 @@ class MetadataExtractor:
         self.directory_path = None
         #Directory to output .xlsx file to
         self.output_path = None
-        #For debugging only, manually set
-        self.debug = False
         #For verify_name
         self.used = set()
         #Variable for use with recursive directories, list of dataframes
@@ -787,6 +792,7 @@ class MetadataExtractor:
 
     #After initialization
     def run(self):
+        #Pack main widgets
         self.frame.pack()
         self.set_directory_button.pack()
         self.set_output_button.pack()
@@ -800,13 +806,16 @@ class MetadataExtractor:
             tk.Radiobutton(self.filetype_frame, text=ft, variable=self.filetype_var, value=ft).pack(side="left")
         self.execute_button.pack()
         self.keepopen_checkbox.pack()
+        self.debug_checkbox.pack()
+
+        #Pack progress bar
         self.progress_frame.pack()
         self.progress_bar.pack()
         self.directory_label.pack()
         self.scanned_label.pack()
         self.percent_label.pack()
         self.skipped_label.pack()
-        self.root.geometry("300x360")
+        self.root.geometry("300x380")
         self.root.mainloop()
 
 #Always runs
