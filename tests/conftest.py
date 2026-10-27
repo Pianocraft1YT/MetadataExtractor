@@ -40,8 +40,14 @@ def _build_extractor(request, filetype: str, timezone: bool = False):
     app = metadata.MetadataExtractor()
     if not request.node.get_closest_marker("real_create_sheet"):
         app.create_sheet = MagicMock()
+    
     _set_timezone(app, timezone)
     _set_filetype(app, filetype)
+    cast(MagicMock, app.keepopen_var).get.return_value = True
+    
+    # ADD THIS LINE:
+    cast(MagicMock, app.debug_var).get.return_value = False
+    
     return app
 
 
