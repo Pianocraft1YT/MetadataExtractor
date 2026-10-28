@@ -120,13 +120,16 @@ def test_irregular_video_first_shows_warning_and_returns(extractor, tmp_path, mo
     monkeypatch.setattr("metadata.messagebox.askyesno", lambda *args, **kwargs: True)
 
     extractor.sort_and_extract_irregular(
-        folder, recursive=False,
-        final_output=Path("out.xlsx"), modifier=0,
+        folder,
+        recursive=False,
+        final_output=Path("out.xlsx"),
+        modifier=0,
     )
-    
+
     # It should successfully process the photo, and NOT trigger a warning
     assert "Video First" not in extractor.collected_warnings
-    assert extractor.results[0][0].shape[0] == 1 # The photo was processed
+    assert extractor.results[0][0].shape[0] == 1  # The photo was processed
+
 
 def test_irregular_with_modifier(extractor, photos_and_videos):
     _capture_create_sheet(extractor)

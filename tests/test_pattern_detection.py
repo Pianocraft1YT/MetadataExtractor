@@ -3,6 +3,7 @@ from pathlib import Path
 import metadata
 from tests.conftest import make_jpeg_with_exif
 
+
 def _build_folder(folder, layout):
     counter = 1
     for ch in layout:
@@ -12,22 +13,25 @@ def _build_folder(folder, layout):
             (folder / f"{counter:04d}_video.mp4").write_bytes(b"\x00\x00\x00\x18ftypmp42")
         counter += 1
 
+
 def _capture(extractor):
     extractor.create_sheet = MagicMock()
+
 
 def test_exactly_six_photos_before_video(extractor, tmp_path):
     folder = tmp_path / "six"
     folder.mkdir()
     _build_folder(folder, "PPPPPPV")
     _capture(extractor)
-    
+
     # Explicitly turn off debug mode for this test
     extractor.debug_var = MagicMock()
     extractor.debug_var.get.return_value = False
-    
+
     extractor.sort_and_extract_irregular(folder, recursive=False, final_output=Path("out.xlsx"), modifier=0)
     df, _, _ = extractor.results[0]
     assert len(df) == 6
+
 
 def test_two_videos_in_a_row(extractor, tmp_path):
     folder = tmp_path / "vv"
@@ -56,6 +60,7 @@ def test_exactly_five_photos_before_video(extractor, tmp_path):
     df, _, _ = extractor.results[0]
     assert len(df) == 1
 
+
 def test_trailing_photos_with_no_video(extractor, tmp_path):
     folder = tmp_path / "trailing"
     folder.mkdir()
@@ -75,10 +80,11 @@ def test_all_videos_no_photos(extractor, tmp_path, monkeypatch):
     monkeypatch.setattr("metadata.messagebox.askyesno", lambda *args, **kwargs: True)
 
     extractor.sort_and_extract_irregular(folder, recursive=False, final_output=Path("out.xlsx"), modifier=0)
-    
+
     # The dataframe is created, but it should be empty
     assert len(extractor.results) == 1
     assert extractor.results[0][0].empty
+
 
 def test_starting_index_zero(extractor, tmp_path):
     folder = tmp_path / "idx0"

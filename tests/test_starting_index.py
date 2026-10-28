@@ -11,9 +11,7 @@ from unittest.mock import MagicMock
 import pytest
 
 
-def _mock_widgets(extractor, series_value,
-                  name_value="Filename (default output.filetype)",
-                  recursive=False):
+def _mock_widgets(extractor, series_value, name_value="Filename (default output.filetype)", recursive=False):
     """Set mock widget values directly on the extractor instance."""
     series_entry = MagicMock()
     series_entry.get.return_value = series_value
@@ -48,10 +46,12 @@ def _capture_errors(monkeypatch):
 @pytest.fixture(autouse=True)
 def run_threads_synchronously(monkeypatch):
     """Replace threading.Thread with a synchronous version for tests."""
+
     class FakeThread:
         def __init__(self, target=None, args=(), daemon=None, **kwargs):
             self._target = target
             self._args = args
+
         def start(self):
             if self._target:
                 self._target(*self._args)
@@ -71,11 +71,14 @@ def test_invalid_starting_index_rejected(extractor, monkeypatch, tmp_path, value
     assert errors, f"expected rejection for {value!r}"
 
 
-@pytest.mark.parametrize("value,expected_modifier", [
-    ("1", 0),
-    ("5", 4),
-    ("100", 99),
-])
+@pytest.mark.parametrize(
+    "value,expected_modifier",
+    [
+        ("1", 0),
+        ("5", 4),
+        ("100", 99),
+    ],
+)
 def test_valid_starting_index_accepted(extractor, monkeypatch, tmp_path, value, expected_modifier):
     _mock_widgets(extractor, series_value=value)
     (tmp_path / "IMG_001.jpg").write_bytes(b"fake")
@@ -94,6 +97,4 @@ def test_valid_starting_index_accepted(extractor, monkeypatch, tmp_path, value, 
     extractor.output_path = tmp_path
     extractor.check_recursive()
 
-    assert captured.get("modifier") == expected_modifier, (
-        f"value={value!r} should give modifier={expected_modifier}"
-    )
+    assert captured.get("modifier") == expected_modifier, f"value={value!r} should give modifier={expected_modifier}"

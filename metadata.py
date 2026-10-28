@@ -6,7 +6,7 @@
 # Please increment this counter as a warning
 # For the next person:
 #
-# hours_wasted_here = 58
+# hours_wasted_here = 59
 
 # Coded by Pianocraft1YT
 # Tutorial: https://youtu.be/ruWNKBdbYoo
@@ -104,17 +104,44 @@ class MetadataExtractor:
             self.percentage_done.set("0%")
             self.progress_var.set(0)
 
+    #Turn only seconds into normal time measurements
+    def _convert_seconds(self, seconds):
+        output = []
+        if seconds >= 60:
+            minutes = int(seconds/60)
+            seconds = seconds - (minutes*60)
+            if minutes >= 60:
+                hours = int(minutes/60)
+                minutes = minutes - (hours*60)
+                if hours >= 60:
+                    days = int(hours/24)
+                    hours = hours - (days*24)
+        if days > 0:
+            output.append(f"{days} day(s)")
+        if hours > 0:
+            output.append(f"{hours} hour(s)")
+        if minutes > 0:
+            output.append(f"{minutes} minute(s)")
+        if seconds > 0:
+            output.append(f"{seconds} second(s)")
+        if days == 0 and hours == 0 and minutes == 0 and seconds < 5:
+            output = "Almost done"
+        else:
+            output = ", ".join(output) + " remaining."
+        return output
+
     # Updates the progress bar
     def update_progress(self, processed, skipped, current_dir):
-        self.scanned_count.set(f"Scanned: {processed} / {self.total_files}")
-        self.skipped_count.set(f"Skipped: {skipped}")
-        if self.total_files > 0: # No divide-by-zero errors
-            self.percentage_done.set(f"{round(((processed + skipped) / self.total_files) * 100, 1)}%")
-            self.progress_var.set(round(((processed + skipped) / self.total_files) * 100, 1))
-        else:
-            self.percentage_done.set("0%")
-            self.progress_var.set(0)
-        self.current_directory.set(str(current_dir)[-30:]) #Truncate to not be too long, last 30 characters
+        if not self.cancel_event.is_set():
+            self.scanned_count.set(f"Scanned: {processed} / {self.total_files}")
+            self.skipped_count.set(f"Skipped: {skipped}")
+            if self.total_files > 0: # No divide-by-zero errors
+                self.percentage_done.set(f"{round(((processed + skipped) / self.total_files) * 100, 1)}%")
+                self.progress_var.set(round(((processed + skipped) / self.total_files) * 100, 1))
+            else:
+                self.percentage_done.set("0%")
+                self.progress_var.set(0)
+            self.current_directory.set(str(current_dir)[-30:]) #Truncate to not be too long, last 30 characters
 
     # Starts the worker thread (called from main thread)
     def _start_scan(self, recursive, final_output, modifier):
@@ -349,9 +376,8 @@ class MetadataExtractor:
                 self._start_scan(True, final_output, modifier)
             else:
                 with os.scandir(self.directory_path) as entries:
-                    photo_count = sum(1 for entry in entries if entry.is_file() and entry.name.lower().endswith(PHOTO_TYPES))
-                if photo_count > 0:
-                    self.total_files = photo_count
+                    self.total_files = self.get_total_files(self.maxdepth)
+                if tota > 0:
                     self.scanned_count.set(f"Scanned: 0 / {photo_count}")
                     self._start_scan(False, final_output, modifier)
                 else:
@@ -858,11 +884,14 @@ class MetadataExtractor:
         self.cancel_event = threading.Event()
         #Guard so _clean_up can't fire twice through nested dialogs
         self._scan_running = False
+        #For ETA
+        self.time_started = None
         #Progress bar widgets
         self.current_directory = tk.StringVar()
         self.scanned_count = tk.StringVar()
         self.skipped_count = tk.StringVar()
         self.percentage_done = tk.StringVar()
+        self.eta = tk.StringVar()
         self.progress_frame = tk.Frame(self.root)
         self.progress_var = tk.DoubleVar(value=0)
         self.progress_bar = ttk.Progressbar(self.progress_frame, variable=self.progress_var)
@@ -870,6 +899,7 @@ class MetadataExtractor:
         self.scanned_label = tk.Label(self.progress_frame, textvariable=self.scanned_count)
         self.percent_label = tk.Label(self.progress_frame, textvariable=self.percentage_done)
         self.skipped_label = tk.Label(self.progress_frame, textvariable=self.skipped_count)
+        self.eta_label = tk.Label(self.progress_frame, textvariable=self.eta)
         self.total_files = 0
 
     #After initialization

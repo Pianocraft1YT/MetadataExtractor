@@ -1,6 +1,7 @@
 """Tests for recursive-mode scanning via find_directories."""
 
 from pathlib import Path
+
 import metadata
 from tests.conftest import make_jpeg_with_exif
 
@@ -15,13 +16,15 @@ def _capture(extractor):
     calls = []
 
     def fake(output_path, recursive, total_processed, total_skipped):
-        calls.append({
-            "output_path": output_path,
-            "recursive": recursive,
-            "results": list(extractor.results),
-            "total_processed": total_processed,
-            "total_skipped": total_skipped,
-        })
+        calls.append(
+            {
+                "output_path": output_path,
+                "recursive": recursive,
+                "results": list(extractor.results),
+                "total_processed": total_processed,
+                "total_skipped": total_skipped,
+            }
+        )
 
     extractor.create_sheet = fake
     return calls
