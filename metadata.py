@@ -16,6 +16,7 @@
 import os
 import sys
 import threading
+import time
 import tkinter as tk
 import traceback
 from collections import defaultdict
@@ -98,6 +99,7 @@ class MetadataExtractor:
 
     # Main-thread setter for total_files (queued via root.after from worker)
     def _set_total_files(self, count):
+        self.time_started = time.perf_counter()
         self.total_files = count
         self.scanned_count.set(f"Scanned: 0 / {count}")
         if count > 0:
@@ -107,6 +109,9 @@ class MetadataExtractor:
     #Turn only seconds into normal time measurements
     def _convert_seconds(self, seconds):
         output = []
+        minutes = 0
+        hours = 0
+        days = 0
         if seconds >= 60:
             minutes = int(seconds/60)
             seconds = seconds - (minutes*60)
@@ -123,7 +128,7 @@ class MetadataExtractor:
         if minutes > 0:
             output.append(f"{minutes} minute(s)")
         if seconds > 0:
-            output.append(f"{seconds} second(s)")
+            output.append(f"{int(seconds)} second(s)")
         if days == 0 and hours == 0 and minutes == 0 and seconds < 5:
             output = "Almost done"
         else:
@@ -131,8 +136,20 @@ class MetadataExtractor:
         return output
 
     # Updates the progress bar
-    def update_progress(self, processed, skipped, current_dir):
+    def update_progress(self, processed, skipped, current_dir, time=None):
         if not self.cancel_event.is_set():
+            if self.time_started:
+                files_done = processed+skipped
+                if time:
+                    time_passed = time - self.time_started #Given in seconds, float
+                else:
+                    time_passed = 0
+                remaining = self.total_files - files_done
+                if time_passed > 0 and remaining > 1:
+                    average = files_done/time_passed
+                    self.eta.set(f"{self._convert_seconds(remaining * average)}")
+                else: 
+                    self.eta.set("Estimating...")
             self.scanned_count.set(f"Scanned: {processed} / {self.total_files}")
             self.skipped_count.set(f"Skipped: {skipped}")
             if self.total_files > 0: # No divide-by-zero errors
@@ -169,13 +186,13 @@ class MetadataExtractor:
                 total_scanned, total_skipped = self.find_directories(
                     self.directory_path, final_output, modifier,
                     defer_create_sheet=True,
-                    progress_callback=lambda p, s, d: self.root.after(0, lambda p=p, s=s, d=d: self.update_progress(p, s, d)),
+                    progress_callback=lambda p, s, d: self.root.after(0, lambda p=p, s=s, d=d: self.update_progress(p, s, d, time.perf_counter())),
                 )
             else:
                 total_scanned, total_skipped = self.sort_and_extract_irregular(
                     self.directory_path, recursive, final_output, modifier,
                     defer_create_sheet=True,
-                    progress_callback=lambda p, s, d: self.root.after(0, lambda p=p, s=s, d=d: self.update_progress(p, s, d)),
+                    progress_callback=lambda p, s, d: self.root.after(0, lambda p=p, s=s, d=d: self.update_progress(p, s, d, time.perf_counter())),
                 )
         finally:
             self.root.after(
@@ -191,6 +208,7 @@ class MetadataExtractor:
         cancelled = self.cancel_event.is_set()
         if not cancelled:
             self.create_sheet(final_output, recursive, processed, skipped)
+        self.eta.set("Done")
         self.execute_button.config(state="normal")
         self.cancel_button.config(state="disabled")
         self.cancel_button.pack_forget()
@@ -211,6 +229,8 @@ class MetadataExtractor:
         self.skipped_count.set("Skipped: 0")
         self.percentage_done.set("0%")
         self.progress_var.set(0)
+        self.eta.set("Estimating...")
+        self.time_started = None
 
     #Runs on "Cancel" button press
     # NOTE: set event IMMEDIATELY. No dialog — a dialog runs a nested event
@@ -377,8 +397,8 @@ class MetadataExtractor:
             else:
                 with os.scandir(self.directory_path) as entries:
                     self.total_files = self.get_total_files(self.maxdepth)
-                if tota > 0:
-                    self.scanned_count.set(f"Scanned: 0 / {photo_count}")
+                if self.total_files > 0:
+                    self._set_total_files(self.total_files)
                     self._start_scan(False, final_output, modifier)
                 else:
                     messagebox.showerror("Empty directory", message="No files were found. Please select a valid directory")
@@ -901,7 +921,6 @@ class MetadataExtractor:
         self.skipped_label = tk.Label(self.progress_frame, textvariable=self.skipped_count)
         self.eta_label = tk.Label(self.progress_frame, textvariable=self.eta)
         self.total_files = 0
-
     #After initialization
     def run(self):
         #Pack main widgets
@@ -927,7 +946,8 @@ class MetadataExtractor:
         self.scanned_label.pack()
         self.percent_label.pack()
         self.skipped_label.pack()
-        self.root.geometry("320x400")
+        self.eta_label.pack()
+        self.root.geometry("320x500")
         self.root.mainloop()
 
 #Always runs
