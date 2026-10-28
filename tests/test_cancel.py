@@ -26,23 +26,28 @@ def test_sort_and_extract_stops_on_cancel(extractor, photos_only):
 
     def fake_scan(*a, **k):
         calls["n"] += 1
-        extractor.cancel_event.set()   # set on first file
+        extractor.cancel_event.set()  # set on first file
         return original(*a, **k)
 
     extractor.scan_image = fake_scan
     processed, skipped = extractor.sort_and_extract(
-        photos_only, recursive=False, final_output=Path("out.xlsx"),
-        modifier=0, output_series=True,
+        photos_only,
+        recursive=False,
+        final_output=Path("out.xlsx"),
+        modifier=0,
+        output_series=True,
     )
     # Event set during first file -> loop exits at top of second iteration
     assert processed <= 1
-    assert len(extractor.results) == 0   # dataframe never built
+    assert len(extractor.results) == 0  # dataframe never built
 
 
 def test_sort_and_extract_irregular_stops_on_cancel(extractor, photos_and_videos):
     extractor.cancel_event.set()
     processed, skipped = extractor.sort_and_extract_irregular(
-        photos_and_videos, recursive=False, final_output=Path("out.xlsx"),
+        photos_and_videos,
+        recursive=False,
+        final_output=Path("out.xlsx"),
         modifier=0,
     )
     assert processed == 0

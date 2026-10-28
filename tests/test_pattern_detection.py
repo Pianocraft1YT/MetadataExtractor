@@ -107,7 +107,10 @@ def test_video_first_not_orphan_scans_pattern(extractor, tmp_path, monkeypatch):
 
     _capture(extractor)
     extractor.sort_and_extract_irregular(
-        folder, recursive=False, final_output=Path("out.xlsx"), modifier=0,
+        folder,
+        recursive=False,
+        final_output=Path("out.xlsx"),
+        modifier=0,
     )
 
     assert len(extractor.results) == 1

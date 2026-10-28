@@ -964,7 +964,7 @@ class MetadataExtractor:
         if platform.system() == "Linux":
             self.root.geometry("350x520")
         else:
-            self.root.geometry("350x400")
+            self.root.geometry("350x460")
         self.root.mainloop()
 
 #Always runs
