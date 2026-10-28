@@ -1,13 +1,9 @@
 """Tests for hyperlink post-processing on Excel output."""
 
-from typing import cast
-from unittest.mock import MagicMock
-
 import openpyxl
 import pandas as pd
 import pytest
 
-import metadata
 from tests.conftest import make_jpeg_with_exif
 
 # ---------------------------------------------------------------------------
@@ -33,7 +29,7 @@ def _sample_df(files=("a.jpg", "b.jpg")):
 
 
 # ---------------------------------------------------------------------------
-# add_hyperlinks — direct unit tests
+# add_hyperlinks -- direct unit tests
 # ---------------------------------------------------------------------------
 
 
@@ -127,8 +123,8 @@ def test_add_hyperlinks_applies_font_style(extractor, tmp_path):
 
 @pytest.mark.real_create_sheet
 def test_create_sheet_adds_hyperlinks_when_enabled(extractor, photos_only, tmp_path):
-    cast(MagicMock, extractor.hyperlink_var).get.return_value = True
-    cast(MagicMock, extractor.keepopen_var).get.return_value = True
+    extractor.hyperlink_var.set(True)
+    extractor.keepopen_var.set(True)
     output = tmp_path / "output.xlsx"
 
     extractor.sort_and_extract(
@@ -148,8 +144,8 @@ def test_create_sheet_adds_hyperlinks_when_enabled(extractor, photos_only, tmp_p
 
 @pytest.mark.real_create_sheet
 def test_create_sheet_skips_hyperlinks_when_disabled(extractor, photos_only, tmp_path):
-    cast(MagicMock, extractor.hyperlink_var).get.return_value = False
-    cast(MagicMock, extractor.keepopen_var).get.return_value = True
+    extractor.hyperlink_var.set(False)
+    extractor.keepopen_var.set(True)
     output = tmp_path / "output.xlsx"
 
     extractor.sort_and_extract(
@@ -168,8 +164,8 @@ def test_create_sheet_skips_hyperlinks_when_disabled(extractor, photos_only, tmp
 @pytest.mark.real_create_sheet
 def test_recursive_mode_links_each_sheet_to_its_own_directory(extractor, tmp_path):
     """Regression: earlier loop nesting overwrote every sheet with the last dir."""
-    cast(MagicMock, extractor.hyperlink_var).get.return_value = True
-    cast(MagicMock, extractor.keepopen_var).get.return_value = True
+    extractor.hyperlink_var.set(True)
+    extractor.keepopen_var.set(True)
 
     parent = tmp_path / "parent"
     for sub in ["Trip_A", "Trip_B"]:

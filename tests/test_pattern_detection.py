@@ -24,10 +24,6 @@ def test_exactly_six_photos_before_video(extractor, tmp_path):
     _build_folder(folder, "PPPPPPV")
     _capture(extractor)
 
-    # Explicitly turn off debug mode for this test
-    extractor.debug_var = MagicMock()
-    extractor.debug_var.get.return_value = False
-
     extractor.sort_and_extract_irregular(folder, recursive=False, final_output=Path("out.xlsx"), modifier=0)
     df, _, _ = extractor.results[0]
     assert len(df) == 6
@@ -77,7 +73,7 @@ def test_all_videos_no_photos(extractor, tmp_path, monkeypatch):
         (folder / f"{i:04d}_video.mp4").write_bytes(b"\x00\x00\x00\x18ftypmp42")
 
     # Tell the messagebox to click "Yes" (it's an orphan)
-    monkeypatch.setattr("metadata.messagebox.askyesno", lambda *args, **kwargs: True)
+    monkeypatch.setattr(metadata.messagebox, "askyesno", lambda *args, **kwargs: True)
 
     extractor.sort_and_extract_irregular(folder, recursive=False, final_output=Path("out.xlsx"), modifier=0)
 
@@ -94,3 +90,26 @@ def test_starting_index_zero(extractor, tmp_path):
     extractor.sort_and_extract_irregular(folder, recursive=False, final_output=Path("out.xlsx"), modifier=-1)
     df, _, _ = extractor.results[0]
     assert len(df) == 1
+
+
+def test_video_first_not_orphan_scans_pattern(extractor, tmp_path, monkeypatch):
+    """First file is a video that's part of the pattern (not an orphan).
+
+    User answers "No" to the orphan prompt, so the video stays. The rest
+    of the folder should scan normally.
+    """
+    folder = tmp_path / "video_first_pattern"
+    folder.mkdir()
+    _build_folder(folder, "VPPPVPPP")
+
+    # "No" -> video belongs to the series, keep it
+    monkeypatch.setattr(metadata.messagebox, "askyesno", lambda *a, **k: False)
+
+    _capture(extractor)
+    extractor.sort_and_extract_irregular(
+        folder, recursive=False, final_output=Path("out.xlsx"), modifier=0,
+    )
+
+    assert len(extractor.results) == 1
+    df, _, _ = extractor.results[0]
+    assert len(df) >= 1

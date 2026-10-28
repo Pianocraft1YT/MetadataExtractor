@@ -6,7 +6,7 @@
 # Please increment this counter as a warning
 # For the next person:
 #
-# hours_wasted_here = 59
+# hours_wasted_here = 60
 
 # Coded by Pianocraft1YT
 # Tutorial: https://youtu.be/ruWNKBdbYoo
@@ -14,6 +14,7 @@
 
 #Imports
 import os
+import platform
 import sys
 import threading
 import time
@@ -132,29 +133,32 @@ class MetadataExtractor:
         if days == 0 and hours == 0 and minutes == 0 and seconds < 5:
             output = "Almost done"
         else:
-            output = ", ".join(output) + " remaining."
+            output = ", ".join(output)
         return output
 
     # Updates the progress bar
-    def update_progress(self, processed, skipped, current_dir, time=None):
+    def update_progress(self, processed, skipped, current_dir, timestamp=None):
         if not self.cancel_event.is_set():
             if self.time_started:
                 files_done = processed+skipped
-                if time:
-                    time_passed = time - self.time_started #Given in seconds, float
+                if timestamp:
+                    time_passed = timestamp - self.time_started #Given in seconds, float
                 else:
                     time_passed = 0
                 remaining = self.total_files - files_done
-                if time_passed > 0 and remaining > 1:
-                    average = files_done/time_passed
-                    self.eta.set(f"{self._convert_seconds(remaining * average)}")
+                if time_passed > 0 and files_done >= 10 and remaining > 0:
+                    files_per_second = time_passed/files_done
+                    self.eta.set(f"{self._convert_seconds(remaining * files_per_second)} remaining.")
                 else: 
                     self.eta.set("Estimating...")
+                self.elapsed_time.set(f"Time Elapsed: {self._convert_seconds(time_passed)}")
             self.scanned_count.set(f"Scanned: {processed} / {self.total_files}")
             self.skipped_count.set(f"Skipped: {skipped}")
             if self.total_files > 0: # No divide-by-zero errors
-                self.percentage_done.set(f"{round(((processed + skipped) / self.total_files) * 100, 1)}%")
-                self.progress_var.set(round(((processed + skipped) / self.total_files) * 100, 1))
+                done = min(processed + skipped, self.total_files)
+                self.percentage_done.set(f"{round((done / self.total_files) * 100, 1)}%")
+                self.progress_var.set(round((done / self.total_files) * 100, 1))
+                self.scanned_count.set(f"Scanned: {min(processed, self.total_files)} / {self.total_files}")
             else:
                 self.percentage_done.set("0%")
                 self.progress_var.set(0)
@@ -175,9 +179,15 @@ class MetadataExtractor:
     # Runs the threaded versions of the scan(s)
     def _run_scan_threaded(self, recursive, final_output, modifier):
         total_scanned, total_skipped = 0, 0
+
+        def _on_progress(p, s, d):
+            # Runs on worker thread — capture timestamp NOW so main-thread
+            # scheduling delay doesn't distort the ETA average.
+            t = time.perf_counter()
+            self.root.after(0, lambda: self.update_progress(p, s, d, t))
+
         try:
             if recursive:
-                # File count walk lives here now so Cancel can interrupt it
                 self.root.after(0, self.current_directory.set, "Counting files...")
                 count = self.get_total_files(self.maxdepth)
                 if self.cancel_event.is_set():
@@ -186,13 +196,13 @@ class MetadataExtractor:
                 total_scanned, total_skipped = self.find_directories(
                     self.directory_path, final_output, modifier,
                     defer_create_sheet=True,
-                    progress_callback=lambda p, s, d: self.root.after(0, lambda p=p, s=s, d=d: self.update_progress(p, s, d, time.perf_counter())),
+                    progress_callback=_on_progress,
                 )
             else:
                 total_scanned, total_skipped = self.sort_and_extract_irregular(
                     self.directory_path, recursive, final_output, modifier,
                     defer_create_sheet=True,
-                    progress_callback=lambda p, s, d: self.root.after(0, lambda p=p, s=s, d=d: self.update_progress(p, s, d, time.perf_counter())),
+                    progress_callback=_on_progress,
                 )
         finally:
             self.root.after(
@@ -396,7 +406,10 @@ class MetadataExtractor:
                 self._start_scan(True, final_output, modifier)
             else:
                 with os.scandir(self.directory_path) as entries:
-                    self.total_files = self.get_total_files(self.maxdepth)
+                    self.total_files = sum(
+                        1 for entry in entries
+                        if entry.is_file() and entry.name.lower().endswith(PHOTO_TYPES)
+                    )
                 if self.total_files > 0:
                     self._set_total_files(self.total_files)
                     self._start_scan(False, final_output, modifier)
@@ -414,8 +427,7 @@ class MetadataExtractor:
                 with os.scandir(self.directory_path) as entries:
                     photo_count = sum(1 for entry in entries if entry.is_file() and entry.name.lower().endswith(PHOTO_TYPES))
                 if photo_count > 0:
-                    self.total_files = photo_count
-                    self.scanned_count.set(f"Scanned: 0 / {photo_count}")
+                    self._set_total_files(photo_count)
                     self._start_scan(False, final_output, modifier)
                 else:
                     messagebox.showerror("Empty directory", message="No files were found. Please select a valid directory")
@@ -512,7 +524,7 @@ class MetadataExtractor:
             media_files.sort(key=lambda x: os.path.splitext(x)[0].lower())
             # Initial check: if the first file is a video
             first_video_orphan = False #Default not an orphaned video
-            if media_files and media_files[0].lower().endswith(VIDEO_TYPES):
+            if media_files and media_files[0].lower().endswith(VIDEO_TYPES) and not self.debug_var.get():
                 first_video_orphan = messagebox.askyesno("Video First", message=f"Video was found first in {directory_path}. Is it an orphan? (Please check)")
                 if first_video_orphan:
                     media_files = media_files[1:] # Chop off orphan
@@ -562,21 +574,20 @@ class MetadataExtractor:
                                 img_series.append(str(index+modifier)) #Incorrect pattern found, images first
                                 if progress_callback:
                                     progress_callback(processed, skipped, directory_path)
-                        else: #Nearing end of directory listing
-                            for r in range(photos_before_video): #End of files to scan found
+                        else:  # Nearing end of directory listing
+                            for r in range(i, len(media_files)):
                                 if self.cancel_event.is_set():
                                     return processed, skipped
-                                if (i+r<len(media_files)) and media_files[i+r].lower().endswith(PHOTO_TYPES): #Scan all remaining files
-                                    ok = self.scan_image(directory_path, media_files, i+r, list_of_dates, list_of_images, list_of_offsets)
+                                if media_files[r].lower().endswith(PHOTO_TYPES):
+                                    ok = self.scan_image(directory_path, media_files, r, list_of_dates, list_of_images, list_of_offsets)
                                     if not ok:
-                                        skipped +=1
-                                        if progress_callback:
-                                            progress_callback(processed, skipped, directory_path)
-                                        continue
-                                    processed+=1
-                                    img_series.append(str(index+r+modifier))
+                                        skipped += 1
+                                    else:
+                                        processed += 1
+                                        img_series.append(str(r - i + index + modifier))
                                     if progress_callback:
                                         progress_callback(processed, skipped, directory_path)
+                            break   # exit the outer `for file in media_files:` loop
                     # Always increment
                     pattern_check = 1 #Reset checks
                     i += 1 #increment
@@ -912,6 +923,7 @@ class MetadataExtractor:
         self.skipped_count = tk.StringVar()
         self.percentage_done = tk.StringVar()
         self.eta = tk.StringVar()
+        self.elapsed_time = tk.StringVar()
         self.progress_frame = tk.Frame(self.root)
         self.progress_var = tk.DoubleVar(value=0)
         self.progress_bar = ttk.Progressbar(self.progress_frame, variable=self.progress_var)
@@ -921,6 +933,7 @@ class MetadataExtractor:
         self.skipped_label = tk.Label(self.progress_frame, textvariable=self.skipped_count)
         self.eta_label = tk.Label(self.progress_frame, textvariable=self.eta)
         self.total_files = 0
+        self.elapsed_label = tk.Label(self.progress_frame, textvariable=self.elapsed_time)
     #After initialization
     def run(self):
         #Pack main widgets
@@ -947,7 +960,11 @@ class MetadataExtractor:
         self.percent_label.pack()
         self.skipped_label.pack()
         self.eta_label.pack()
-        self.root.geometry("320x500")
+        self.elapsed_label.pack()
+        if platform.system() == "Linux":
+            self.root.geometry("350x520")
+        else:
+            self.root.geometry("350x400")
         self.root.mainloop()
 
 #Always runs

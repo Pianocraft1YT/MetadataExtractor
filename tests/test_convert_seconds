@@ -1,0 +1,26 @@
+# tests/test_convert_seconds.py
+import pytest
+
+
+@pytest.mark.parametrize("seconds, expected", [
+    (0,    "Almost done"),
+    (1,    "Almost done"),
+    (4,    "Almost done"),
+    (5,    "5 second(s)"),
+    (59,   "59 second(s)"),
+    (60,   "1 minute(s)"),
+    (61,   "1 minute(s), 1 second(s)"),
+    (119,  "1 minute(s), 59 second(s)"),
+    (3600, "1 hour(s)"),
+    (3661, "1 hour(s), 1 minute(s), 1 second(s)"),
+    (86399, "23 hour(s), 59 minute(s), 59 second(s)"),
+    (86400, "1 day(s)"),
+    (90061, "1 day(s), 1 hour(s), 1 minute(s), 1 second(s)"),
+])
+def test_convert_seconds(extractor, seconds, expected):
+    assert extractor._convert_seconds(seconds) == expected
+
+
+def test_convert_seconds_accepts_float(extractor):
+    """update_progress passes floats; must not crash on 60.7."""
+    assert extractor._convert_seconds(60.7) == "1 minute(s)"

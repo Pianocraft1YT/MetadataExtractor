@@ -2,13 +2,13 @@
 Shared fixtures for the metadata test suite.
 
 Tkinter is mocked before metadata.py is imported, so MetadataExtractor's
-__init__ creates Mock widgets instead of real ones. Each test gets a fresh
-instance — no module-level state to reset.
+__init__ creates fake widgets instead of real ones. Each test gets a fresh
+instance -- no module-level state to reset.
 """
 
 import sys
+import threading
 from pathlib import Path
-from typing import cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -22,32 +22,55 @@ sys.modules["tkinter.ttk"] = MagicMock()
 
 import tkinter as _tk
 
-_tk.BooleanVar.side_effect = lambda *a, **k: MagicMock()
-_tk.StringVar.side_effect = lambda *a, **k: MagicMock()
+
+class FakeVar:
+    """Stores its value so .get() returns what .set() last set.
+
+    A bare MagicMock records .set() calls but .get() returns another mock,
+    which makes assertions like `extractor.eta.get() == "Estimating..."`
+    impossible. This tiny class fixes that.
+    """
+
+    def __init__(self, master=None, value=None, name=None):
+        self._value = value
+
+    def get(self):
+        return self._value
+
+    def set(self, value):
+        self._value = value
+
+    def trace_add(self, *a, **k):
+        return "trace_id"
+
+    def trace_remove(self, *a, **k):
+        pass
+
+
+_tk.BooleanVar.side_effect = FakeVar
+_tk.StringVar.side_effect = FakeVar
+_tk.DoubleVar.side_effect = FakeVar
 
 import metadata
 
 
-def _set_timezone(app, value: bool) -> None:
-    cast(MagicMock, app.timezone_var).get.return_value = value
+def _set_timezone(app, value):
+    app.timezone_var.set(value)
 
 
-def _set_filetype(app, value: str) -> None:
-    cast(MagicMock, app.filetype_var).get.return_value = value
+def _set_filetype(app, value):
+    app.filetype_var.set(value)
 
 
-def _build_extractor(request, filetype: str, timezone: bool = False):
+def _build_extractor(request, filetype, timezone=False):
     app = metadata.MetadataExtractor()
     if not request.node.get_closest_marker("real_create_sheet"):
         app.create_sheet = MagicMock()
 
     _set_timezone(app, timezone)
     _set_filetype(app, filetype)
-    cast(MagicMock, app.keepopen_var).get.return_value = True
-
-    # ADD THIS LINE:
-    cast(MagicMock, app.debug_var).get.return_value = False
-
+    app.keepopen_var.set(True)
+    app.debug_var.set(False)
     return app
 
 
@@ -65,7 +88,7 @@ def extractor_csv(request):
 
 @pytest.fixture
 def extractor_tz_off(request):
-    """Alias for `extractor` — timezone off."""
+    """Alias for `extractor` -- timezone off."""
     return _build_extractor(request, "Excel", timezone=False)
 
 
@@ -77,10 +100,16 @@ def extractor_tz_on(request):
 
 @pytest.fixture(autouse=True)
 def silence_messageboxes(monkeypatch):
-    monkeypatch.setattr(metadata.messagebox, "showerror", MagicMock())
-    monkeypatch.setattr(metadata.messagebox, "showinfo", MagicMock())
-    monkeypatch.setattr(metadata.messagebox, "showwarning", MagicMock())
-    monkeypatch.setattr(metadata.messagebox, "askyesno", MagicMock(return_value=True))
+    """Replace metadata.messagebox with a permissive mock.
+
+    Replaces the whole module attribute rather than individual methods so
+    monkeypatch's getattr-or-die probe can't fail.
+    """
+    fake = MagicMock()
+    fake.askyesno.return_value = True
+    fake.askokcancel.return_value = True
+    monkeypatch.setattr(metadata, "messagebox", fake)
+    return fake
 
 
 @pytest.fixture(autouse=True)
@@ -91,6 +120,24 @@ def patch_sys_exit(monkeypatch):
         raise SystemExit(code)
 
     monkeypatch.setattr(sys, "exit", fake_exit)
+
+
+@pytest.fixture(autouse=True)
+def run_threads_synchronously(monkeypatch):
+    """Replace threading.Thread with a synchronous version so check_recursive
+    can be tested without a real race."""
+
+    class FakeThread:
+        def __init__(self, target=None, args=(), kwargs=None, daemon=None, **_):
+            self._target = target
+            self._args = args
+            self._kwargs = kwargs or {}
+
+        def start(self):
+            if self._target:
+                self._target(*self._args, **self._kwargs)
+
+    monkeypatch.setattr(threading, "Thread", FakeThread)
 
 
 # ---------------------------------------------------------------------------
@@ -189,5 +236,3 @@ def make_jpeg(tmp_path):
         return path
 
     return _make
-
-

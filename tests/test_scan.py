@@ -1,9 +1,9 @@
 """Tests for MetadataExtractor.scan_image.
 
 Fixtures from conftest.py:
-    extractor_tz_off  — timezone_var.get() returns False (GUI default)
-    extractor_tz_on   — timezone_var.get() returns True
-    make_jpeg         — EXIF-bearing JPEG factory
+    extractor_tz_off  -- timezone_var.get() returns False (GUI default)
+    extractor_tz_on   -- timezone_var.get() returns True
+    make_jpeg         -- EXIF-bearing JPEG factory
 """
 
 
