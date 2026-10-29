@@ -98,8 +98,10 @@ def bypass_threadsafe_dialog(monkeypatch):
     In tests root is a MagicMock so after() is a no-op and the event
     never gets set -- the test hangs. Call messagebox.askyesno directly.
     """
+
     def fake_ask(self, title, msg):
         return bool(metadata.messagebox.askyesno(title, msg))
+
     monkeypatch.setattr(metadata.MetadataExtractor, "_ask_yes_no_threadsafe", fake_ask)
 
 
@@ -107,6 +109,7 @@ def bypass_threadsafe_dialog(monkeypatch):
 def patch_sys_exit(monkeypatch):
     def fake_exit(code=0):
         raise SystemExit(code)
+
     monkeypatch.setattr(sys, "exit", fake_exit)
 
 
@@ -201,7 +204,9 @@ def folder_missing_exif(tmp_path):
 
 @pytest.fixture
 def make_jpeg(tmp_path):
-    def _make(filename, *, datetime_original=None, datetime_digitized=None, datetime_general=None, offset_original=None):
+    def _make(
+        filename, *, datetime_original=None, datetime_digitized=None, datetime_general=None, offset_original=None
+    ):
         img = Image.new("RGB", (10, 10), color="red")
         exif = Image.Exif()
         if datetime_general is not None:
@@ -215,4 +220,5 @@ def make_jpeg(tmp_path):
         path = tmp_path / filename
         img.save(path, format="JPEG", exif=exif)
         return path
+
     return _make

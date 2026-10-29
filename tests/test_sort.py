@@ -19,15 +19,23 @@ def _capture_create_sheet(extractor):
 
 def _sort(extractor, folder, modifier=0, output_series=True):
     return extractor.sort_and_extract(
-        folder, recursive=False, final_output=Path("out.xlsx"),
-        modifier=modifier, output_series=output_series, output_utc=False,
+        folder,
+        recursive=False,
+        final_output=Path("out.xlsx"),
+        modifier=modifier,
+        output_series=output_series,
+        output_utc=False,
     )
 
 
 def _sort_irregular(extractor, folder, modifier=0):
     return extractor.sort_and_extract_irregular(
-        folder, recursive=False, final_output=Path("out.xlsx"),
-        modifier=modifier, debug=False, output_utc=False,
+        folder,
+        recursive=False,
+        final_output=Path("out.xlsx"),
+        modifier=modifier,
+        debug=False,
+        output_utc=False,
     )
 
 

@@ -14,11 +14,13 @@ def _write_workbook(path, sheets):
 
 
 def _sample_df(files=("a.jpg", "b.jpg")):
-    return pd.DataFrame({
-        "Files": list(files),
-        "Dates": ["01/01/2024"] * len(files),
-        "Time": ["12:00:00"] * len(files),
-    })
+    return pd.DataFrame(
+        {
+            "Files": list(files),
+            "Dates": ["01/01/2024"] * len(files),
+            "Time": ["12:00:00"] * len(files),
+        }
+    )
 
 
 def test_add_hyperlinks_sets_link_on_each_filename(extractor, tmp_path):
@@ -111,8 +113,12 @@ def test_create_sheet_adds_hyperlinks_when_enabled(extractor, photos_only, tmp_p
     output = tmp_path / "output.xlsx"
 
     extractor.sort_and_extract(
-        photos_only, recursive=False, final_output=output,
-        modifier=0, output_series=True, output_utc=False,
+        photos_only,
+        recursive=False,
+        final_output=output,
+        modifier=0,
+        output_series=True,
+        output_utc=False,
     )
 
     assert output.exists()
@@ -129,8 +135,12 @@ def test_create_sheet_skips_hyperlinks_when_disabled(extractor, photos_only, tmp
     output = tmp_path / "output.xlsx"
 
     extractor.sort_and_extract(
-        photos_only, recursive=False, final_output=output,
-        modifier=0, output_series=True, output_utc=False,
+        photos_only,
+        recursive=False,
+        final_output=output,
+        modifier=0,
+        output_series=True,
+        output_utc=False,
     )
 
     assert output.exists()

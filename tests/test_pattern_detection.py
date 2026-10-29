@@ -20,8 +20,12 @@ def _capture(extractor):
 
 def _scan(extractor, folder, modifier=0):
     extractor.sort_and_extract_irregular(
-        folder, recursive=False, final_output=Path("out.xlsx"),
-        modifier=modifier, debug=False, output_utc=False,
+        folder,
+        recursive=False,
+        final_output=Path("out.xlsx"),
+        modifier=modifier,
+        debug=False,
+        output_utc=False,
     )
 
 

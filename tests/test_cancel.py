@@ -27,8 +27,12 @@ def test_sort_and_extract_stops_on_cancel(extractor, photos_only):
 
     extractor.scan_image = fake_scan
     processed, skipped = extractor.sort_and_extract(
-        photos_only, recursive=False, final_output=Path("out.xlsx"),
-        modifier=0, output_series=True, output_utc=False,
+        photos_only,
+        recursive=False,
+        final_output=Path("out.xlsx"),
+        modifier=0,
+        output_series=True,
+        output_utc=False,
     )
     assert processed <= 1
     assert len(extractor.results) == 0
@@ -37,8 +41,12 @@ def test_sort_and_extract_stops_on_cancel(extractor, photos_only):
 def test_sort_and_extract_irregular_stops_on_cancel(extractor, photos_and_videos):
     extractor.cancel_event.set()
     processed, skipped = extractor.sort_and_extract_irregular(
-        photos_and_videos, recursive=False, final_output=Path("out.xlsx"),
-        modifier=0, debug=False, output_utc=False,
+        photos_and_videos,
+        recursive=False,
+        final_output=Path("out.xlsx"),
+        modifier=0,
+        debug=False,
+        output_utc=False,
     )
     assert processed == 0
     assert skipped == 0

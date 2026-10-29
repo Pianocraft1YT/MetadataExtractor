@@ -8,8 +8,12 @@ import pytest
 def test_excel_mode_writes_xlsx(extractor, photos_only, tmp_path):
     output = tmp_path / "output.xlsx"
     extractor.sort_and_extract(
-        photos_only, recursive=False, final_output=output,
-        modifier=0, output_series=True, output_utc=False,
+        photos_only,
+        recursive=False,
+        final_output=output,
+        modifier=0,
+        output_series=True,
+        output_utc=False,
     )
     assert output.exists()
     df = pd.read_excel(output, sheet_name="Sheet")
@@ -21,8 +25,12 @@ def test_excel_mode_writes_xlsx(extractor, photos_only, tmp_path):
 def test_csv_mode_writes_csv_per_sheet(extractor_csv, photos_only, tmp_path):
     output = tmp_path / "output.csv"
     extractor_csv.sort_and_extract(
-        photos_only, recursive=False, final_output=output,
-        modifier=0, output_series=True, output_utc=False,
+        photos_only,
+        recursive=False,
+        final_output=output,
+        modifier=0,
+        output_series=True,
+        output_utc=False,
     )
     assert not output.exists()
     csv_path = tmp_path / "output_Sheet.csv"
@@ -37,8 +45,12 @@ def test_csv_mode_writes_csv_per_sheet(extractor_csv, photos_only, tmp_path):
 def test_csv_mode_includes_series_column(extractor_csv, photos_only, tmp_path):
     output = tmp_path / "output.csv"
     extractor_csv.sort_and_extract(
-        photos_only, recursive=False, final_output=output,
-        modifier=0, output_series=True, output_utc=False,
+        photos_only,
+        recursive=False,
+        final_output=output,
+        modifier=0,
+        output_series=True,
+        output_utc=False,
     )
     df = pd.read_csv(tmp_path / "output_Sheet.csv")
     assert list(df.columns) == ["Files", "Dates", "Time", "Img # Series"]
@@ -49,8 +61,12 @@ def test_csv_mode_includes_series_column(extractor_csv, photos_only, tmp_path):
 def test_csv_mode_without_series_column(extractor_csv, photos_only, tmp_path):
     output = tmp_path / "output.csv"
     extractor_csv.sort_and_extract(
-        photos_only, recursive=False, final_output=output,
-        modifier=0, output_series=False, output_utc=False,
+        photos_only,
+        recursive=False,
+        final_output=output,
+        modifier=0,
+        output_series=False,
+        output_utc=False,
     )
     df = pd.read_csv(tmp_path / "output_Sheet.csv")
     assert "Img # Series" not in df.columns
@@ -90,8 +106,12 @@ def test_clean_name_reserved_word_csv_mode(extractor_csv):
 def test_default_sheet_name_used(extractor, photos_only, tmp_path):
     output = tmp_path / "output.xlsx"
     extractor.sort_and_extract(
-        photos_only, recursive=False, final_output=output,
-        modifier=0, output_series=True, output_utc=False,
+        photos_only,
+        recursive=False,
+        final_output=output,
+        modifier=0,
+        output_series=True,
+        output_utc=False,
     )
     xl = pd.ExcelFile(output)
     assert xl.sheet_names == ["Sheet"]

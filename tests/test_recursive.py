@@ -15,13 +15,15 @@ def _capture(extractor):
     calls = []
 
     def fake(output_path, recursive, total_processed, total_skipped):
-        calls.append({
-            "output_path": output_path,
-            "recursive": recursive,
-            "results": list(extractor.results),
-            "total_processed": total_processed,
-            "total_skipped": total_skipped,
-        })
+        calls.append(
+            {
+                "output_path": output_path,
+                "recursive": recursive,
+                "results": list(extractor.results),
+                "total_processed": total_processed,
+                "total_skipped": total_skipped,
+            }
+        )
 
     extractor.create_sheet = fake
     return calls
