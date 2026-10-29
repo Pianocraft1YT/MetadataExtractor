@@ -1,9 +1,5 @@
 """
 Shared fixtures for the metadata test suite.
-
-Tkinter is mocked before metadata.py is imported, so MetadataExtractor's
-__init__ creates fake widgets instead of real ones. Each test gets a fresh
-instance -- no module-level state to reset.
 """
 
 import sys
@@ -14,7 +10,6 @@ from unittest.mock import MagicMock
 import pytest
 from PIL import Image
 
-# Mock tkinter BEFORE importing metadata
 sys.modules["tkinter"] = MagicMock()
 sys.modules["tkinter.messagebox"] = MagicMock()
 sys.modules["tkinter.filedialog"] = MagicMock()
@@ -24,13 +19,6 @@ import tkinter as _tk
 
 
 class FakeVar:
-    """Stores its value so .get() returns what .set() last set.
-
-    A bare MagicMock records .set() calls but .get() returns another mock,
-    which makes assertions like `extractor.eta.get() == "Estimating..."`
-    impossible. This tiny class fixes that.
-    """
-
     def __init__(self, master=None, value=None, name=None):
         self._value = value
 
@@ -66,7 +54,6 @@ def _build_extractor(request, filetype, timezone=False):
     app = metadata.MetadataExtractor()
     if not request.node.get_closest_marker("real_create_sheet"):
         app.create_sheet = MagicMock()
-
     _set_timezone(app, timezone)
     _set_filetype(app, filetype)
     app.keepopen_var.set(True)
@@ -76,35 +63,26 @@ def _build_extractor(request, filetype, timezone=False):
 
 @pytest.fixture
 def extractor(request):
-    """Default extractor: timezone off, Excel output, create_sheet mocked."""
     return _build_extractor(request, "Excel", timezone=False)
 
 
 @pytest.fixture
 def extractor_csv(request):
-    """Extractor configured for CSV output."""
     return _build_extractor(request, "CSV", timezone=False)
 
 
 @pytest.fixture
 def extractor_tz_off(request):
-    """Alias for `extractor` -- timezone off."""
     return _build_extractor(request, "Excel", timezone=False)
 
 
 @pytest.fixture
 def extractor_tz_on(request):
-    """Extractor with timezone_var.get() returning True."""
     return _build_extractor(request, "Excel", timezone=True)
 
 
 @pytest.fixture(autouse=True)
 def silence_messageboxes(monkeypatch):
-    """Replace metadata.messagebox with a permissive mock.
-
-    Replaces the whole module attribute rather than individual methods so
-    monkeypatch's getattr-or-die probe can't fail.
-    """
     fake = MagicMock()
     fake.askyesno.return_value = True
     fake.askokcancel.return_value = True
@@ -113,20 +91,27 @@ def silence_messageboxes(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def patch_sys_exit(monkeypatch):
-    """Prevent create_sheet's final sys.exit() from aborting test runs."""
+def bypass_threadsafe_dialog(monkeypatch):
+    """Bypass _ask_yes_no_threadsafe which blocks on threading.Event.
 
+    The real method uses root.after() to marshal to the main thread.
+    In tests root is a MagicMock so after() is a no-op and the event
+    never gets set -- the test hangs. Call messagebox.askyesno directly.
+    """
+    def fake_ask(self, title, msg):
+        return bool(metadata.messagebox.askyesno(title, msg))
+    monkeypatch.setattr(metadata.MetadataExtractor, "_ask_yes_no_threadsafe", fake_ask)
+
+
+@pytest.fixture(autouse=True)
+def patch_sys_exit(monkeypatch):
     def fake_exit(code=0):
         raise SystemExit(code)
-
     monkeypatch.setattr(sys, "exit", fake_exit)
 
 
 @pytest.fixture(autouse=True)
 def run_threads_synchronously(monkeypatch):
-    """Replace threading.Thread with a synchronous version so check_recursive
-    can be tested without a real race."""
-
     class FakeThread:
         def __init__(self, target=None, args=(), kwargs=None, daemon=None, **_):
             self._target = target
@@ -216,11 +201,7 @@ def folder_missing_exif(tmp_path):
 
 @pytest.fixture
 def make_jpeg(tmp_path):
-    """Factory for a JPEG with controlled EXIF datetime/offset tags."""
-
-    def _make(
-        filename, *, datetime_original=None, datetime_digitized=None, datetime_general=None, offset_original=None
-    ):
+    def _make(filename, *, datetime_original=None, datetime_digitized=None, datetime_general=None, offset_original=None):
         img = Image.new("RGB", (10, 10), color="red")
         exif = Image.Exif()
         if datetime_general is not None:
@@ -234,5 +215,4 @@ def make_jpeg(tmp_path):
         path = tmp_path / filename
         img.save(path, format="JPEG", exif=exif)
         return path
-
     return _make
