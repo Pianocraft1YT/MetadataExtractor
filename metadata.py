@@ -24,6 +24,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
+from typing import Any
 
 # For spreadsheet making
 import openpyxl
@@ -42,6 +43,11 @@ EXIF_CAMERA_MAKE = 271
 EXIF_CAMERA_MODEL = 272
 EXIF_SOFTWARE = 305
 EXIF_LENS_MODEL = 42036
+EXIF_APERTURE = 33437
+EXIF_EXPOSURE_TIME = 33434
+EXIF_FOCAL_LENGTH = 37386
+EXIF_ISO = 34855
+
 # Common video file formats to check
 VIDEO_TYPES = (".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv")
 # Common and uncommon image formats to check
@@ -125,22 +131,14 @@ class MetadataExtractor:
 
     # Show extra metadata checkboxes when extra_exif_checkbox is checked
     def extra_exif(self):
+        # Pack all 9 checkboxes inside the frame ONCE, at init time (see below)
+        # The toggle only moves the frame itself in/out of root's layout.
         if self.extra_exif_var.get():
-            self.root.geometry("400x650")
-            # Pack everything
-            self.dimensions_checkbox.pack()
-            self.make_checkbox.pack()
-            self.model_checkbox.pack()
-            self.software_checkbox.pack()
-            self.lens_model_checkbox.pack()
+            self.extra_exif_frame.pack(before=self.progress_frame)
         else:
-            self.root.geometry("350x520")
-            # Unpack everything
-            self.dimensions_checkbox.pack_forget()
-            self.make_checkbox.pack_forget()
-            self.model_checkbox.pack_forget()
-            self.software_checkbox.pack_forget()
-            self.lens_model_checkbox.pack_forget()
+            self.extra_exif_frame.pack_forget()
+        self.root.update_idletasks()
+        self.root.geometry(f"{self.root.winfo_width()}x{self.root.winfo_reqheight()}")
 
     # For debug_checkbox warning
     def debug_warning(self):
@@ -241,6 +239,10 @@ class MetadataExtractor:
         output_model,
         output_software,
         output_lens_model,
+        output_aperture,
+        output_exposure_time,
+        output_focal_length,
+        output_iso,
     ):
         self._scan_running = True
         self.execute_button.config(state="disabled")
@@ -258,6 +260,10 @@ class MetadataExtractor:
                 output_model,
                 output_software,
                 output_lens_model,
+                output_aperture,
+                output_exposure_time,
+                output_focal_length,
+                output_iso,
             ),
             daemon=True,
         ).start()
@@ -275,6 +281,10 @@ class MetadataExtractor:
         output_model,
         output_software,
         output_lens_model,
+        output_aperture,
+        output_exposure_time,
+        output_focal_length,
+        output_iso,
     ):
         total_scanned, total_skipped = 0, 0
 
@@ -302,6 +312,10 @@ class MetadataExtractor:
                     output_model,
                     output_software,
                     output_lens_model,
+                    output_aperture,
+                    output_exposure_time,
+                    output_focal_length,
+                    output_iso,
                     defer_create_sheet=True,
                     progress_callback=_on_progress,
                 )
@@ -318,6 +332,10 @@ class MetadataExtractor:
                     output_model,
                     output_software,
                     output_lens_model,
+                    output_aperture,
+                    output_exposure_time,
+                    output_focal_length,
+                    output_iso,
                     defer_create_sheet=True,
                     progress_callback=_on_progress,
                 )
@@ -363,6 +381,56 @@ class MetadataExtractor:
         self._dialog_event.wait()  # now block the worker for real
         return bool(self._dialog_answer)
 
+    def _rational_to_float(self, value: Any) -> float | None:
+        if value is None:
+            return None
+        if isinstance(value, tuple):
+            if len(value) != 2:
+                return None
+            num, den = value
+            try:
+                return num / den if den else None
+            except (TypeError, ZeroDivisionError):
+                return None
+        try:
+            return float(value)
+        except (TypeError, ValueError, ZeroDivisionError):
+            return None
+
+    def _format_aperture(self, value):
+        v = self._rational_to_float(value)
+        if v is None or v <= 0:
+            return None
+        return f"f/{v:g}"  # 5.6 -> "f/5.6", 8.0 -> "f/8"
+
+    def _format_exposure_time(self, value):
+        v = self._rational_to_float(value)
+        if v is None or v <= 0:
+            return None
+        if v >= 1:
+            return f"{v:g}s"  # 1.0 -> "1s", 2.5 -> "2.5s", 30.0 -> "30s"
+        inv = 1.0 / v
+        rounded = round(inv)
+        if abs(inv - rounded) < 0.1:
+            return f"1/{rounded}"  # 0.004 -> "1/250", 0.5 -> "1/2"
+        return f"{v:g}s"  # 0.3 -> "0.3s" (not "1/3")
+
+    def _format_focal_length(self, value):
+        v = self._rational_to_float(value)
+        if v is None or v <= 0:
+            return None
+        return f"{v:g}mm"  # 23.0 -> "23mm", 18.5 -> "18.5mm"
+
+    def _format_iso(self, value):
+        if value is None:
+            return None
+        if isinstance(value, (list, tuple)):
+            return value[0] if value else None  # multi-ISO capture, take first
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
     def _empty_scan_data(self):
         return {
             "Dates": [],
@@ -374,6 +442,10 @@ class MetadataExtractor:
             "Softwares": [],
             "Lens_Models": [],
             "Times": [],
+            "Apertures": [],
+            "Exposure_Times": [],
+            "Focal_Lengths": [],
+            "ISOs": [],
         }
 
     # To clean up any past executions
@@ -429,6 +501,10 @@ class MetadataExtractor:
         output_model,
         output_software,
         output_lens_model,
+        output_aperture,
+        output_exposure_time,
+        output_focal_length,
+        output_iso,
     ):
         offset = None
         dimensions = None
@@ -436,10 +512,14 @@ class MetadataExtractor:
         model = None
         software = None
         lens_model = None
+        aperture = None
+        exposure_time = None
+        focal_length = None
+        iso = None
         if media_files:
             try:
-                with Image.open(Path(directory_path) / media_files[i]) as img:  # open the image
-                    exif_data = img.getexif()  # get the exif metadata
+                with Image.open(Path(directory_path) / media_files[i]) as img:
+                    exif_data = img.getexif()
                     if output_dimensions:
                         dimensions = f"{img.size[0]}x{img.size[1]}"
                 dt = (
@@ -460,18 +540,30 @@ class MetadataExtractor:
                     software = exif_data.get(EXIF_SOFTWARE)
                 if output_lens_model:
                     lens_model = exif_data.get(EXIF_LENS_MODEL)
+                if output_aperture:
+                    aperture = self._format_aperture(exif_data.get(EXIF_APERTURE))
+                if output_exposure_time:
+                    exposure_time = self._format_exposure_time(exif_data.get(EXIF_EXPOSURE_TIME))
+                if output_focal_length:
+                    focal_length = self._format_focal_length(exif_data.get(EXIF_FOCAL_LENGTH))
+                if output_iso:
+                    iso = self._format_iso(exif_data.get(EXIF_ISO))
             except (OSError, SyntaxError, ValueError, UnidentifiedImageError):
                 self.collected_warnings["Scan Error"].append(f"[{directory_path}]\\{media_files[i]}")
                 return False
-            else:  # No errors
+            else:
                 data["Images"].append(media_files[i])
-                data["Dates"].append(dt)  # Add to lists
+                data["Dates"].append(dt)
                 data["Offsets"].append(offset)
                 data["Dimensions"].append(dimensions)
                 data["Makes"].append(make)
                 data["Models"].append(model)
                 data["Softwares"].append(software)
                 data["Lens_Models"].append(lens_model)
+                data["Apertures"].append(aperture)
+                data["Exposure_Times"].append(exposure_time)
+                data["Focal_Lengths"].append(focal_length)
+                data["ISOs"].append(iso)
                 return True
         else:
             return False
@@ -508,6 +600,10 @@ class MetadataExtractor:
         output_model,
         output_software,
         output_lens_model,
+        output_aperture,
+        output_exposure_time,
+        output_focal_length,
+        output_iso,
         progress_callback=None,
         defer_create_sheet=False,
     ):
@@ -555,6 +651,10 @@ class MetadataExtractor:
                 output_model,
                 output_software,
                 output_lens_model,
+                output_aperture,
+                output_exposure_time,
+                output_focal_length,
+                output_iso,
                 progress_callback=wrapped_cb,
                 defer_create_sheet=defer_create_sheet,
             )
@@ -594,11 +694,25 @@ class MetadataExtractor:
         recursive = self.recursive_var.get()  # Get status of recursive_checkbox
         debug = self.debug_var.get()
         output_utc = self.timezone_var.get()
-        output_dimensions = self.dimensions_var.get()
-        output_make = self.make_var.get()
-        output_model = self.model_var.get()
-        output_software = self.software_var.get()
-        output_lens_model = self.lens_model_var.get()
+        output_dimensions = False
+        output_make = False
+        output_model = False
+        output_software = False
+        output_lens_model = False
+        output_aperture = False
+        output_exposure_time = False
+        output_focal_length = False
+        output_iso = False
+        if self.extra_exif_var.get():
+            output_dimensions = self.dimensions_var.get()
+            output_make = self.make_var.get()
+            output_model = self.model_var.get()
+            output_software = self.software_var.get()
+            output_lens_model = self.lens_model_var.get()
+            output_aperture = self.aperture_var.get()
+            output_exposure_time = self.exposure_time_var.get()
+            output_focal_length = self.focal_length_var.get()
+            output_iso = self.iso_var.get()
         if debug:  # No need to set output_path every time on debug mode
             self.output_path = Path.home() / "Downloads"
         if self.directory_path is None or self.output_path is None:  # Validating paths
@@ -656,6 +770,10 @@ class MetadataExtractor:
                     output_model,
                     output_software,
                     output_lens_model,
+                    output_aperture,
+                    output_exposure_time,
+                    output_focal_length,
+                    output_iso,
                 )
             else:
                 with os.scandir(self.directory_path) as entries:
@@ -674,6 +792,10 @@ class MetadataExtractor:
                         output_model,
                         output_software,
                         output_lens_model,
+                        output_aperture,
+                        output_exposure_time,
+                        output_focal_length,
+                        output_iso,
                     )
                 else:
                     messagebox.showerror(
@@ -698,6 +820,10 @@ class MetadataExtractor:
                         output_model,
                         output_software,
                         output_lens_model,
+                        output_aperture,
+                        output_exposure_time,
+                        output_focal_length,
+                        output_iso,
                     )
                 else:
                     return
@@ -719,6 +845,10 @@ class MetadataExtractor:
                         output_model,
                         output_software,
                         output_lens_model,
+                        output_aperture,
+                        output_exposure_time,
+                        output_focal_length,
+                        output_iso,
                     )
                 else:
                     messagebox.showerror(
@@ -834,6 +964,10 @@ class MetadataExtractor:
         output_model,
         output_software,
         output_lens_model,
+        output_aperture,
+        output_exposure_time,
+        output_focal_length,
+        output_iso,
         progress_callback=None,
         defer_create_sheet=False,
     ):
@@ -908,6 +1042,10 @@ class MetadataExtractor:
                             output_model,
                             output_software,
                             output_lens_model,
+                            output_aperture,
+                            output_exposure_time,
+                            output_focal_length,
+                            output_iso,
                             progress_callback=progress_callback,
                             defer_create_sheet=defer_create_sheet,
                         )
@@ -938,6 +1076,10 @@ class MetadataExtractor:
                                     output_model,
                                     output_software,
                                     output_lens_model,
+                                    output_aperture,
+                                    output_exposure_time,
+                                    output_focal_length,
+                                    output_iso,
                                 )  # Scan image as one-off
                                 if not ok:
                                     i += 1
@@ -966,6 +1108,10 @@ class MetadataExtractor:
                                         output_model,
                                         output_software,
                                         output_lens_model,
+                                        output_aperture,
+                                        output_exposure_time,
+                                        output_focal_length,
+                                        output_iso,
                                     )
                                     if not ok:
                                         skipped += 1
@@ -1009,6 +1155,10 @@ class MetadataExtractor:
                             output_model,
                             output_software,
                             output_lens_model,
+                            output_aperture,
+                            output_exposure_time,
+                            output_focal_length,
+                            output_iso,
                         )
                         if not ok:
                             i += 1
@@ -1051,6 +1201,10 @@ class MetadataExtractor:
             output_model,
             output_software,
             output_lens_model,
+            output_aperture,
+            output_exposure_time,
+            output_focal_length,
+            output_iso,
         )
         if not recursive and not defer_create_sheet and not self.cancel_event.is_set():
             self.create_sheet(final_output, recursive, processed, skipped)  # One folder only, output time
@@ -1070,6 +1224,10 @@ class MetadataExtractor:
         output_model,
         output_software,
         output_lens_model,
+        output_aperture,
+        output_exposure_time,
+        output_focal_length,
+        output_iso,
         progress_callback=None,
         defer_create_sheet=False,
     ):
@@ -1104,6 +1262,10 @@ class MetadataExtractor:
                         output_model,
                         output_software,
                         output_lens_model,
+                        output_aperture,
+                        output_exposure_time,
+                        output_focal_length,
+                        output_iso,
                     )
                     if not ok:
                         i += 1
@@ -1143,6 +1305,10 @@ class MetadataExtractor:
             output_model,
             output_software,
             output_lens_model,
+            output_aperture,
+            output_exposure_time,
+            output_focal_length,
+            output_iso,
         )
         if not recursive and not defer_create_sheet and not self.cancel_event.is_set():  # Single folder mode
             self.create_sheet(final_output, recursive, processed, skipped)
@@ -1214,6 +1380,10 @@ class MetadataExtractor:
         output_model,
         output_software,
         output_lens_model,
+        output_aperture,
+        output_exposure_time,
+        output_focal_length,
+        output_iso,
     ):
         if data["Images"]:  # Make sure images are present.
             df_data = {
@@ -1231,6 +1401,14 @@ class MetadataExtractor:
                 df_data["Software"] = data["Softwares"]
             if output_lens_model:
                 df_data["Lens Model"] = data["Lens_Models"]
+            if output_aperture:
+                df_data["Aperture / FNumber"] = data["Apertures"]
+            if output_exposure_time:
+                df_data["Exposure Time"] = data["Exposure_Times"]
+            if output_focal_length:
+                df_data["Focal Length"] = data["Focal_Lengths"]
+            if output_iso:
+                df_data["ISO"] = data["ISOs"]
             if output_series:
                 df_data["Img # Series"] = img_series  # Add on img_series
             else:
@@ -1410,6 +1588,31 @@ class MetadataExtractor:
         self.lens_model_checkbox = tk.Checkbutton(
             self.extra_exif_frame, text="Lens Model", variable=self.lens_model_var
         )
+        self.aperture_var = tk.BooleanVar(value=False)
+        self.aperture_checkbox = tk.Checkbutton(
+            self.extra_exif_frame, text="FNumber / Aperture", variable=self.aperture_var
+        )
+        self.exposure_time_var = tk.BooleanVar(value=False)
+        self.exposure_checkbox = tk.Checkbutton(
+            self.extra_exif_frame, text="Exposure Time", variable=self.exposure_time_var
+        )
+        self.focal_length_var = tk.BooleanVar(value=False)
+        self.focal_length_checkbox = tk.Checkbutton(
+            self.extra_exif_frame, text="Focal Length", variable=self.focal_length_var
+        )
+        self.iso_var = tk.BooleanVar(value=False)
+        self.iso_checkbox = tk.Checkbutton(self.extra_exif_frame, text="ISO", variable=self.iso_var)
+
+        # Pack Extra Checkboxes
+        self.dimensions_checkbox.pack()
+        self.make_checkbox.pack()
+        self.model_checkbox.pack()
+        self.software_checkbox.pack()
+        self.lens_model_checkbox.pack()
+        self.aperture_checkbox.pack()
+        self.exposure_checkbox.pack()
+        self.focal_length_checkbox.pack()
+        self.iso_checkbox.pack()
 
         # Set default sheet name
         self.current_sheet_name = "Sheet"
@@ -1472,7 +1675,6 @@ class MetadataExtractor:
         self.cancel_button.pack()
         self.keepopen_checkbox.pack()
         self.debug_checkbox.pack()
-        self.extra_exif_frame.pack()
         self.extra_exif_checkbox.pack()
 
         # Pack progress bar

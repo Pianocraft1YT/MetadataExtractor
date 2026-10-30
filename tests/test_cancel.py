@@ -3,6 +3,19 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 
+_EXTRA_OFF = dict(
+    output_utc=False,
+    output_dimensions=False,
+    output_make=False,
+    output_model=False,
+    output_software=False,
+    output_lens_model=False,
+    output_aperture=False,
+    output_exposure_time=False,
+    output_focal_length=False,
+    output_iso=False,
+)
+
 
 def _capture_scanned(extractor):
     original = extractor.scan_image
@@ -32,12 +45,7 @@ def test_sort_and_extract_stops_on_cancel(extractor, photos_only):
         final_output=Path("out.xlsx"),
         modifier=0,
         output_series=True,
-        output_utc=False,
-        output_dimensions=False,
-        output_make=False,
-        output_model=False,
-        output_software=False,
-        output_lens_model=False,
+        **_EXTRA_OFF,
     )
     assert processed <= 1
     assert len(extractor.results) == 0
@@ -51,12 +59,7 @@ def test_sort_and_extract_irregular_stops_on_cancel(extractor, photos_and_videos
         final_output=Path("out.xlsx"),
         modifier=0,
         debug=False,
-        output_utc=False,
-        output_dimensions=False,
-        output_make=False,
-        output_model=False,
-        output_software=False,
-        output_lens_model=False,
+        **_EXTRA_OFF,
     )
     assert processed == 0
     assert skipped == 0
@@ -76,12 +79,7 @@ def test_find_directories_breaks_on_cancel(extractor, tmp_path):
         tmp_path / "out.xlsx",
         modifier=0,
         debug=False,
-        output_utc=False,
-        output_dimensions=False,
-        output_make=False,
-        output_model=False,
-        output_software=False,
-        output_lens_model=False,
+        **_EXTRA_OFF,
     )
     extractor.sort_and_extract_irregular.assert_not_called()
 

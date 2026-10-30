@@ -222,3 +222,20 @@ def make_jpeg(tmp_path):
         return path
 
     return _make
+
+
+@pytest.fixture
+def make_jpeg_with_tags(tmp_path):
+    """Factory that accepts an arbitrary {tag_number: value} dict."""
+    from PIL import Image
+
+    def _make(filename, tags):
+        img = Image.new("RGB", (10, 10), color="red")
+        exif = Image.Exif()
+        for tag, value in tags.items():
+            exif[tag] = value
+        path = tmp_path / filename
+        img.save(path, format="JPEG", exif=exif)
+        return path
+
+    return _make

@@ -4,6 +4,19 @@ from pathlib import Path
 
 from tests.conftest import make_jpeg_with_exif
 
+_EXTRA_OFF = dict(
+    output_utc=False,
+    output_dimensions=False,
+    output_make=False,
+    output_model=False,
+    output_software=False,
+    output_lens_model=False,
+    output_aperture=False,
+    output_exposure_time=False,
+    output_focal_length=False,
+    output_iso=False,
+)
+
 
 def _make_photos(folder, names):
     folder.mkdir(parents=True, exist_ok=True)
@@ -35,12 +48,7 @@ def _run(extractor, parent, out):
         out,
         modifier=0,
         debug=False,
-        output_utc=False,
-        output_dimensions=False,
-        output_make=False,
-        output_model=False,
-        output_software=False,
-        output_lens_model=False,
+        **_EXTRA_OFF,
     )
 
 
@@ -206,12 +214,7 @@ def test_first_folder_corrupt_does_not_prevent_later_folders(extractor, tmp_path
         tmp_path / "out.xlsx",
         modifier=0,
         debug=False,
-        output_utc=False,
-        output_dimensions=False,
-        output_make=False,
-        output_model=False,
-        output_software=False,
-        output_lens_model=False,
+        **_EXTRA_OFF,
     )
     # A_bad: 1 skipped; B_good: 1 processed
     assert p == 1

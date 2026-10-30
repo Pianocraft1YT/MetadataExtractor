@@ -2,6 +2,19 @@
 
 from pathlib import Path
 
+_EXTRA_OFF = dict(
+    output_utc=False,
+    output_dimensions=False,
+    output_make=False,
+    output_model=False,
+    output_software=False,
+    output_lens_model=False,
+    output_aperture=False,
+    output_exposure_time=False,
+    output_focal_length=False,
+    output_iso=False,
+)
+
 
 def _scan(extractor, tmp_path, media_files, output_utc=False):
     data = extractor._empty_scan_data()
@@ -16,6 +29,10 @@ def _scan(extractor, tmp_path, media_files, output_utc=False):
         output_model=False,
         output_software=False,
         output_lens_model=False,
+        output_aperture=False,
+        output_exposure_time=False,
+        output_focal_length=False,
+        output_iso=False,
     )
     return ok, data
 
@@ -91,15 +108,7 @@ def test_scan_image_missing_offset_when_timezone_on(extractor_tz_on, make_jpeg, 
     assert data["Offsets"] == [None]
 
 
-# ---------------------------------------------------------------------------
-# Regression: warning path must reference the current file, not the accumulator
-# ---------------------------------------------------------------------------
-
-
 def test_scan_image_first_corrupt_file_does_not_abort_folder(extractor, make_jpeg, tmp_path):
-    """Before the fix, the Scan Error warning dereferenced data['Images'][i],
-    which was empty for the first file, raising IndexError. That escaped into
-    sort_and_extract's outer except and silently dropped the whole folder."""
     (tmp_path / "a_bad.jpg").write_bytes(b"not a jpeg")
     make_jpeg("b_good.jpg", datetime_original="2024:05:15 12:30:45")
 
@@ -109,12 +118,7 @@ def test_scan_image_first_corrupt_file_does_not_abort_folder(extractor, make_jpe
         final_output=Path("out.xlsx"),
         modifier=0,
         output_series=True,
-        output_utc=False,
-        output_dimensions=False,
-        output_make=False,
-        output_model=False,
-        output_software=False,
-        output_lens_model=False,
+        **_EXTRA_OFF,
     )
     assert processed == 1
     assert skipped == 1
@@ -124,8 +128,6 @@ def test_scan_image_first_corrupt_file_does_not_abort_folder(extractor, make_jpe
 
 
 def test_scan_image_warning_uses_actual_filename(extractor, tmp_path):
-    """The 'Scan Error' warning must name the file that failed, not a stale
-    accumulator entry (or an IndexError when the accumulator is empty)."""
     (tmp_path / "specific_name.jpg").write_bytes(b"not a jpeg")
     data = extractor._empty_scan_data()
     extractor.scan_image(
@@ -133,11 +135,6 @@ def test_scan_image_warning_uses_actual_filename(extractor, tmp_path):
         0,
         data,
         ["specific_name.jpg"],
-        output_utc=False,
-        output_dimensions=False,
-        output_make=False,
-        output_model=False,
-        output_software=False,
-        output_lens_model=False,
+        **_EXTRA_OFF,
     )
     assert any("specific_name.jpg" in warn for warn in extractor.collected_warnings["Scan Error"])

@@ -13,6 +13,10 @@ _EXTRA_OFF = dict(
     output_model=False,
     output_software=False,
     output_lens_model=False,
+    output_aperture=False,
+    output_exposure_time=False,
+    output_focal_length=False,
+    output_iso=False,
 )
 
 
@@ -175,12 +179,7 @@ def test_recursive_mode_links_each_sheet_to_its_own_directory(extractor, tmp_pat
         output,
         modifier=0,
         debug=False,
-        output_utc=False,
-        output_dimensions=False,
-        output_make=False,
-        output_model=False,
-        output_software=False,
-        output_lens_model=False,
+        **_EXTRA_OFF,
     )
     assert output.exists()
     wb = openpyxl.load_workbook(output)

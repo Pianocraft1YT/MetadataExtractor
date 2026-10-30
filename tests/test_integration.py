@@ -6,6 +6,20 @@ import pytest
 pytestmark = pytest.mark.real_create_sheet
 
 
+_EXTRA_OFF = dict(
+    output_utc=False,
+    output_dimensions=False,
+    output_make=False,
+    output_model=False,
+    output_software=False,
+    output_lens_model=False,
+    output_aperture=False,
+    output_exposure_time=False,
+    output_focal_length=False,
+    output_iso=False,
+)
+
+
 def test_end_to_end_single_folder(extractor, photos_only, tmp_path):
     output = tmp_path / "output.xlsx"
     extractor.sort_and_extract(
@@ -14,12 +28,7 @@ def test_end_to_end_single_folder(extractor, photos_only, tmp_path):
         final_output=output,
         modifier=0,
         output_series=True,
-        output_utc=False,
-        output_dimensions=False,
-        output_make=False,
-        output_model=False,
-        output_software=False,
-        output_lens_model=False,
+        **_EXTRA_OFF,
     )
 
     assert output.exists()
@@ -37,12 +46,7 @@ def test_end_to_end_custom_starting_index(extractor, photos_and_videos, tmp_path
         final_output=output,
         modifier=4,
         debug=False,
-        output_utc=False,
-        output_dimensions=False,
-        output_make=False,
-        output_model=False,
-        output_software=False,
-        output_lens_model=False,
+        **_EXTRA_OFF,
     )
 
     assert output.exists()

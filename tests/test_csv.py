@@ -10,6 +10,10 @@ _EXTRA_OFF = dict(
     output_model=False,
     output_software=False,
     output_lens_model=False,
+    output_aperture=False,
+    output_exposure_time=False,
+    output_focal_length=False,
+    output_iso=False,
 )
 
 

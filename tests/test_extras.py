@@ -1,15 +1,10 @@
-"""Tests for the extra metadata feature (dimensions, make, model, software, lens)."""
+"""Tests for the extra metadata feature."""
 
 import pandas as pd
 import pytest
 
-# ---------------------------------------------------------------------------
-# _empty_scan_data
-# ---------------------------------------------------------------------------
-
 
 def test_empty_scan_data_has_all_expected_keys(extractor):
-    """Locks the schema. Adding a column means intentionally touching this test."""
     data = extractor._empty_scan_data()
     expected = {
         "Dates",
@@ -21,6 +16,10 @@ def test_empty_scan_data_has_all_expected_keys(extractor):
         "Models",
         "Softwares",
         "Lens_Models",
+        "Apertures",
+        "Exposure_Times",
+        "Focal_Lengths",
+        "ISOs",
     }
     assert set(data.keys()) == expected
     for value in data.values():
@@ -28,13 +27,7 @@ def test_empty_scan_data_has_all_expected_keys(extractor):
         assert value == []
 
 
-# ---------------------------------------------------------------------------
-# scan_image extra column extraction
-# ---------------------------------------------------------------------------
-
-
 def _scan_extras(extractor, tmp_path, media_files, **extras):
-    """Helper: scan with the 5 extra flags set from kwargs (default False)."""
     data = extractor._empty_scan_data()
     ok = extractor.scan_image(
         tmp_path,
@@ -47,6 +40,10 @@ def _scan_extras(extractor, tmp_path, media_files, **extras):
         output_model=extras.get("model", False),
         output_software=extras.get("software", False),
         output_lens_model=extras.get("lens", False),
+        output_aperture=extras.get("aperture", False),
+        output_exposure_time=extras.get("exposure_time", False),
+        output_focal_length=extras.get("focal_length", False),
+        output_iso=extras.get("iso", False),
     )
     return ok, data
 
@@ -109,11 +106,6 @@ def test_scan_image_all_extras_enabled_populates_each(extractor, make_jpeg, tmp_
     assert data["Lens_Models"] == [None]
 
 
-# ---------------------------------------------------------------------------
-# create_dataframe conditional columns
-# ---------------------------------------------------------------------------
-
-
 def _populated_data(extractor):
     data = extractor._empty_scan_data()
     data["Images"] = ["a.jpg", "b.jpg"]
@@ -125,6 +117,14 @@ def _populated_data(extractor):
     data["Softwares"] = ["Lightroom", None]
     data["Lens_Models"] = ["EF 50mm", None]
     return data
+
+
+_EXTRA_OFF = dict(
+    output_aperture=False,
+    output_exposure_time=False,
+    output_focal_length=False,
+    output_iso=False,
+)
 
 
 def test_create_dataframe_all_extras_enabled(extractor, tmp_path):
@@ -139,13 +139,13 @@ def test_create_dataframe_all_extras_enabled(extractor, tmp_path):
         output_model=True,
         output_software=True,
         output_lens_model=True,
+        **_EXTRA_OFF,
     )
     df = extractor.results[0][0]
     assert list(df["Files"]) == ["a.jpg", "b.jpg"]
     assert list(df["Camera Make"]) == ["Canon", "Nikon"]
     assert list(df["Camera Model"]) == ["EOS 70D", "D750"]
     assert list(df["Dimensions"]) == ["1920x1080", "1080x1920"]
-    # pandas normalizes None in object columns to NaN; accept either
     assert df["Software"].iloc[0] == "Lightroom"
     assert pd.isna(df["Software"].iloc[1])
     assert df["Lens Model"].iloc[0] == "EF 50mm"
@@ -165,6 +165,7 @@ def test_create_dataframe_all_extras_disabled(extractor, tmp_path):
         output_model=False,
         output_software=False,
         output_lens_model=False,
+        **_EXTRA_OFF,
     )
     df = extractor.results[0][0]
     assert list(df.columns) == ["Files", "Dates", "Time", "Img # Series"]
@@ -182,6 +183,7 @@ def test_create_dataframe_selective_columns(extractor, tmp_path):
         output_model=False,
         output_software=True,
         output_lens_model=False,
+        **_EXTRA_OFF,
     )
     df = extractor.results[0][0]
     assert "Dimensions" in df.columns
@@ -203,6 +205,7 @@ def test_create_dataframe_empty_data_creates_empty_sheet(extractor, tmp_path):
         output_model=True,
         output_software=True,
         output_lens_model=True,
+        **_EXTRA_OFF,
     )
     df, _, directory = extractor.results[0]
     assert df.empty
@@ -210,26 +213,26 @@ def test_create_dataframe_empty_data_creates_empty_sheet(extractor, tmp_path):
     assert directory is None
 
 
-# ---------------------------------------------------------------------------
-# extra_exif GUI toggle
-#
-# The conftest mocks tkinter as a whole, so tk.Checkbutton(...) returns
-# the same MagicMock for every widget. All 5 checkbox mocks share one
-# .pack / .pack_forget method. Assertions must therefore check "called"
-# not "called exactly once".
-# ---------------------------------------------------------------------------
+def test_extra_exif_checkbox_shows_frame(extractor):
+    """The toggle packs extra_exif_frame, not the individual checkboxes.
+    The 9 sub-checkboxes are packed into the frame once at __init__ and
+    stay packed; only the frame itself moves in/out of root's layout."""
+    extractor.extra_exif_frame.pack.reset_mock()
+    extractor.extra_exif_frame.pack_forget.reset_mock()
 
-
-def test_extra_exif_toggle_packs_checkboxes(extractor):
-    extractor.dimensions_checkbox.pack.reset_mock()
     extractor.extra_exif_var.set(True)
     extractor.extra_exif()
-    # 5 checkboxes packed; shared mock -> 5 calls total
-    assert extractor.dimensions_checkbox.pack.call_count == 5
+
+    extractor.extra_exif_frame.pack.assert_called_once()
+    extractor.extra_exif_frame.pack_forget.assert_not_called()
 
 
-def test_extra_exif_toggle_unpacks_checkboxes(extractor):
-    extractor.dimensions_checkbox.pack_forget.reset_mock()
+def test_extra_exif_checkbox_hides_frame(extractor):
+    extractor.extra_exif_frame.pack.reset_mock()
+    extractor.extra_exif_frame.pack_forget.reset_mock()
+
     extractor.extra_exif_var.set(False)
     extractor.extra_exif()
-    assert extractor.dimensions_checkbox.pack_forget.call_count == 5
+
+    extractor.extra_exif_frame.pack.assert_not_called()
+    extractor.extra_exif_frame.pack_forget.assert_called_once()
