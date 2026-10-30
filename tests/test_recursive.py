@@ -30,7 +30,18 @@ def _capture(extractor):
 
 
 def _run(extractor, parent, out):
-    extractor.find_directories(parent, out, modifier=0, debug=False, output_utc=False)
+    extractor.find_directories(
+        parent,
+        out,
+        modifier=0,
+        debug=False,
+        output_utc=False,
+        output_dimensions=False,
+        output_make=False,
+        output_model=False,
+        output_software=False,
+        output_lens_model=False,
+    )
 
 
 def test_two_clean_subfolders(extractor, tmp_path):
@@ -176,3 +187,32 @@ def test_root_folder_with_direct_photos_named_sheet(extractor, tmp_path):
     sheets = [name for _, name, _ in calls[0]["results"]]
     assert "Sheet" in sheets
     assert "sub" in sheets
+
+
+def test_first_folder_corrupt_does_not_prevent_later_folders(extractor, tmp_path):
+    """Regression: scan_image crash on a folder's first file used to swallow
+    that folder's counts. Ensure A_bad records its skip and B_good processes."""
+    parent = tmp_path / "parent"
+    bad = parent / "A_bad"
+    good = parent / "B_good"
+    bad.mkdir(parents=True)
+    good.mkdir()
+    (bad / "broken.jpg").write_bytes(b"not an image")
+    make_jpeg_with_exif(good / "IMG_001.jpg", "2024:05:15 12:30:45")
+
+    extractor.maxdepth = 1
+    p, s = extractor.find_directories(
+        parent,
+        tmp_path / "out.xlsx",
+        modifier=0,
+        debug=False,
+        output_utc=False,
+        output_dimensions=False,
+        output_make=False,
+        output_model=False,
+        output_software=False,
+        output_lens_model=False,
+    )
+    # A_bad: 1 skipped; B_good: 1 processed
+    assert p == 1
+    assert s == 1

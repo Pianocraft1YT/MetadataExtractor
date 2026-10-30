@@ -25,6 +25,11 @@ def _sort(extractor, folder, modifier=0, output_series=True):
         modifier=modifier,
         output_series=output_series,
         output_utc=False,
+        output_dimensions=False,
+        output_make=False,
+        output_model=False,
+        output_software=False,
+        output_lens_model=False,
     )
 
 
@@ -36,6 +41,11 @@ def _sort_irregular(extractor, folder, modifier=0):
         modifier=modifier,
         debug=False,
         output_utc=False,
+        output_dimensions=False,
+        output_make=False,
+        output_model=False,
+        output_software=False,
+        output_lens_model=False,
     )
 
 

@@ -6,6 +6,15 @@ import pytest
 
 from tests.conftest import make_jpeg_with_exif
 
+_EXTRA_OFF = dict(
+    output_utc=False,
+    output_dimensions=False,
+    output_make=False,
+    output_model=False,
+    output_software=False,
+    output_lens_model=False,
+)
+
 
 def _write_workbook(path, sheets):
     with pd.ExcelWriter(path) as writer:
@@ -118,7 +127,7 @@ def test_create_sheet_adds_hyperlinks_when_enabled(extractor, photos_only, tmp_p
         final_output=output,
         modifier=0,
         output_series=True,
-        output_utc=False,
+        **_EXTRA_OFF,
     )
 
     assert output.exists()
@@ -140,7 +149,7 @@ def test_create_sheet_skips_hyperlinks_when_disabled(extractor, photos_only, tmp
         final_output=output,
         modifier=0,
         output_series=True,
-        output_utc=False,
+        **_EXTRA_OFF,
     )
 
     assert output.exists()
@@ -161,7 +170,18 @@ def test_recursive_mode_links_each_sheet_to_its_own_directory(extractor, tmp_pat
 
     output = tmp_path / "output.xlsx"
     extractor.maxdepth = 1
-    extractor.find_directories(parent, output, modifier=0, debug=False, output_utc=False)
+    extractor.find_directories(
+        parent,
+        output,
+        modifier=0,
+        debug=False,
+        output_utc=False,
+        output_dimensions=False,
+        output_make=False,
+        output_model=False,
+        output_software=False,
+        output_lens_model=False,
+    )
     assert output.exists()
     wb = openpyxl.load_workbook(output)
 

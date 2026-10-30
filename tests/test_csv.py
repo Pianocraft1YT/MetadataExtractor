@@ -3,6 +3,15 @@
 import pandas as pd
 import pytest
 
+_EXTRA_OFF = dict(
+    output_utc=False,
+    output_dimensions=False,
+    output_make=False,
+    output_model=False,
+    output_software=False,
+    output_lens_model=False,
+)
+
 
 @pytest.mark.real_create_sheet
 def test_excel_mode_writes_xlsx(extractor, photos_only, tmp_path):
@@ -13,7 +22,7 @@ def test_excel_mode_writes_xlsx(extractor, photos_only, tmp_path):
         final_output=output,
         modifier=0,
         output_series=True,
-        output_utc=False,
+        **_EXTRA_OFF,
     )
     assert output.exists()
     df = pd.read_excel(output, sheet_name="Sheet")
@@ -30,7 +39,7 @@ def test_csv_mode_writes_csv_per_sheet(extractor_csv, photos_only, tmp_path):
         final_output=output,
         modifier=0,
         output_series=True,
-        output_utc=False,
+        **_EXTRA_OFF,
     )
     assert not output.exists()
     csv_path = tmp_path / "output_Sheet.csv"
@@ -50,7 +59,7 @@ def test_csv_mode_includes_series_column(extractor_csv, photos_only, tmp_path):
         final_output=output,
         modifier=0,
         output_series=True,
-        output_utc=False,
+        **_EXTRA_OFF,
     )
     df = pd.read_csv(tmp_path / "output_Sheet.csv")
     assert list(df.columns) == ["Files", "Dates", "Time", "Img # Series"]
@@ -66,7 +75,7 @@ def test_csv_mode_without_series_column(extractor_csv, photos_only, tmp_path):
         final_output=output,
         modifier=0,
         output_series=False,
-        output_utc=False,
+        **_EXTRA_OFF,
     )
     df = pd.read_csv(tmp_path / "output_Sheet.csv")
     assert "Img # Series" not in df.columns
@@ -81,12 +90,7 @@ def test_clean_name_csv_mode_appends_csv(extractor_csv):
 
 
 def test_clean_name_typed_xlsx_in_csv_mode_forced_to_csv(extractor_csv):
-    """User typed .xlsx but CSV is selected -> extension forced to .csv.
-
-    This is the intended fix for the "extension contradicts filetype"
-    issue -- the user can't accidentally write xlsx bytes into a file
-    named .csv, or vice versa.
-    """
+    """User typed .xlsx but CSV is selected -> extension forced to .csv."""
     assert extractor_csv.clean_name("myname.xlsx") == "myname.csv"
 
 
@@ -111,7 +115,7 @@ def test_default_sheet_name_used(extractor, photos_only, tmp_path):
         final_output=output,
         modifier=0,
         output_series=True,
-        output_utc=False,
+        **_EXTRA_OFF,
     )
     xl = pd.ExcelFile(output)
     assert xl.sheet_names == ["Sheet"]

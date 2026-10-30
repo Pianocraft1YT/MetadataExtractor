@@ -6,7 +6,7 @@
 # Please increment this counter as a warning
 # For the next person:
 #
-# hours_wasted_here = 62
+# hours_wasted_here = 63
 
 # Coded by Pianocraft1YT
 # Tutorial: https://youtu.be/ruWNKBdbYoo
@@ -38,7 +38,10 @@ EXIF_DATETIME_DIGITIZED = 36868
 MAX_PHOTOS_BEFORE_VIDEO = 5
 SHEET_NAME_MAX_CHARS = 31
 EXIF_OFFSET_TIME_ORIGINAL = 36881
-
+EXIF_CAMERA_MAKE = 271
+EXIF_CAMERA_MODEL = 272
+EXIF_SOFTWARE = 305
+EXIF_LENS_MODEL = 42036
 # Common video file formats to check
 VIDEO_TYPES = (".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv")
 # Common and uncommon image formats to check
@@ -120,6 +123,25 @@ class MetadataExtractor:
         else:
             self.maxdepth_entry.pack_forget()
 
+    # Show extra metadata checkboxes when extra_exif_checkbox is checked
+    def extra_exif(self):
+        if self.extra_exif_var.get():
+            self.root.geometry("400x650")
+            # Pack everything
+            self.dimensions_checkbox.pack()
+            self.make_checkbox.pack()
+            self.model_checkbox.pack()
+            self.software_checkbox.pack()
+            self.lens_model_checkbox.pack()
+        else:
+            self.root.geometry("350x520")
+            # Unpack everything
+            self.dimensions_checkbox.pack_forget()
+            self.make_checkbox.pack_forget()
+            self.model_checkbox.pack_forget()
+            self.software_checkbox.pack_forget()
+            self.lens_model_checkbox.pack_forget()
+
     # For debug_checkbox warning
     def debug_warning(self):
         if self.debug_var.get():
@@ -161,7 +183,7 @@ class MetadataExtractor:
             if minutes >= 60:
                 hours = int(minutes / 60)
                 minutes = minutes - (hours * 60)
-                if hours >= 60:
+                if hours >= 24:
                     days = int(hours / 24)
                     hours = hours - (days * 24)
         if days > 0:
@@ -207,18 +229,53 @@ class MetadataExtractor:
             self.current_directory.set(str(current_dir)[-30:])  # Truncate to not be too long, last 30 characters
 
     # Starts the worker thread (called from main thread)
-    def _start_scan(self, recursive, final_output, modifier, debug, output_utc):
+    def _start_scan(
+        self,
+        recursive,
+        final_output,
+        modifier,
+        debug,
+        output_utc,
+        output_dimensions,
+        output_make,
+        output_model,
+        output_software,
+        output_lens_model,
+    ):
         self._scan_running = True
         self.execute_button.config(state="disabled")
         self.cancel_button.config(state="normal")
         threading.Thread(
             target=self._run_scan_threaded,
-            args=(recursive, final_output, modifier, debug, output_utc),
+            args=(
+                recursive,
+                final_output,
+                modifier,
+                debug,
+                output_utc,
+                output_dimensions,
+                output_make,
+                output_model,
+                output_software,
+                output_lens_model,
+            ),
             daemon=True,
         ).start()
 
     # Runs the threaded versions of the scan(s)
-    def _run_scan_threaded(self, recursive, final_output, modifier, debug, output_utc):
+    def _run_scan_threaded(
+        self,
+        recursive,
+        final_output,
+        modifier,
+        debug,
+        output_utc,
+        output_dimensions,
+        output_make,
+        output_model,
+        output_software,
+        output_lens_model,
+    ):
         total_scanned, total_skipped = 0, 0
 
         def _on_progress(p, s, d):
@@ -240,6 +297,11 @@ class MetadataExtractor:
                     modifier,
                     debug,
                     output_utc,
+                    output_dimensions,
+                    output_make,
+                    output_model,
+                    output_software,
+                    output_lens_model,
                     defer_create_sheet=True,
                     progress_callback=_on_progress,
                 )
@@ -251,6 +313,11 @@ class MetadataExtractor:
                     modifier,
                     debug,
                     output_utc,
+                    output_dimensions,
+                    output_make,
+                    output_model,
+                    output_software,
+                    output_lens_model,
                     defer_create_sheet=True,
                     progress_callback=_on_progress,
                 )
@@ -296,6 +363,19 @@ class MetadataExtractor:
         self._dialog_event.wait()  # now block the worker for real
         return bool(self._dialog_answer)
 
+    def _empty_scan_data(self):
+        return {
+            "Dates": [],
+            "Images": [],
+            "Offsets": [],
+            "Dimensions": [],
+            "Makes": [],
+            "Models": [],
+            "Softwares": [],
+            "Lens_Models": [],
+            "Times": [],
+        }
+
     # To clean up any past executions
     # NOTE: does NOT touch cancel_event; check_recursive owns the clear
     def reset(self):
@@ -337,29 +417,61 @@ class MetadataExtractor:
             self.output_path = Path(selected)
 
     # Image metadata extractor helper function
-    def scan_image(self, directory_path, media_files, i, list_of_dates, list_of_images, list_of_offsets, output_utc):
+    def scan_image(
+        self,
+        directory_path,
+        i,
+        data,
+        media_files,
+        output_utc,
+        output_dimensions,
+        output_make,
+        output_model,
+        output_software,
+        output_lens_model,
+    ):
         offset = None
+        dimensions = None
+        make = None
+        model = None
+        software = None
+        lens_model = None
         if media_files:
             try:
                 with Image.open(Path(directory_path) / media_files[i]) as img:  # open the image
                     exif_data = img.getexif()  # get the exif metadata
+                    if output_dimensions:
+                        dimensions = f"{img.size[0]}x{img.size[1]}"
                 dt = (
                     exif_data.get(EXIF_DATETIME_ORIGINAL)
                     or exif_data.get(EXIF_DATETIME_DIGITIZED)
                     or exif_data.get(EXIF_DATETIME)
-                )  # only extract date and time
+                )
                 if dt is None:
                     self.collected_warnings["No Metadata"].append(f"[{directory_path}]\\{media_files[i]}")
                     return False
                 if output_utc:
                     offset = exif_data.get(EXIF_OFFSET_TIME_ORIGINAL)
+                if output_make:
+                    make = exif_data.get(EXIF_CAMERA_MAKE)
+                if output_model:
+                    model = exif_data.get(EXIF_CAMERA_MODEL)
+                if output_software:
+                    software = exif_data.get(EXIF_SOFTWARE)
+                if output_lens_model:
+                    lens_model = exif_data.get(EXIF_LENS_MODEL)
             except (OSError, SyntaxError, ValueError, UnidentifiedImageError):
                 self.collected_warnings["Scan Error"].append(f"[{directory_path}]\\{media_files[i]}")
                 return False
             else:  # No errors
-                list_of_dates.append(dt)  # Add to lists
-                list_of_images.append(media_files[i])
-                list_of_offsets.append(offset)
+                data["Images"].append(media_files[i])
+                data["Dates"].append(dt)  # Add to lists
+                data["Offsets"].append(offset)
+                data["Dimensions"].append(dimensions)
+                data["Makes"].append(make)
+                data["Models"].append(model)
+                data["Softwares"].append(software)
+                data["Lens_Models"].append(lens_model)
                 return True
         else:
             return False
@@ -391,6 +503,11 @@ class MetadataExtractor:
         modifier,
         debug,
         output_utc,
+        output_dimensions,
+        output_make,
+        output_model,
+        output_software,
+        output_lens_model,
         progress_callback=None,
         defer_create_sheet=False,
     ):
@@ -433,6 +550,11 @@ class MetadataExtractor:
                 modifier,
                 debug,
                 output_utc,
+                output_dimensions,
+                output_make,
+                output_model,
+                output_software,
+                output_lens_model,
                 progress_callback=wrapped_cb,
                 defer_create_sheet=defer_create_sheet,
             )
@@ -472,6 +594,11 @@ class MetadataExtractor:
         recursive = self.recursive_var.get()  # Get status of recursive_checkbox
         debug = self.debug_var.get()
         output_utc = self.timezone_var.get()
+        output_dimensions = self.dimensions_var.get()
+        output_make = self.make_var.get()
+        output_model = self.model_var.get()
+        output_software = self.software_var.get()
+        output_lens_model = self.lens_model_var.get()
         if debug:  # No need to set output_path every time on debug mode
             self.output_path = Path.home() / "Downloads"
         if self.directory_path is None or self.output_path is None:  # Validating paths
@@ -518,14 +645,36 @@ class MetadataExtractor:
             final_output = Path(self.output_path) / f"output.{ext}"  # Default filename
         if filetype == "Excel":
             if recursive:
-                self._start_scan(recursive, final_output, modifier, debug, output_utc)
+                self._start_scan(
+                    recursive,
+                    final_output,
+                    modifier,
+                    debug,
+                    output_utc,
+                    output_dimensions,
+                    output_make,
+                    output_model,
+                    output_software,
+                    output_lens_model,
+                )
             else:
                 with os.scandir(self.directory_path) as entries:
                     self._set_total_files(
                         sum(1 for entry in entries if entry.is_file() and entry.name.lower().endswith(PHOTO_TYPES))
                     )
                 if self.total_files > 0:
-                    self._start_scan(recursive, final_output, modifier, debug, output_utc)
+                    self._start_scan(
+                        recursive,
+                        final_output,
+                        modifier,
+                        debug,
+                        output_utc,
+                        output_dimensions,
+                        output_make,
+                        output_model,
+                        output_software,
+                        output_lens_model,
+                    )
                 else:
                     messagebox.showerror(
                         "Empty directory", message="No files were found. Please select a valid directory"
@@ -538,7 +687,18 @@ class MetadataExtractor:
                     message="Recursive mode on CSV output will create multiple CSVs, one for each valid folder. Proceed?",
                 )
                 if ok:
-                    self._start_scan(recursive, final_output, modifier, debug, output_utc)
+                    self._start_scan(
+                        recursive,
+                        final_output,
+                        modifier,
+                        debug,
+                        output_utc,
+                        output_dimensions,
+                        output_make,
+                        output_model,
+                        output_software,
+                        output_lens_model,
+                    )
                 else:
                     return
             else:
@@ -548,7 +708,18 @@ class MetadataExtractor:
                     )
                 if photo_count > 0:
                     self._set_total_files(photo_count)
-                    self._start_scan(recursive, final_output, modifier, debug, output_utc)
+                    self._start_scan(
+                        recursive,
+                        final_output,
+                        modifier,
+                        debug,
+                        output_utc,
+                        output_dimensions,
+                        output_make,
+                        output_model,
+                        output_software,
+                        output_lens_model,
+                    )
                 else:
                     messagebox.showerror(
                         "Empty directory", message="No files were found. Please select a valid directory"
@@ -658,15 +829,18 @@ class MetadataExtractor:
         modifier,
         debug,
         output_utc,
+        output_dimensions,
+        output_make,
+        output_model,
+        output_software,
+        output_lens_model,
         progress_callback=None,
         defer_create_sheet=False,
     ):
         processed = 0  # Processed this turn
         skipped = 0  # Skipped this turn
         output_series = True  # If photos_before_video is less than MAX_PHOTOS_BEFORE_VIDEO.
-        list_of_dates = []
-        list_of_images = []
-        list_of_offsets = []
+        data = self._empty_scan_data()
         img_series = []
         photos_before_video_updated = False
         i = 0  # Internal usage to scan files
@@ -675,7 +849,6 @@ class MetadataExtractor:
         regular_pattern_found = False  # If a regular pattern from pattern_check and photos_before_video found
         initial_check = 1  # Finding pattern initially
         photos_before_video = 0  # Default all images
-        media_files = []
         try:
             # List all files in directory given
             all_files = os.listdir(directory_path)
@@ -730,6 +903,11 @@ class MetadataExtractor:
                             modifier,
                             output_series,
                             output_utc,
+                            output_dimensions,
+                            output_make,
+                            output_model,
+                            output_software,
+                            output_lens_model,
                             progress_callback=progress_callback,
                             defer_create_sheet=defer_create_sheet,
                         )
@@ -751,12 +929,15 @@ class MetadataExtractor:
                             else:  # Not regular pattern
                                 ok = self.scan_image(
                                     directory_path,
-                                    media_files,
                                     i,
-                                    list_of_dates,
-                                    list_of_images,
-                                    list_of_offsets,
+                                    data,
+                                    media_files,
                                     output_utc,
+                                    output_dimensions,
+                                    output_make,
+                                    output_model,
+                                    output_software,
+                                    output_lens_model,
                                 )  # Scan image as one-off
                                 if not ok:
                                     i += 1
@@ -776,12 +957,15 @@ class MetadataExtractor:
                                 if media_files[r].lower().endswith(PHOTO_TYPES):
                                     ok = self.scan_image(
                                         directory_path,
-                                        media_files,
                                         r,
-                                        list_of_dates,
-                                        list_of_images,
-                                        list_of_offsets,
+                                        data,
+                                        media_files,
                                         output_utc,
+                                        output_dimensions,
+                                        output_make,
+                                        output_model,
+                                        output_software,
+                                        output_lens_model,
                                     )
                                     if not ok:
                                         skipped += 1
@@ -790,7 +974,7 @@ class MetadataExtractor:
                                         img_series.append(str(r - i + index + modifier))
                                     if progress_callback:
                                         progress_callback(processed, skipped, directory_path)
-                            break  # exit the outer `for file in media_files:` loop
+                            break  # exit the outer `for file in data["Images"]:` loop
                     # Always increment
                     pattern_check = 1  # Reset checks
                     i += 1  # increment
@@ -816,12 +1000,15 @@ class MetadataExtractor:
                     if regular_pattern_found:
                         ok = self.scan_image(
                             directory_path,
-                            media_files,
                             i - 1,
-                            list_of_dates,
-                            list_of_images,
-                            list_of_offsets,
+                            data,
+                            media_files,
                             output_utc,
+                            output_dimensions,
+                            output_make,
+                            output_model,
+                            output_software,
+                            output_lens_model,
                         )
                         if not ok:
                             i += 1
@@ -851,8 +1038,20 @@ class MetadataExtractor:
             self.collected_warnings["Unexpected"].append(f"[{directory_path}]: {e}\n{traceback.format_exc()}")
             skipped_count = sum(1 for f in media_files if f.lower().endswith(PHOTO_TYPES))
             return 0, skipped_count
-        fixed_date, fixed_time = self.fix_time(list_of_dates, list_of_offsets, list_of_images)
-        self.create_dataframe(img_series, list_of_images, fixed_date, fixed_time, directory_path, output_series)
+        fixed_date, fixed_time = self.fix_time(data["Dates"], data["Offsets"], data["Images"])
+        data["Dates"] = fixed_date
+        data["Times"] = fixed_time
+        self.create_dataframe(
+            img_series,
+            data,
+            directory_path,
+            output_series,
+            output_dimensions,
+            output_make,
+            output_model,
+            output_software,
+            output_lens_model,
+        )
         if not recursive and not defer_create_sheet and not self.cancel_event.is_set():
             self.create_sheet(final_output, recursive, processed, skipped)  # One folder only, output time
         return processed, skipped  # For tallying total processed and skipped
@@ -866,18 +1065,18 @@ class MetadataExtractor:
         modifier,
         output_series,
         output_utc,
+        output_dimensions,
+        output_make,
+        output_model,
+        output_software,
+        output_lens_model,
         progress_callback=None,
         defer_create_sheet=False,
     ):
         processed = 0
         skipped = 0
-        list_of_dates = []
-        list_of_images = []
-        list_of_offsets = []
+        data = self._empty_scan_data()
         i = 0
-        photos_before_video = 0
-        photos_before_video_updated = True
-        media_files = []
         try:
             # List all files in directory given
             all_files = os.listdir(directory_path)
@@ -895,7 +1094,16 @@ class MetadataExtractor:
                 # If file is not a video, extract metadata from the image.
                 if media_files and not media_files[i].lower().endswith(VIDEO_TYPES):
                     ok = self.scan_image(
-                        directory_path, media_files, i, list_of_dates, list_of_images, list_of_offsets, output_utc
+                        directory_path,
+                        i,
+                        data,
+                        media_files,
+                        output_utc,
+                        output_dimensions,
+                        output_make,
+                        output_model,
+                        output_software,
+                        output_lens_model,
                     )
                     if not ok:
                         i += 1
@@ -921,60 +1129,31 @@ class MetadataExtractor:
             skipped_count = sum(1 for f in media_files if f.lower().endswith(PHOTO_TYPES))
             return 0, skipped_count
 
-        fixed_date, fixed_time = self.fix_time(list_of_dates, list_of_offsets, list_of_images)
-        img_series, final_images, final_dates, final_times = self.make_series(
-            list_of_images,
-            photos_before_video_updated,
-            photos_before_video,
-            fixed_date,
-            fixed_time,
-            modifier,
+        fixed_date, fixed_time = self.fix_time(data["Dates"], data["Offsets"], data["Images"])
+        data["Dates"] = fixed_date
+        data["Times"] = fixed_time
+        img_series = self.make_series(data, modifier, output_series)
+        self.create_dataframe(
+            img_series,
+            data,
+            directory_path,
             output_series,
+            output_dimensions,
+            output_make,
+            output_model,
+            output_software,
+            output_lens_model,
         )
-        self.create_dataframe(img_series, final_images, final_dates, final_times, directory_path, output_series)
         if not recursive and not defer_create_sheet and not self.cancel_event.is_set():  # Single folder mode
             self.create_sheet(final_output, recursive, processed, skipped)
         return processed, skipped  # Recursive mode
 
     # Handles series construction for all folders routed to sort_and_extract
-    def make_series(
-        self,
-        list_of_images,
-        photos_before_video_updated,
-        photos_before_video,
-        fixed_date,
-        fixed_time,
-        modifier,
-        output_series,
-    ):
+    def make_series(self, data, modifier, output_series):
         if not output_series:
-            return None, list_of_images, fixed_date, fixed_time
-        i = 1  # Set i to 1 to start at image 1.
-        img_series = []
-        final_images = []
-        final_dates = []
-        final_times = []
-        while i <= len(list_of_images):
-            if photos_before_video_updated and photos_before_video > 0:
-                if (
-                    i % photos_before_video
-                ) == 0:  # For image + video folders, only add the last image data to the final lists
-                    final_images.append(list_of_images[i - 1])
-                    final_dates.append(fixed_date[i - 1])
-                    final_times.append(fixed_time[i - 1])
-                    # Each group consumes N photos + 1 video. group is 0-indexed.
-                    group = (i // photos_before_video) - 1
-                    start = i - photos_before_video + 1 + group + modifier
-                    end = i + 1 + group + modifier
-                    img_series.append(f"{start}-{end}")
-                i += 1
-            else:  # If only images were found, add all photos and increment series normally
-                final_images.append(list_of_images[i - 1])
-                final_dates.append(fixed_date[i - 1])
-                final_times.append(fixed_time[i - 1])
-                img_series.append(str(i + modifier))
-                i += 1
-        return img_series, final_images, final_dates, final_times
+            return None
+        img_series = [str(i + modifier) for i in range(1, len(data["Images"]) + 1)]
+        return img_series
 
     # Handles time and date formatting, along with UTC offsets
     def fix_time(self, list_of_dates, list_of_offsets, list_of_images):
@@ -1024,16 +1203,41 @@ class MetadataExtractor:
         return fixed_date, fixed_time
 
     # Creates dataframes for create_sheet to use
-    def create_dataframe(self, img_series, final_images, final_dates, final_times, directory_path, output_series):
-        if final_images:  # Make sure images are present.
-            data = {"Files": final_images, "Dates": final_dates, "Time": final_times}
+    def create_dataframe(
+        self,
+        img_series,
+        data,
+        directory_path,
+        output_series,
+        output_dimensions,
+        output_make,
+        output_model,
+        output_software,
+        output_lens_model,
+    ):
+        if data["Images"]:  # Make sure images are present.
+            df_data = {
+                "Files": data["Images"],
+                "Dates": data["Dates"],
+                "Time": data["Times"],
+            }
+            if output_dimensions:
+                df_data["Dimensions"] = data["Dimensions"]
+            if output_make:
+                df_data["Camera Make"] = data["Makes"]
+            if output_model:
+                df_data["Camera Model"] = data["Models"]
+            if output_software:
+                df_data["Software"] = data["Softwares"]
+            if output_lens_model:
+                df_data["Lens Model"] = data["Lens_Models"]
             if output_series:
-                data["Img # Series"] = img_series  # Add on img_series
+                df_data["Img # Series"] = img_series  # Add on img_series
             else:
                 self.collected_warnings["Irregular"].append(
                     f"{directory_path.as_posix()}"
                 )  # If irregular pattern starts with more than MAX_PHOTOS_BEFORE_VIDEO images in a row, will break program, so error.
-            df = pd.DataFrame(data)  # Create DataFrame
+            df = pd.DataFrame(df_data)  # Create DataFrame
             current_sheet_name = self.verify_name(self.current_sheet_name, self.used)
             self.results.append((df, current_sheet_name, directory_path))
         else:
@@ -1186,6 +1390,27 @@ class MetadataExtractor:
         self.maxdepth_entry.bind("<FocusIn>", self.maxDepthFocusIn)
         self.maxdepth_entry.bind("<FocusOut>", self.maxDepthFocusOut)
 
+        # Extra EXIF checkboxes
+        self.extra_exif_frame = tk.Frame(self.root)
+        self.extra_exif_var = tk.BooleanVar(value=False)
+        self.extra_exif_checkbox = tk.Checkbutton(
+            self.frame, text="Extra Metadata", variable=self.extra_exif_var, command=self.extra_exif
+        )
+        self.dimensions_var = tk.BooleanVar(value=False)
+        self.dimensions_checkbox = tk.Checkbutton(
+            self.extra_exif_frame, text="Image Dimensions", variable=self.dimensions_var
+        )
+        self.make_var = tk.BooleanVar(value=False)
+        self.make_checkbox = tk.Checkbutton(self.extra_exif_frame, text="Camera Make", variable=self.make_var)
+        self.model_var = tk.BooleanVar(value=False)
+        self.model_checkbox = tk.Checkbutton(self.extra_exif_frame, text="Camera Model", variable=self.model_var)
+        self.software_var = tk.BooleanVar(value=False)
+        self.software_checkbox = tk.Checkbutton(self.extra_exif_frame, text="Software", variable=self.software_var)
+        self.lens_model_var = tk.BooleanVar(value=False)
+        self.lens_model_checkbox = tk.Checkbutton(
+            self.extra_exif_frame, text="Lens Model", variable=self.lens_model_var
+        )
+
         # Set default sheet name
         self.current_sheet_name = "Sheet"
         # Collect warnings
@@ -1247,6 +1472,8 @@ class MetadataExtractor:
         self.cancel_button.pack()
         self.keepopen_checkbox.pack()
         self.debug_checkbox.pack()
+        self.extra_exif_frame.pack()
+        self.extra_exif_checkbox.pack()
 
         # Pack progress bar
         self.progress_frame.pack()

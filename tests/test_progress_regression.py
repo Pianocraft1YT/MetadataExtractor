@@ -1,6 +1,17 @@
-# tests/test_progress_regression.py
+"""Regression tests for the >100% progress bug and trailing-photo rescan."""
+
 from pathlib import Path
+
 from tests.conftest import make_jpeg_with_exif
+
+_EXTRA_OFF = dict(
+    output_utc=False,
+    output_dimensions=False,
+    output_make=False,
+    output_model=False,
+    output_software=False,
+    output_lens_model=False,
+)
 
 
 def _build(folder, layout):
@@ -19,11 +30,15 @@ def test_trailing_photos_do_not_exceed_total(extractor, tmp_path):
     folder.mkdir()
     _build(folder, "PPPVPPPPPP")
 
-    extractor.debug_var.get.return_value = False
+    extractor.debug_var.set(False)
     extractor.sort_and_extract_irregular(
-        folder, recursive=False, final_output=Path("out.xlsx"), modifier=0,
+        folder,
+        recursive=False,
+        final_output=Path("out.xlsx"),
+        modifier=0,
+        debug=False,
+        **_EXTRA_OFF,
     )
-    # 9 photos total. Processed + skipped must equal that, not more.
     assert len(extractor.results) == 1
     df = extractor.results[0][0]
     assert len(df) <= 9
@@ -35,9 +50,14 @@ def test_no_duplicate_series_after_tail(extractor, tmp_path):
     folder.mkdir()
     _build(folder, "PPPVPPPPPP")
 
-    extractor.debug_var.get.return_value = False
+    extractor.debug_var.set(False)
     extractor.sort_and_extract_irregular(
-        folder, recursive=False, final_output=Path("out.xlsx"), modifier=0,
+        folder,
+        recursive=False,
+        final_output=Path("out.xlsx"),
+        modifier=0,
+        debug=False,
+        **_EXTRA_OFF,
     )
     df = extractor.results[0][0]
     if "Img # Series" in df.columns:

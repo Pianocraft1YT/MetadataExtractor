@@ -26,6 +26,11 @@ def _scan(extractor, folder, modifier=0):
         modifier=modifier,
         debug=False,
         output_utc=False,
+        output_dimensions=False,
+        output_make=False,
+        output_model=False,
+        output_software=False,
+        output_lens_model=False,
     )
 
 

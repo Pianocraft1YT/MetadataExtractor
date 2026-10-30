@@ -64,7 +64,7 @@ def test_valid_starting_index_accepted(extractor, monkeypatch, tmp_path, value, 
 
     captured = {}
 
-    def fake_scan(dp, r, fo, m, debug, output_utc, **kwargs):
+    def fake_scan(dp, r, fo, m, *args, **kwargs):
         captured["modifier"] = m
         return 0, 0
 

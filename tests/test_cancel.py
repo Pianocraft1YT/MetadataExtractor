@@ -33,6 +33,11 @@ def test_sort_and_extract_stops_on_cancel(extractor, photos_only):
         modifier=0,
         output_series=True,
         output_utc=False,
+        output_dimensions=False,
+        output_make=False,
+        output_model=False,
+        output_software=False,
+        output_lens_model=False,
     )
     assert processed <= 1
     assert len(extractor.results) == 0
@@ -47,6 +52,11 @@ def test_sort_and_extract_irregular_stops_on_cancel(extractor, photos_and_videos
         modifier=0,
         debug=False,
         output_utc=False,
+        output_dimensions=False,
+        output_make=False,
+        output_model=False,
+        output_software=False,
+        output_lens_model=False,
     )
     assert processed == 0
     assert skipped == 0
@@ -61,7 +71,18 @@ def test_find_directories_breaks_on_cancel(extractor, tmp_path):
     extractor.cancel_event.set()
     extractor.sort_and_extract_irregular = MagicMock()
 
-    extractor.find_directories(parent, tmp_path / "out.xlsx", modifier=0, debug=False, output_utc=False)
+    extractor.find_directories(
+        parent,
+        tmp_path / "out.xlsx",
+        modifier=0,
+        debug=False,
+        output_utc=False,
+        output_dimensions=False,
+        output_make=False,
+        output_model=False,
+        output_software=False,
+        output_lens_model=False,
+    )
     extractor.sort_and_extract_irregular.assert_not_called()
 
 

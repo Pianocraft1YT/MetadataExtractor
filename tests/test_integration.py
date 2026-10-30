@@ -15,6 +15,11 @@ def test_end_to_end_single_folder(extractor, photos_only, tmp_path):
         modifier=0,
         output_series=True,
         output_utc=False,
+        output_dimensions=False,
+        output_make=False,
+        output_model=False,
+        output_software=False,
+        output_lens_model=False,
     )
 
     assert output.exists()
@@ -33,6 +38,11 @@ def test_end_to_end_custom_starting_index(extractor, photos_and_videos, tmp_path
         modifier=4,
         debug=False,
         output_utc=False,
+        output_dimensions=False,
+        output_make=False,
+        output_model=False,
+        output_software=False,
+        output_lens_model=False,
     )
 
     assert output.exists()
