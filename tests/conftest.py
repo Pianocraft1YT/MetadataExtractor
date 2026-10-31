@@ -1,5 +1,9 @@
 """
 Shared fixtures for the metadata test suite.
+
+tkinter and tk_date_entry are mocked before metadata.py is imported, so
+MetadataExtractor's __init__ creates fake widgets instead of real ones.
+Each test gets a fresh instance -- no module-level state to reset.
 """
 
 import sys
@@ -10,15 +14,52 @@ from unittest.mock import MagicMock
 import pytest
 from PIL import Image
 
+# Mock tkinter BEFORE importing metadata
 sys.modules["tkinter"] = MagicMock()
 sys.modules["tkinter.messagebox"] = MagicMock()
 sys.modules["tkinter.filedialog"] = MagicMock()
 sys.modules["tkinter.ttk"] = MagicMock()
 
+
+class _FakeDateEntry:
+    """Stand-in for tk_date_entry.DateEntry in tests.
+
+    Only exposes the methods MetadataExtractor actually calls:
+    get_date(), pack(), pack_forget(), and an __init__ that accepts
+    the same kwargs as the real DateEntry. Returns whatever `value`
+    was passed in (usually None), matching the "empty means no
+    filter" semantics.
+    """
+
+    def __init__(self, master=None, date_pattern=None, value=None, **kwargs):
+        self._date = value
+
+    def get_date(self):
+        return self._date
+
+    def set_date(self, value):
+        self._date = value
+
+    def clear(self):
+        self._date = None
+
+    def pack(self, *a, **k):
+        pass
+
+    def pack_forget(self, *a, **k):
+        pass
+
+
+_fake_tk_date_entry = MagicMock()
+_fake_tk_date_entry.DateEntry = _FakeDateEntry
+sys.modules["tk_date_entry"] = _fake_tk_date_entry
+
 import tkinter as _tk
 
 
 class FakeVar:
+    """Stores its value so .get() returns what .set() last set."""
+
     def __init__(self, master=None, value=None, name=None):
         self._value = value
 
@@ -92,12 +133,7 @@ def silence_messageboxes(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def bypass_threadsafe_dialog(monkeypatch):
-    """Bypass _ask_yes_no_threadsafe which blocks on threading.Event.
-
-    The real method uses root.after() to marshal to the main thread.
-    In tests root is a MagicMock so after() is a no-op and the event
-    never gets set -- the test hangs. Call messagebox.askyesno directly.
-    """
+    """Bypass _ask_yes_no_threadsafe which blocks on threading.Event."""
 
     def fake_ask(self, title, msg):
         return bool(metadata.messagebox.askyesno(title, msg))
@@ -227,7 +263,6 @@ def make_jpeg(tmp_path):
 @pytest.fixture
 def make_jpeg_with_tags(tmp_path):
     """Factory that accepts an arbitrary {tag_number: value} dict."""
-    from PIL import Image
 
     def _make(filename, tags):
         img = Image.new("RGB", (10, 10), color="red")

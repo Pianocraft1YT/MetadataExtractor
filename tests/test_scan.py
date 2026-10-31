@@ -13,6 +13,9 @@ _EXTRA_OFF = dict(
     output_exposure_time=False,
     output_focal_length=False,
     output_iso=False,
+    date_range=False,
+    start_date=None,
+    end_date=None,
 )
 
 
@@ -33,6 +36,9 @@ def _scan(extractor, tmp_path, media_files, output_utc=False):
         output_exposure_time=False,
         output_focal_length=False,
         output_iso=False,
+        date_range=False,
+        start_date=None,
+        end_date=None,
     )
     return ok, data
 
@@ -130,11 +136,5 @@ def test_scan_image_first_corrupt_file_does_not_abort_folder(extractor, make_jpe
 def test_scan_image_warning_uses_actual_filename(extractor, tmp_path):
     (tmp_path / "specific_name.jpg").write_bytes(b"not a jpeg")
     data = extractor._empty_scan_data()
-    extractor.scan_image(
-        tmp_path,
-        0,
-        data,
-        ["specific_name.jpg"],
-        **_EXTRA_OFF,
-    )
+    extractor.scan_image(tmp_path, 0, data, ["specific_name.jpg"], **_EXTRA_OFF)
     assert any("specific_name.jpg" in warn for warn in extractor.collected_warnings["Scan Error"])

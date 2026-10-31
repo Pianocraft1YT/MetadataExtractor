@@ -6,7 +6,7 @@
 # Please increment this counter as a warning
 # For the next person:
 #
-# hours_wasted_here = 63
+# hours_wasted_here = 64
 
 # Coded by Pianocraft1YT
 # Tutorial: https://youtu.be/ruWNKBdbYoo
@@ -14,7 +14,6 @@
 
 # Imports
 import os
-import platform
 import sys
 import threading
 import time
@@ -31,6 +30,7 @@ import openpyxl
 import pandas as pd
 from openpyxl.styles import Font
 from PIL import Image, UnidentifiedImageError
+from tk_date_entry import DateEntry
 
 # Constants
 EXIF_DATETIME = 306
@@ -128,6 +128,8 @@ class MetadataExtractor:
             self.maxdepth_entry.pack(before=self.hyperlink_checkbox)
         else:
             self.maxdepth_entry.pack_forget()
+        self.root.update_idletasks()  # flush pending layout
+        self.root.geometry(f"350x{self.root.winfo_reqheight()}")  # fixed width, auto height
 
     # Show extra metadata checkboxes when extra_exif_checkbox is checked
     def extra_exif(self):
@@ -139,6 +141,21 @@ class MetadataExtractor:
             self.extra_exif_frame.pack_forget()
         self.root.update_idletasks()
         self.root.geometry(f"{self.root.winfo_width()}x{self.root.winfo_reqheight()}")
+
+    def date_range(self):
+        if self.date_range_var.get():
+            self.date_notice_label.pack(after=self.date_range_checkbox)
+            self.start_date_label.pack(after=self.date_notice_label)
+            self.start_date_entry.pack(after=self.start_date_label)
+            self.end_date_label.pack(after=self.start_date_entry)
+            self.end_date_entry.pack(after=self.end_date_label)
+        else:
+            self.start_date_label.pack_forget()
+            self.start_date_entry.pack_forget()
+            self.end_date_label.pack_forget()
+            self.end_date_entry.pack_forget()
+        self.root.update_idletasks()  # flush pending layout
+        self.root.geometry(f"350x{self.root.winfo_reqheight()}")  # fixed width, auto height
 
     # For debug_checkbox warning
     def debug_warning(self):
@@ -243,6 +260,9 @@ class MetadataExtractor:
         output_exposure_time,
         output_focal_length,
         output_iso,
+        date_range,
+        start_date,
+        end_date,
     ):
         self._scan_running = True
         self.execute_button.config(state="disabled")
@@ -264,6 +284,9 @@ class MetadataExtractor:
                 output_exposure_time,
                 output_focal_length,
                 output_iso,
+                date_range,
+                start_date,
+                end_date,
             ),
             daemon=True,
         ).start()
@@ -285,6 +308,9 @@ class MetadataExtractor:
         output_exposure_time,
         output_focal_length,
         output_iso,
+        date_range,
+        start_date,
+        end_date,
     ):
         total_scanned, total_skipped = 0, 0
 
@@ -316,6 +342,9 @@ class MetadataExtractor:
                     output_exposure_time,
                     output_focal_length,
                     output_iso,
+                    date_range,
+                    start_date,
+                    end_date,
                     defer_create_sheet=True,
                     progress_callback=_on_progress,
                 )
@@ -336,6 +365,9 @@ class MetadataExtractor:
                     output_exposure_time,
                     output_focal_length,
                     output_iso,
+                    date_range,
+                    start_date,
+                    end_date,
                     defer_create_sheet=True,
                     progress_callback=_on_progress,
                 )
@@ -431,6 +463,16 @@ class MetadataExtractor:
         except (TypeError, ValueError):
             return None
 
+    def _parse_exif_datetime(self, dt_value):
+        """Parse "YYYY:MM:DD HH:MM:SS" or "YYYY:MM:DD" to a date object, or None."""
+        s = str(dt_value)
+        try:
+            if " " in s:
+                return datetime.strptime(s, "%Y:%m:%d %H:%M:%S").date()
+            return datetime.strptime(s, "%Y:%m:%d").date()
+        except ValueError:
+            return None
+
     def _empty_scan_data(self):
         return {
             "Dates": [],
@@ -505,6 +547,9 @@ class MetadataExtractor:
         output_exposure_time,
         output_focal_length,
         output_iso,
+        date_range,
+        start_date,
+        end_date,
     ):
         offset = None
         dimensions = None
@@ -516,6 +561,7 @@ class MetadataExtractor:
         exposure_time = None
         focal_length = None
         iso = None
+        process_image = True
         if media_files:
             try:
                 with Image.open(Path(directory_path) / media_files[i]) as img:
@@ -548,23 +594,32 @@ class MetadataExtractor:
                     focal_length = self._format_focal_length(exif_data.get(EXIF_FOCAL_LENGTH))
                 if output_iso:
                     iso = self._format_iso(exif_data.get(EXIF_ISO))
+                if date_range:
+                    d = self._parse_exif_datetime(dt)
+                    if not d:
+                        return False
+                    if start_date and d < start_date or end_date and d > end_date:
+                        process_image = False
             except (OSError, SyntaxError, ValueError, UnidentifiedImageError):
                 self.collected_warnings["Scan Error"].append(f"[{directory_path}]\\{media_files[i]}")
                 return False
             else:
-                data["Images"].append(media_files[i])
-                data["Dates"].append(dt)
-                data["Offsets"].append(offset)
-                data["Dimensions"].append(dimensions)
-                data["Makes"].append(make)
-                data["Models"].append(model)
-                data["Softwares"].append(software)
-                data["Lens_Models"].append(lens_model)
-                data["Apertures"].append(aperture)
-                data["Exposure_Times"].append(exposure_time)
-                data["Focal_Lengths"].append(focal_length)
-                data["ISOs"].append(iso)
-                return True
+                if process_image:
+                    data["Images"].append(media_files[i])
+                    data["Dates"].append(dt)
+                    data["Offsets"].append(offset)
+                    data["Dimensions"].append(dimensions)
+                    data["Makes"].append(make)
+                    data["Models"].append(model)
+                    data["Softwares"].append(software)
+                    data["Lens_Models"].append(lens_model)
+                    data["Apertures"].append(aperture)
+                    data["Exposure_Times"].append(exposure_time)
+                    data["Focal_Lengths"].append(focal_length)
+                    data["ISOs"].append(iso)
+                    return True
+                else:
+                    return False
         else:
             return False
 
@@ -604,6 +659,9 @@ class MetadataExtractor:
         output_exposure_time,
         output_focal_length,
         output_iso,
+        date_range,
+        start_date,
+        end_date,
         progress_callback=None,
         defer_create_sheet=False,
     ):
@@ -655,6 +713,9 @@ class MetadataExtractor:
                 output_exposure_time,
                 output_focal_length,
                 output_iso,
+                date_range,
+                start_date,
+                end_date,
                 progress_callback=wrapped_cb,
                 defer_create_sheet=defer_create_sheet,
             )
@@ -688,12 +749,12 @@ class MetadataExtractor:
 
     # Initial function; runs on "Execute" button press
     def check_recursive(self):
-        proceed = True  # For CSV not having hyperlinks
         modifier = 0  # For starting index of img_series
         filetype = self.filetype_var.get()  # CSV or Excel
         recursive = self.recursive_var.get()  # Get status of recursive_checkbox
         debug = self.debug_var.get()
         output_utc = self.timezone_var.get()
+        date_range = self.date_range_var.get()
         output_dimensions = False
         output_make = False
         output_model = False
@@ -703,6 +764,8 @@ class MetadataExtractor:
         output_exposure_time = False
         output_focal_length = False
         output_iso = False
+        start_date = None
+        end_date = None
         if self.extra_exif_var.get():
             output_dimensions = self.dimensions_var.get()
             output_make = self.make_var.get()
@@ -745,8 +808,17 @@ class MetadataExtractor:
                 "Hyperlinks Unsupported.",
                 message="Hyperlinks are unsupported with CSV. Please select Excel for hyperlinks. Proceed without?",
             )
-        if not proceed:
-            return
+            if not proceed:
+                return
+        if date_range:
+            start_date = self.start_date_entry.get_date()
+            end_date = self.end_date_entry.get_date()
+            if not (start_date or end_date):
+                date_range = False
+            else:
+                if start_date and end_date and start_date > end_date:
+                    messagebox.showerror("Invalid range", "Start date must be on or before end date.")
+                    return
         # Fresh scan: explicitly clear the event, then reset UI state
         self.cancel_event.clear()
         self.reset()
@@ -774,6 +846,9 @@ class MetadataExtractor:
                     output_exposure_time,
                     output_focal_length,
                     output_iso,
+                    date_range,
+                    start_date,
+                    end_date,
                 )
             else:
                 with os.scandir(self.directory_path) as entries:
@@ -796,6 +871,9 @@ class MetadataExtractor:
                         output_exposure_time,
                         output_focal_length,
                         output_iso,
+                        date_range,
+                        start_date,
+                        end_date,
                     )
                 else:
                     messagebox.showerror(
@@ -824,6 +902,9 @@ class MetadataExtractor:
                         output_exposure_time,
                         output_focal_length,
                         output_iso,
+                        date_range,
+                        start_date,
+                        end_date,
                     )
                 else:
                     return
@@ -849,6 +930,9 @@ class MetadataExtractor:
                         output_exposure_time,
                         output_focal_length,
                         output_iso,
+                        date_range,
+                        start_date,
+                        end_date,
                     )
                 else:
                     messagebox.showerror(
@@ -968,6 +1052,9 @@ class MetadataExtractor:
         output_exposure_time,
         output_focal_length,
         output_iso,
+        date_range,
+        start_date,
+        end_date,
         progress_callback=None,
         defer_create_sheet=False,
     ):
@@ -1046,6 +1133,9 @@ class MetadataExtractor:
                             output_exposure_time,
                             output_focal_length,
                             output_iso,
+                            date_range,
+                            start_date,
+                            end_date,
                             progress_callback=progress_callback,
                             defer_create_sheet=defer_create_sheet,
                         )
@@ -1080,6 +1170,9 @@ class MetadataExtractor:
                                     output_exposure_time,
                                     output_focal_length,
                                     output_iso,
+                                    date_range,
+                                    start_date,
+                                    end_date,
                                 )  # Scan image as one-off
                                 if not ok:
                                     i += 1
@@ -1112,6 +1205,9 @@ class MetadataExtractor:
                                         output_exposure_time,
                                         output_focal_length,
                                         output_iso,
+                                        date_range,
+                                        start_date,
+                                        end_date,
                                     )
                                     if not ok:
                                         skipped += 1
@@ -1159,6 +1255,9 @@ class MetadataExtractor:
                             output_exposure_time,
                             output_focal_length,
                             output_iso,
+                            date_range,
+                            start_date,
+                            end_date,
                         )
                         if not ok:
                             i += 1
@@ -1188,7 +1287,7 @@ class MetadataExtractor:
             self.collected_warnings["Unexpected"].append(f"[{directory_path}]: {e}\n{traceback.format_exc()}")
             skipped_count = sum(1 for f in media_files if f.lower().endswith(PHOTO_TYPES))
             return 0, skipped_count
-        fixed_date, fixed_time = self.fix_time(data["Dates"], data["Offsets"], data["Images"])
+        fixed_date, fixed_time = self.fix_time(output_utc, data["Dates"], data["Offsets"], data["Images"])
         data["Dates"] = fixed_date
         data["Times"] = fixed_time
         self.create_dataframe(
@@ -1205,6 +1304,9 @@ class MetadataExtractor:
             output_exposure_time,
             output_focal_length,
             output_iso,
+            date_range,
+            start_date,
+            end_date,
         )
         if not recursive and not defer_create_sheet and not self.cancel_event.is_set():
             self.create_sheet(final_output, recursive, processed, skipped)  # One folder only, output time
@@ -1228,6 +1330,9 @@ class MetadataExtractor:
         output_exposure_time,
         output_focal_length,
         output_iso,
+        date_range,
+        start_date,
+        end_date,
         progress_callback=None,
         defer_create_sheet=False,
     ):
@@ -1266,6 +1371,9 @@ class MetadataExtractor:
                         output_exposure_time,
                         output_focal_length,
                         output_iso,
+                        date_range,
+                        start_date,
+                        end_date,
                     )
                     if not ok:
                         i += 1
@@ -1291,7 +1399,7 @@ class MetadataExtractor:
             skipped_count = sum(1 for f in media_files if f.lower().endswith(PHOTO_TYPES))
             return 0, skipped_count
 
-        fixed_date, fixed_time = self.fix_time(data["Dates"], data["Offsets"], data["Images"])
+        fixed_date, fixed_time = self.fix_time(output_utc, data["Dates"], data["Offsets"], data["Images"])
         data["Dates"] = fixed_date
         data["Times"] = fixed_time
         img_series = self.make_series(data, modifier, output_series)
@@ -1309,6 +1417,9 @@ class MetadataExtractor:
             output_exposure_time,
             output_focal_length,
             output_iso,
+            date_range,
+            start_date,
+            end_date,
         )
         if not recursive and not defer_create_sheet and not self.cancel_event.is_set():  # Single folder mode
             self.create_sheet(final_output, recursive, processed, skipped)
@@ -1322,11 +1433,10 @@ class MetadataExtractor:
         return img_series
 
     # Handles time and date formatting, along with UTC offsets
-    def fix_time(self, list_of_dates, list_of_offsets, list_of_images):
+    def fix_time(self, output_utc, list_of_dates, list_of_offsets, list_of_images):
         # Input format: "YYYY:MM:DD HH:MM:SS"
         fixed_time = []
         fixed_date = []
-        check_timezone = self.timezone_var.get()
         for offset_index, date in enumerate(
             list_of_dates
         ):  # Split the EXIF metadata into a date list and time list (24h)
@@ -1338,7 +1448,7 @@ class MetadataExtractor:
                     fixed_date.append(date_str)
                     fixed_time.append("")
                     continue
-                if check_timezone:
+                if output_utc:
                     offset = list_of_offsets[offset_index]
                     if offset:
                         try:
@@ -1384,6 +1494,9 @@ class MetadataExtractor:
         output_exposure_time,
         output_focal_length,
         output_iso,
+        date_range,
+        start_date,
+        end_date,
     ):
         if data["Images"]:  # Make sure images are present.
             df_data = {
@@ -1560,7 +1673,15 @@ class MetadataExtractor:
         self.series_entry.insert(0, "Starting index (Img # Series)")
         self.maxdepth_entry = tk.Entry(self.frame, width=20, foreground="gray")
         self.maxdepth_entry.insert(0, "Recursion Depth (#)")
-
+        self.date_range_var = tk.BooleanVar(value=False)
+        self.date_range_checkbox = tk.Checkbutton(
+            self.frame, text="Date Range (Local Time)", variable=self.date_range_var, command=self.date_range
+        )
+        self.start_date_entry = DateEntry(self.frame, date_pattern="%Y/%m/%d", value=None)
+        self.end_date_entry = DateEntry(self.frame, date_pattern="%Y/%m/%d", value=None)
+        self.date_notice_label = tk.Label(self.frame, text="One date required; two dates accepted")
+        self.start_date_label = tk.Label(self.frame, text="Start Date")
+        self.end_date_label = tk.Label(self.frame, text="End Date")
         self.name_entry.bind("<FocusIn>", self.nameFocusIn)
         self.name_entry.bind("<FocusOut>", self.nameFocusOut)
         self.series_entry.bind("<FocusIn>", self.seriesFocusIn)
@@ -1667,6 +1788,7 @@ class MetadataExtractor:
         self.series_entry.pack()
         self.recursive_checkbox.pack()
         self.hyperlink_checkbox.pack()
+        self.date_range_checkbox.pack()
         self.timezone_checkbox.pack()
         self.filetype_frame.pack(side="top")
         for ft in self.filetypes:
@@ -1686,10 +1808,8 @@ class MetadataExtractor:
         self.skipped_label.pack()
         self.eta_label.pack()
         self.elapsed_label.pack()
-        if platform.system() == "Linux":
-            self.root.geometry("350x520")
-        else:
-            self.root.geometry("350x460")
+        self.root.update_idletasks()  # flush pending layout
+        self.root.geometry(f"350x{self.root.winfo_reqheight()}")  # fixed width, auto height
         self.root.mainloop()
 
 

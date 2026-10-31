@@ -4,6 +4,22 @@ from pathlib import Path
 
 from tests.conftest import make_jpeg_with_exif, make_jpeg_no_exif
 
+_EXTRA_OFF = dict(
+    output_utc=False,
+    output_dimensions=False,
+    output_make=False,
+    output_model=False,
+    output_software=False,
+    output_lens_model=False,
+    output_aperture=False,
+    output_exposure_time=False,
+    output_focal_length=False,
+    output_iso=False,
+    date_range=False,
+    start_date=None,
+    end_date=None,
+)
+
 
 def _capture_create_sheet(extractor):
     captured = {}
@@ -24,16 +40,7 @@ def _sort(extractor, folder, modifier=0, output_series=True):
         final_output=Path("out.xlsx"),
         modifier=modifier,
         output_series=output_series,
-        output_utc=False,
-        output_dimensions=False,
-        output_make=False,
-        output_model=False,
-        output_software=False,
-        output_lens_model=False,
-        output_aperture=False,
-        output_exposure_time=False,
-        output_focal_length=False,
-        output_iso=False,
+        **_EXTRA_OFF,
     )
 
 
@@ -44,16 +51,7 @@ def _sort_irregular(extractor, folder, modifier=0):
         final_output=Path("out.xlsx"),
         modifier=modifier,
         debug=False,
-        output_utc=False,
-        output_dimensions=False,
-        output_make=False,
-        output_model=False,
-        output_software=False,
-        output_lens_model=False,
-        output_aperture=False,
-        output_exposure_time=False,
-        output_focal_length=False,
-        output_iso=False,
+        **_EXTRA_OFF,
     )
 
 

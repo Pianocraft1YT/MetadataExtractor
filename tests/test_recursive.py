@@ -1,7 +1,5 @@
 """Tests for recursive-mode scanning via find_directories."""
 
-from pathlib import Path
-
 from tests.conftest import make_jpeg_with_exif
 
 _EXTRA_OFF = dict(
@@ -15,6 +13,9 @@ _EXTRA_OFF = dict(
     output_exposure_time=False,
     output_focal_length=False,
     output_iso=False,
+    date_range=False,
+    start_date=None,
+    end_date=None,
 )
 
 
@@ -43,13 +44,7 @@ def _capture(extractor):
 
 
 def _run(extractor, parent, out):
-    extractor.find_directories(
-        parent,
-        out,
-        modifier=0,
-        debug=False,
-        **_EXTRA_OFF,
-    )
+    extractor.find_directories(parent, out, modifier=0, debug=False, **_EXTRA_OFF)
 
 
 def test_two_clean_subfolders(extractor, tmp_path):
@@ -198,8 +193,6 @@ def test_root_folder_with_direct_photos_named_sheet(extractor, tmp_path):
 
 
 def test_first_folder_corrupt_does_not_prevent_later_folders(extractor, tmp_path):
-    """Regression: scan_image crash on a folder's first file used to swallow
-    that folder's counts. Ensure A_bad records its skip and B_good processes."""
     parent = tmp_path / "parent"
     bad = parent / "A_bad"
     good = parent / "B_good"
@@ -216,6 +209,5 @@ def test_first_folder_corrupt_does_not_prevent_later_folders(extractor, tmp_path
         debug=False,
         **_EXTRA_OFF,
     )
-    # A_bad: 1 skipped; B_good: 1 processed
     assert p == 1
     assert s == 1

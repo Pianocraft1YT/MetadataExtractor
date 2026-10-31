@@ -20,32 +20,33 @@ import pytest
     ],
 )
 def test_offset_applied_when_timezone_on(extractor_tz_on, raw, offset, expect_date, expect_time):
-    dates, times = extractor_tz_on.fix_time([raw], [offset], ["img.jpg"])
+    dates, times = extractor_tz_on.fix_time(True, [raw], [offset], ["img.jpg"])
     assert dates == [expect_date]
     assert times == [expect_time]
 
 
 def test_offset_ignored_when_timezone_off(extractor_tz_off):
-    dates, times = extractor_tz_off.fix_time(["2024:01:31 14:30:00"], ["+05:30"], ["img.jpg"])
+    dates, times = extractor_tz_off.fix_time(False, ["2024:01:31 14:30:00"], ["+05:30"], ["img.jpg"])
     assert dates == ["01/31/2024"]
     assert times == ["14:30:00"]
 
 
 def test_none_offset_no_change(extractor_tz_on):
-    dates, times = extractor_tz_on.fix_time(["2024:01:31 14:30:00"], [None], ["img.jpg"])
+    dates, times = extractor_tz_on.fix_time(True, ["2024:01:31 14:30:00"], [None], ["img.jpg"])
     assert dates == ["01/31/2024"]
     assert times == ["14:30:00"]
 
 
 def test_empty_offset_no_change(extractor_tz_on):
-    dates, times = extractor_tz_on.fix_time(["2024:01:31 14:30:00"], [""], ["img.jpg"])
+    dates, times = extractor_tz_on.fix_time(True, ["2024:01:31 14:30:00"], [""], ["img.jpg"])
     assert dates == ["01/31/2024"]
     assert times == ["14:30:00"]
 
 
 def test_multiple_images_use_matching_offsets(extractor_tz_on):
     dates, times = extractor_tz_on.fix_time(
-        ["2024:01:31 14:30:00", "2024:01/31 14:30:00".replace("/", ":")],
+        True,
+        ["2024:01:31 14:30:00", "2024:01:31 14:30:00"],
         ["+05:30", "-08:00"],
         ["a.jpg", "b.jpg"],
     )

@@ -2,12 +2,6 @@
 
 import pytest
 
-from PIL import Image
-
-# ---------------------------------------------------------------------------
-# _format_aperture
-# ---------------------------------------------------------------------------
-
 
 def test_format_aperture_standard(extractor):
     assert extractor._format_aperture(5.6) == "f/5.6"
@@ -24,11 +18,6 @@ def test_format_aperture_none_and_zero(extractor):
     assert extractor._format_aperture(0) is None
 
 
-# ---------------------------------------------------------------------------
-# _format_exposure_time
-# ---------------------------------------------------------------------------
-
-
 def test_format_exposure_time_fraction(extractor):
     assert extractor._format_exposure_time(0.004) == "1/250"
     assert extractor._format_exposure_time(0.00025) == "1/4000"
@@ -42,7 +31,6 @@ def test_format_exposure_time_above_one_second(extractor):
 
 
 def test_format_exposure_time_non_repeating_fraction(extractor):
-    """0.3s is 0.3s, not 1/3."""
     assert extractor._format_exposure_time(0.3) == "0.3s"
     assert extractor._format_exposure_time(0.7) == "0.7s"
 
@@ -50,11 +38,6 @@ def test_format_exposure_time_non_repeating_fraction(extractor):
 def test_format_exposure_time_none_and_zero(extractor):
     assert extractor._format_exposure_time(None) is None
     assert extractor._format_exposure_time(0) is None
-
-
-# ---------------------------------------------------------------------------
-# _format_focal_length
-# ---------------------------------------------------------------------------
 
 
 def test_format_focal_length_integer(extractor):
@@ -71,17 +54,11 @@ def test_format_focal_length_none_and_zero(extractor):
     assert extractor._format_focal_length(0) is None
 
 
-# ---------------------------------------------------------------------------
-# _format_iso
-# ---------------------------------------------------------------------------
-
-
 def test_format_iso_int(extractor):
     assert extractor._format_iso(400) == 400
 
 
 def test_format_iso_tuple_takes_first(extractor):
-    """Multi-ISO capture: some cameras write a tuple."""
     assert extractor._format_iso((400, 800)) == 400
 
 
@@ -90,24 +67,18 @@ def test_format_iso_none(extractor):
 
 
 def test_format_iso_string_coerced(extractor):
-    """Defensive: some malformed EXIF writes ISO as a string."""
     assert extractor._format_iso("400") == 400
-
-
-# ---------------------------------------------------------------------------
-# End-to-end: scan_image populates the formatted values
-# ---------------------------------------------------------------------------
 
 
 def test_scan_image_extracts_and_formats_tier3(extractor, make_jpeg_with_tags, tmp_path):
     make_jpeg_with_tags(
         "photo.jpg",
         {
-            36867: "2024:05:15 12:30:45",  # DateTimeOriginal
-            33437: (56, 10),  # FNumber -> 5.6
-            33434: (1, 250),  # ExposureTime -> 1/250
-            37386: (23, 1),  # FocalLength -> 23mm
-            34855: 400,  # ISO -> 400
+            36867: "2024:05:15 12:30:45",
+            33437: (56, 10),
+            33434: (1, 250),
+            37386: (23, 1),
+            34855: 400,
         },
     )
     data = extractor._empty_scan_data()
@@ -126,6 +97,9 @@ def test_scan_image_extracts_and_formats_tier3(extractor, make_jpeg_with_tags, t
         output_exposure_time=True,
         output_focal_length=True,
         output_iso=True,
+        date_range=False,
+        start_date=None,
+        end_date=None,
     )
     assert ok is True
     assert data["Apertures"] == ["f/5.6"]
@@ -155,6 +129,9 @@ def test_scan_image_tier3_disabled_stores_none(extractor, make_jpeg_with_tags, t
         output_exposure_time=False,
         output_focal_length=False,
         output_iso=False,
+        date_range=False,
+        start_date=None,
+        end_date=None,
     )
     assert ok is True
     assert data["Apertures"] == [None]
@@ -162,7 +139,6 @@ def test_scan_image_tier3_disabled_stores_none(extractor, make_jpeg_with_tags, t
 
 
 def test_scan_image_missing_tier3_tags_stores_none(extractor, make_jpeg_with_tags, tmp_path):
-    """A photo with only DateTimeOriginal and no lens data is not an error."""
     make_jpeg_with_tags("photo.jpg", {36867: "2024:05:15 12:30:45"})
     data = extractor._empty_scan_data()
     ok = extractor.scan_image(
@@ -180,6 +156,9 @@ def test_scan_image_missing_tier3_tags_stores_none(extractor, make_jpeg_with_tag
         output_exposure_time=True,
         output_focal_length=True,
         output_iso=True,
+        date_range=False,
+        start_date=None,
+        end_date=None,
     )
     assert ok is True
     assert data["Apertures"] == [None]

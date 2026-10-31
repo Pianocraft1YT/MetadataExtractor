@@ -14,6 +14,9 @@ _EXTRA_OFF = dict(
     output_exposure_time=False,
     output_focal_length=False,
     output_iso=False,
+    date_range=False,
+    start_date=None,
+    end_date=None,
 )
 
 
@@ -94,7 +97,6 @@ def test_clean_name_csv_mode_appends_csv(extractor_csv):
 
 
 def test_clean_name_typed_xlsx_in_csv_mode_forced_to_csv(extractor_csv):
-    """User typed .xlsx but CSV is selected -> extension forced to .csv."""
     assert extractor_csv.clean_name("myname.xlsx") == "myname.csv"
 
 

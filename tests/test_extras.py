@@ -1,7 +1,38 @@
 """Tests for the extra metadata feature."""
 
 import pandas as pd
-import pytest
+
+# Full off dict for scan_image / sort_and_extract / find_directories calls.
+# Includes output_utc since those methods take it.
+_EXTRA_OFF = dict(
+    output_utc=False,
+    output_dimensions=False,
+    output_make=False,
+    output_model=False,
+    output_software=False,
+    output_lens_model=False,
+    output_aperture=False,
+    output_exposure_time=False,
+    output_focal_length=False,
+    output_iso=False,
+    date_range=False,
+    start_date=None,
+    end_date=None,
+)
+
+
+# Narrower off dict for create_dataframe calls. That function doesn't
+# take output_utc, and the four tests below pass output_dimensions /
+# output_make / etc. explicitly, so those keys must not be in the dict.
+_DF_OFF = dict(
+    output_aperture=False,
+    output_exposure_time=False,
+    output_focal_length=False,
+    output_iso=False,
+    date_range=False,
+    start_date=None,
+    end_date=None,
+)
 
 
 def test_empty_scan_data_has_all_expected_keys(extractor):
@@ -44,6 +75,9 @@ def _scan_extras(extractor, tmp_path, media_files, **extras):
         output_exposure_time=extras.get("exposure_time", False),
         output_focal_length=extras.get("focal_length", False),
         output_iso=extras.get("iso", False),
+        date_range=False,
+        start_date=None,
+        end_date=None,
     )
     return ok, data
 
@@ -119,14 +153,6 @@ def _populated_data(extractor):
     return data
 
 
-_EXTRA_OFF = dict(
-    output_aperture=False,
-    output_exposure_time=False,
-    output_focal_length=False,
-    output_iso=False,
-)
-
-
 def test_create_dataframe_all_extras_enabled(extractor, tmp_path):
     data = _populated_data(extractor)
     extractor.create_dataframe(
@@ -139,7 +165,7 @@ def test_create_dataframe_all_extras_enabled(extractor, tmp_path):
         output_model=True,
         output_software=True,
         output_lens_model=True,
-        **_EXTRA_OFF,
+        **_DF_OFF,
     )
     df = extractor.results[0][0]
     assert list(df["Files"]) == ["a.jpg", "b.jpg"]
@@ -165,7 +191,7 @@ def test_create_dataframe_all_extras_disabled(extractor, tmp_path):
         output_model=False,
         output_software=False,
         output_lens_model=False,
-        **_EXTRA_OFF,
+        **_DF_OFF,
     )
     df = extractor.results[0][0]
     assert list(df.columns) == ["Files", "Dates", "Time", "Img # Series"]
@@ -183,7 +209,7 @@ def test_create_dataframe_selective_columns(extractor, tmp_path):
         output_model=False,
         output_software=True,
         output_lens_model=False,
-        **_EXTRA_OFF,
+        **_DF_OFF,
     )
     df = extractor.results[0][0]
     assert "Dimensions" in df.columns
@@ -205,7 +231,7 @@ def test_create_dataframe_empty_data_creates_empty_sheet(extractor, tmp_path):
         output_model=True,
         output_software=True,
         output_lens_model=True,
-        **_EXTRA_OFF,
+        **_DF_OFF,
     )
     df, _, directory = extractor.results[0]
     assert df.empty
@@ -214,15 +240,10 @@ def test_create_dataframe_empty_data_creates_empty_sheet(extractor, tmp_path):
 
 
 def test_extra_exif_checkbox_shows_frame(extractor):
-    """The toggle packs extra_exif_frame, not the individual checkboxes.
-    The 9 sub-checkboxes are packed into the frame once at __init__ and
-    stay packed; only the frame itself moves in/out of root's layout."""
     extractor.extra_exif_frame.pack.reset_mock()
     extractor.extra_exif_frame.pack_forget.reset_mock()
-
     extractor.extra_exif_var.set(True)
     extractor.extra_exif()
-
     extractor.extra_exif_frame.pack.assert_called_once()
     extractor.extra_exif_frame.pack_forget.assert_not_called()
 
@@ -230,9 +251,7 @@ def test_extra_exif_checkbox_shows_frame(extractor):
 def test_extra_exif_checkbox_hides_frame(extractor):
     extractor.extra_exif_frame.pack.reset_mock()
     extractor.extra_exif_frame.pack_forget.reset_mock()
-
     extractor.extra_exif_var.set(False)
     extractor.extra_exif()
-
     extractor.extra_exif_frame.pack.assert_not_called()
     extractor.extra_exif_frame.pack_forget.assert_called_once()

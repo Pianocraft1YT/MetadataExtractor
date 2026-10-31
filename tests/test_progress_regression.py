@@ -15,6 +15,9 @@ _EXTRA_OFF = dict(
     output_exposure_time=False,
     output_focal_length=False,
     output_iso=False,
+    date_range=False,
+    start_date=None,
+    end_date=None,
 )
 
 
@@ -29,7 +32,6 @@ def _build(folder, layout):
 
 
 def test_trailing_photos_do_not_exceed_total(extractor, tmp_path):
-    """3 photos, 1 video, 6 photos -- end block must scan the tail once."""
     folder = tmp_path / "trailing"
     folder.mkdir()
     _build(folder, "PPPVPPPPPP")
@@ -49,7 +51,6 @@ def test_trailing_photos_do_not_exceed_total(extractor, tmp_path):
 
 
 def test_no_duplicate_series_after_tail(extractor, tmp_path):
-    """Series numbers must not repeat after the tail block runs."""
     folder = tmp_path / "trailing2"
     folder.mkdir()
     _build(folder, "PPPVPPPPPP")

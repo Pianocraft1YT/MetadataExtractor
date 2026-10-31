@@ -3,6 +3,22 @@ from pathlib import Path
 import metadata
 from tests.conftest import make_jpeg_with_exif
 
+_EXTRA_OFF = dict(
+    output_utc=False,
+    output_dimensions=False,
+    output_make=False,
+    output_model=False,
+    output_software=False,
+    output_lens_model=False,
+    output_aperture=False,
+    output_exposure_time=False,
+    output_focal_length=False,
+    output_iso=False,
+    date_range=False,
+    start_date=None,
+    end_date=None,
+)
+
 
 def _build_folder(folder, layout):
     counter = 1
@@ -25,16 +41,7 @@ def _scan(extractor, folder, modifier=0):
         final_output=Path("out.xlsx"),
         modifier=modifier,
         debug=False,
-        output_utc=False,
-        output_dimensions=False,
-        output_make=False,
-        output_model=False,
-        output_software=False,
-        output_lens_model=False,
-        output_aperture=False,
-        output_exposure_time=False,
-        output_focal_length=False,
-        output_iso=False,
+        **_EXTRA_OFF,
     )
 
 
