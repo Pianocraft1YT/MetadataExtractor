@@ -2,8 +2,6 @@
 
 import pandas as pd
 
-# Full off dict for scan_image / sort_and_extract / find_directories calls.
-# Includes output_utc since those methods take it.
 _EXTRA_OFF = dict(
     output_utc=False,
     output_dimensions=False,
@@ -15,23 +13,21 @@ _EXTRA_OFF = dict(
     output_exposure_time=False,
     output_focal_length=False,
     output_iso=False,
+    output_gps=False,
     date_range=False,
     start_date=None,
     end_date=None,
 )
 
 
-# Narrower off dict for create_dataframe calls. That function doesn't
-# take output_utc, and the four tests below pass output_dimensions /
-# output_make / etc. explicitly, so those keys must not be in the dict.
+# Narrower dict for create_dataframe — that function no longer takes
+# date_range/start_date/end_date (the filter moved into scan_image).
 _DF_OFF = dict(
     output_aperture=False,
     output_exposure_time=False,
     output_focal_length=False,
     output_iso=False,
-    date_range=False,
-    start_date=None,
-    end_date=None,
+    output_gps=False,
 )
 
 
@@ -51,6 +47,8 @@ def test_empty_scan_data_has_all_expected_keys(extractor):
         "Exposure_Times",
         "Focal_Lengths",
         "ISOs",
+        "GPS_Latitudes",
+        "GPS_Longitudes",
     }
     assert set(data.keys()) == expected
     for value in data.values():
@@ -75,6 +73,7 @@ def _scan_extras(extractor, tmp_path, media_files, **extras):
         output_exposure_time=extras.get("exposure_time", False),
         output_focal_length=extras.get("focal_length", False),
         output_iso=extras.get("iso", False),
+        output_gps=False,
         date_range=False,
         start_date=None,
         end_date=None,

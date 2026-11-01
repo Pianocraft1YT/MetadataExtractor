@@ -5,6 +5,9 @@ from pathlib import Path
 
 from tests.conftest import make_jpeg_with_exif
 
+# Do NOT include date_range / start_date / end_date in this dict —
+# the tests below pass those explicitly, and duplicate kwargs raise
+# "got multiple values for keyword argument 'date_range'".
 _EXTRA_OFF = dict(
     output_utc=False,
     output_dimensions=False,
@@ -16,6 +19,7 @@ _EXTRA_OFF = dict(
     output_exposure_time=False,
     output_focal_length=False,
     output_iso=False,
+    output_gps=False,
 )
 
 
@@ -172,6 +176,7 @@ def test_sort_and_extract_with_date_range(extractor, tmp_path):
         output_exposure_time=False,
         output_focal_length=False,
         output_iso=False,
+        output_gps=False,
         date_range=True,
         start_date=date(2024, 5, 1),
         end_date=date(2024, 5, 31),

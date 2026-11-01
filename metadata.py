@@ -6,7 +6,8 @@
 # Please increment this counter as a warning
 # For the next person:
 #
-# hours_wasted_here = 66
+# hours_spent_original = 67
+# hours_wasted_here = 0
 
 # Coded by Pianocraft1YT
 # Tutorial: https://youtu.be/ruWNKBdbYoo
@@ -48,6 +49,7 @@ EXIF_APERTURE = 33437
 EXIF_EXPOSURE_TIME = 33434
 EXIF_FOCAL_LENGTH = 37386
 EXIF_ISO = 34855
+EXIF_GPS_INFO = 34853
 SETTINGS_PATH = Path.home() / ".metadata-extractor" / "settings.json"
 # Common video file formats to check
 VIDEO_TYPES = (".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv")
@@ -122,6 +124,14 @@ class MetadataExtractor:
         if self.maxdepth_entry.get() == "":
             self.maxdepth_entry.insert(0, "Recursion Depth (#)")
             self.maxdepth_entry.config(foreground="gray")
+
+    def gps_warning(self):
+        if self.gps_var.get():
+            self.gps_warning_label.pack(after=self.gps_checkbox)
+        else:
+            self.gps_warning_label.pack_forget()
+        self.root.update_idletasks()  # flush pending layout
+        self.root.geometry(f"350x{self.root.winfo_reqheight()}")
 
     # Show recursive_input entry box when recursive is checked
     def recursive_input(self):
@@ -261,6 +271,7 @@ class MetadataExtractor:
         output_exposure_time,
         output_focal_length,
         output_iso,
+        output_gps,
         date_range,
         start_date,
         end_date,
@@ -285,6 +296,7 @@ class MetadataExtractor:
                 output_exposure_time,
                 output_focal_length,
                 output_iso,
+                output_gps,
                 date_range,
                 start_date,
                 end_date,
@@ -309,6 +321,7 @@ class MetadataExtractor:
         output_exposure_time,
         output_focal_length,
         output_iso,
+        output_gps,
         date_range,
         start_date,
         end_date,
@@ -343,6 +356,7 @@ class MetadataExtractor:
                     output_exposure_time,
                     output_focal_length,
                     output_iso,
+                    output_gps,
                     date_range,
                     start_date,
                     end_date,
@@ -366,6 +380,7 @@ class MetadataExtractor:
                     output_exposure_time,
                     output_focal_length,
                     output_iso,
+                    output_gps,
                     date_range,
                     start_date,
                     end_date,
@@ -479,6 +494,26 @@ class MetadataExtractor:
         except ValueError:
             return None
 
+    def _format_gps_coord(self, dms_tuple, ref):
+        if isinstance(ref, bytes):
+            try:
+                ref = ref.decode("ascii")
+            except UnicodeDecodeError:
+                return None
+        if not isinstance(ref, str) or not ref.strip():
+            return None
+        if not isinstance(dms_tuple, tuple) or len(dms_tuple) != 3:
+            return None
+        degree = self._rational_to_float(dms_tuple[0])
+        minute = self._rational_to_float(dms_tuple[1])
+        second = self._rational_to_float(dms_tuple[2])
+        if degree is None or minute is None or second is None:
+            return None
+        converted = degree + minute / 60.0 + second / 3600.0
+        if ref.upper() in ("S", "W"):
+            converted = -converted
+        return f"{converted:.6f}"
+
     def _empty_scan_data(self):
         return {
             "Dates": [],
@@ -494,6 +529,8 @@ class MetadataExtractor:
             "Exposure_Times": [],
             "Focal_Lengths": [],
             "ISOs": [],
+            "GPS_Latitudes": [],
+            "GPS_Longitudes": [],
         }
 
     def _save_settings(self):
@@ -526,6 +563,7 @@ class MetadataExtractor:
                 "Exposure Time": self.exposure_time_var.get(),
                 "Focal Length": self.focal_length_var.get(),
                 "ISO": self.iso_var.get(),
+                "GPS": self.gps_var.get(),
             }
             SETTINGS_PATH.write_text(json.dumps(settings, indent=2), encoding="utf-8")
         except OSError:
@@ -549,6 +587,7 @@ class MetadataExtractor:
                 "Exposure Time": self.exposure_time_var,
                 "Focal Length": self.focal_length_var,
                 "ISO": self.iso_var,
+                "GPS": self.gps_var,
             }
             data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
             for key, value in data.items():
@@ -594,6 +633,7 @@ class MetadataExtractor:
                             "Exposure Time",
                             "Focal Length",
                             "ISO",
+                            "GPS",
                         ):
                             key_to_checkbox_var[key].set(value)
                         # Explicit null in the file means "this field was cleared"
@@ -668,6 +708,7 @@ class MetadataExtractor:
         output_exposure_time,
         output_focal_length,
         output_iso,
+        output_gps,
         date_range,
         start_date,
         end_date,
@@ -682,6 +723,8 @@ class MetadataExtractor:
         exposure_time = None
         focal_length = None
         iso = None
+        gps_latitude = None
+        gps_longitude = None
         process_image = True
         if media_files:
             try:
@@ -715,6 +758,15 @@ class MetadataExtractor:
                     focal_length = self._format_focal_length(exif_data.get(EXIF_FOCAL_LENGTH))
                 if output_iso:
                     iso = self._format_iso(exif_data.get(EXIF_ISO))
+                if output_gps:
+                    gps_info = exif_data.get(EXIF_GPS_INFO)
+                    if gps_info:
+                        lat_ref = gps_info.get(1)
+                        lat = gps_info.get(2)
+                        long_ref = gps_info.get(3)
+                        long = gps_info.get(4)
+                        gps_latitude = self._format_gps_coord(lat, lat_ref)
+                        gps_longitude = self._format_gps_coord(long, long_ref)
                 if date_range:
                     d = self._parse_exif_datetime(dt)
                     if not d:
@@ -738,6 +790,8 @@ class MetadataExtractor:
                     data["Exposure_Times"].append(exposure_time)
                     data["Focal_Lengths"].append(focal_length)
                     data["ISOs"].append(iso)
+                    data["GPS_Latitudes"].append(gps_latitude)
+                    data["GPS_Longitudes"].append(gps_longitude)
                     return True
                 else:
                     return False
@@ -780,6 +834,7 @@ class MetadataExtractor:
         output_exposure_time,
         output_focal_length,
         output_iso,
+        output_gps,
         date_range,
         start_date,
         end_date,
@@ -834,6 +889,7 @@ class MetadataExtractor:
                 output_exposure_time,
                 output_focal_length,
                 output_iso,
+                output_gps,
                 date_range,
                 start_date,
                 end_date,
@@ -876,6 +932,7 @@ class MetadataExtractor:
         debug = self.debug_var.get()
         output_utc = self.utc_var.get()
         date_range = self.date_range_var.get()
+        output_gps = self.gps_var.get()
         output_dimensions = False
         output_make = False
         output_model = False
@@ -967,6 +1024,7 @@ class MetadataExtractor:
                     output_exposure_time,
                     output_focal_length,
                     output_iso,
+                    output_gps,
                     date_range,
                     start_date,
                     end_date,
@@ -992,6 +1050,7 @@ class MetadataExtractor:
                         output_exposure_time,
                         output_focal_length,
                         output_iso,
+                        output_gps,
                         date_range,
                         start_date,
                         end_date,
@@ -1023,6 +1082,7 @@ class MetadataExtractor:
                         output_exposure_time,
                         output_focal_length,
                         output_iso,
+                        output_gps,
                         date_range,
                         start_date,
                         end_date,
@@ -1051,6 +1111,7 @@ class MetadataExtractor:
                         output_exposure_time,
                         output_focal_length,
                         output_iso,
+                        output_gps,
                         date_range,
                         start_date,
                         end_date,
@@ -1169,6 +1230,7 @@ class MetadataExtractor:
         output_exposure_time,
         output_focal_length,
         output_iso,
+        output_gps,
         date_range,
         start_date,
         end_date,
@@ -1250,6 +1312,7 @@ class MetadataExtractor:
                             output_exposure_time,
                             output_focal_length,
                             output_iso,
+                            output_gps,
                             date_range,
                             start_date,
                             end_date,
@@ -1287,6 +1350,7 @@ class MetadataExtractor:
                                     output_exposure_time,
                                     output_focal_length,
                                     output_iso,
+                                    output_gps,
                                     date_range,
                                     start_date,
                                     end_date,
@@ -1322,6 +1386,7 @@ class MetadataExtractor:
                                         output_exposure_time,
                                         output_focal_length,
                                         output_iso,
+                                        output_gps,
                                         date_range,
                                         start_date,
                                         end_date,
@@ -1372,6 +1437,7 @@ class MetadataExtractor:
                             output_exposure_time,
                             output_focal_length,
                             output_iso,
+                            output_gps,
                             date_range,
                             start_date,
                             end_date,
@@ -1421,9 +1487,7 @@ class MetadataExtractor:
             output_exposure_time,
             output_focal_length,
             output_iso,
-            date_range,
-            start_date,
-            end_date,
+            output_gps,
         )
         if not recursive and not defer_create_sheet and not self.cancel_event.is_set():
             self.create_sheet(final_output, recursive, processed, skipped)  # One folder only, output time
@@ -1447,6 +1511,7 @@ class MetadataExtractor:
         output_exposure_time,
         output_focal_length,
         output_iso,
+        output_gps,
         date_range,
         start_date,
         end_date,
@@ -1488,6 +1553,7 @@ class MetadataExtractor:
                         output_exposure_time,
                         output_focal_length,
                         output_iso,
+                        output_gps,
                         date_range,
                         start_date,
                         end_date,
@@ -1534,9 +1600,7 @@ class MetadataExtractor:
             output_exposure_time,
             output_focal_length,
             output_iso,
-            date_range,
-            start_date,
-            end_date,
+            output_gps,
         )
         if not recursive and not defer_create_sheet and not self.cancel_event.is_set():  # Single folder mode
             self.create_sheet(final_output, recursive, processed, skipped)
@@ -1609,9 +1673,7 @@ class MetadataExtractor:
         output_exposure_time,
         output_focal_length,
         output_iso,
-        date_range,
-        start_date,
-        end_date,
+        output_gps,
     ):
         if data["Images"]:  # Make sure images are present.
             df_data = {
@@ -1637,6 +1699,9 @@ class MetadataExtractor:
                 df_data["Focal Length"] = data["Focal_Lengths"]
             if output_iso:
                 df_data["ISO"] = data["ISOs"]
+            if output_gps:
+                df_data["GPS Latitude"] = data["GPS_Latitudes"]
+                df_data["GPS Longitude"] = data["GPS_Longitudes"]
             if output_series:
                 df_data["Img # Series"] = img_series  # Add on img_series
             else:
@@ -1756,8 +1821,7 @@ class MetadataExtractor:
             else:
                 messagebox.showinfo("Cancelled", message="File not overwritten. Cancelled successfully.")
             if not self.keepopen_var.get():  # Checks to close program or not
-                self.root.destroy()  # End program
-                sys.exit()
+                self._on_close()
         except (PermissionError, OSError) as e:
             messagebox.showerror(
                 "Error writing output", f"Is another program using {output_path.as_posix()}?\n\nError: {e}"
@@ -1817,7 +1881,11 @@ class MetadataExtractor:
         self.modifier_entry.bind("<FocusOut>", self.seriesFocusOut)
         self.maxdepth_entry.bind("<FocusIn>", self.maxDepthFocusIn)
         self.maxdepth_entry.bind("<FocusOut>", self.maxDepthFocusOut)
-
+        self.gps_var = tk.BooleanVar(value=False)
+        self.gps_checkbox = tk.Checkbutton(self.frame, text="GPS", variable=self.gps_var, command=self.gps_warning)
+        self.gps_warning_label = tk.Label(
+            self.frame, text="Coordinates may reveal sensitive location information", foreground="gray"
+        )
         # Extra EXIF checkboxes
         self.extra_exif_frame = tk.Frame(self.root)
         self.extra_exif_var = tk.BooleanVar(value=False)
