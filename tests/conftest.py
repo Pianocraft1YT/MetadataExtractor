@@ -113,6 +113,11 @@ def extractor_csv(request):
 
 
 @pytest.fixture
+def extractor_json(request):
+    return _build_extractor(request, "JSON", timezone=False)
+
+
+@pytest.fixture
 def extractor_tz_off(request):
     return _build_extractor(request, "Excel", timezone=False)
 

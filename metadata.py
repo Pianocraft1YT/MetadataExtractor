@@ -13,6 +13,7 @@
 # GitHub Repo: https://github.com/Pianocraft1YT/MetadataExtractor/
 
 # Imports
+import json
 import os
 import sys
 import threading
@@ -802,8 +803,8 @@ class MetadataExtractor:
                 )
                 return
         if (
-            filetype == "CSV" and self.hyperlink_var.get()
-        ):  # CSV doesn't have hyperlinks, ask if they want to continue or change options
+            filetype == "CSV" or filetype == "JSON"
+        ) and self.hyperlink_var.get():  # CSV doesn't have hyperlinks, ask if they want to continue or change options
             proceed = messagebox.askyesno(
                 "Hyperlinks Unsupported.",
                 message="Hyperlinks are unsupported with CSV. Please select Excel for hyperlinks. Proceed without?",
@@ -827,9 +828,9 @@ class MetadataExtractor:
                 self.name_entry.get()
             )  # Clean_name to create valid names only
         else:
-            ext = "csv" if filetype == "CSV" else "xlsx"  # File extension for final output path
+            ext = self.filetype_to_ext[filetype]
             final_output = Path(self.output_path) / f"output.{ext}"  # Default filename
-        if filetype == "Excel":
+        if filetype != "CSV":
             if recursive:
                 self._start_scan(
                     recursive,
@@ -977,24 +978,20 @@ class MetadataExtractor:
         # Fall back if the user typed only illegal chars or spaces
         if len(name) < 1:
             name = "output"
-
         # Split extension once so reserved-name and length checks see the stem.
         # Preserve the case of the extension as typed by the user.
         suffix = Path(name).suffix.lower()
-        if (
-            suffix == ".xlsx"
-            and self.filetype_var.get() == "Excel"
-            or suffix == ".csv"
-            and self.filetype_var.get() == "CSV"
-        ):
+        selected = self.filetype_var.get()
+        selected = self.filetype_to_ext[selected]
+        if selected == suffix:
             stem = name[: -len(suffix)]
             ext = name[-len(suffix) :]
         elif suffix:
+            ext = selected
             stem = name[: -len(suffix)]
-            ext = ".xlsx" if self.filetype_var.get() == "Excel" else ".csv"
-        else:
+        else:  # No suffix
+            ext = selected
             stem = name
-            ext = ".xlsx" if self.filetype_var.get() == "Excel" else ".csv"
 
         # Windows reserved names — check the stem, not the full name
         reserved = {
@@ -1549,7 +1546,7 @@ class MetadataExtractor:
                 return
             filetype = self.filetype_var.get()
             proceed = True
-            if filetype == "Excel" and output_path.exists():
+            if (filetype == "Excel" or filetype == "JSON") and output_path.exists():
                 proceed = messagebox.askyesno(
                     "Overwrite?", message=output_path.as_posix() + " \nalready exists. Overwrite?"
                 )
@@ -1570,7 +1567,7 @@ class MetadataExtractor:
                         + "\nOutput: "
                         + output_path.as_posix(),
                     )
-                else:  # CSV mode
+                elif filetype == "CSV":  # CSV mode
                     files_written = 0
                     for sheet_df, sheet_name, directory in self.results:
                         csv_path = output_path.as_posix()[0:-4] + f"_{self.clean_name(sheet_name)}"
@@ -1598,6 +1595,20 @@ class MetadataExtractor:
                         )
                     else:
                         messagebox.showinfo("No output.", message="No files were written.")
+                elif filetype == "JSON":  # Local export time
+                    json_data = {"exported_at": datetime.now().isoformat(), "sheets": {}}
+                    for sheet_df, sheet_name, directory in self.results:
+                        json_data["sheets"][sheet_name] = json.loads(sheet_df.to_json(orient="records"))
+                    output_path.write_text(json.dumps(json_data, indent=2, ensure_ascii=False), encoding="utf-8")
+                    messagebox.showinfo(
+                        "Success!",
+                        message="Images successfully scanned: "
+                        + str(total_processed)
+                        + "\nImages skipped: "
+                        + str(total_skipped)
+                        + "\nOutput: "
+                        + output_path.as_posix(),
+                    )
                 if self.collected_warnings:
                     output = ""
                     # Writes error messages from the dictionary collected_warnings
@@ -1748,7 +1759,7 @@ class MetadataExtractor:
         # Variable for use with recursive directories, list of dataframes
         self.results = []
         # For output filetypes
-        self.filetypes = ["Excel", "CSV"]
+        self.filetypes = ["Excel", "CSV", "JSON"]
         # For recursion
         self.maxdepth = 1
         # For cancel event (set by cancel(), checked in loops, cleared in check_recursive)
@@ -1757,6 +1768,8 @@ class MetadataExtractor:
         self._scan_running = False
         # For ETA
         self.time_started = None
+        # For filetype resolving
+        self.filetype_to_ext = {"Excel": ".xlsx", "CSV": ".csv", "JSON": ".json"}
         # For blocking
         self._dialog_answer = None
         self._dialog_event = threading.Event()
