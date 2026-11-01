@@ -8,9 +8,9 @@ import pytest
 
 
 def _mock_widgets(extractor, series_value, name_value="Filename (default output.filetype)", recursive=False):
-    series_entry = MagicMock()
-    series_entry.get.return_value = series_value
-    extractor.series_entry = series_entry
+    modifier_entry = MagicMock()
+    modifier_entry.get.return_value = series_value
+    extractor.modifier_entry = modifier_entry
 
     name_entry = MagicMock()
     name_entry.get.return_value = name_value

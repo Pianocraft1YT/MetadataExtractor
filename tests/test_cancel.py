@@ -121,7 +121,6 @@ def test_check_recursive_clears_event(extractor, tmp_path, monkeypatch):
     (tmp_path / "IMG_001.jpg").write_bytes(b"fake")
 
     extractor._start_scan = MagicMock()
-    extractor.series_entry.get.return_value = ""
 
     extractor.check_recursive()
     assert not extractor.cancel_event.is_set()

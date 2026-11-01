@@ -6,7 +6,7 @@
 # Please increment this counter as a warning
 # For the next person:
 #
-# hours_wasted_here = 64
+# hours_wasted_here = 66
 
 # Coded by Pianocraft1YT
 # Tutorial: https://youtu.be/ruWNKBdbYoo
@@ -21,7 +21,7 @@ import time
 import tkinter as tk
 import traceback
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
@@ -48,7 +48,7 @@ EXIF_APERTURE = 33437
 EXIF_EXPOSURE_TIME = 33434
 EXIF_FOCAL_LENGTH = 37386
 EXIF_ISO = 34855
-
+SETTINGS_PATH = Path.home() / ".metadata-extractor" / "settings.json"
 # Common video file formats to check
 VIDEO_TYPES = (".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv")
 # Common and uncommon image formats to check
@@ -104,14 +104,14 @@ class MetadataExtractor:
             self.name_entry.config(foreground="gray")
 
     def seriesFocusIn(self, event):
-        if self.series_entry.get() == "Starting index (Img # Series)":
-            self.series_entry.delete(0, "end")
-            self.series_entry.config(foreground="black")
+        if self.modifier_entry.get() == "Starting index (Img # Series)":
+            self.modifier_entry.delete(0, "end")
+            self.modifier_entry.config(foreground="black")
 
     def seriesFocusOut(self, event):
-        if self.series_entry.get() == "":
-            self.series_entry.insert(0, "Starting index (Img # Series)")
-            self.series_entry.config(foreground="gray")
+        if self.modifier_entry.get() == "":
+            self.modifier_entry.insert(0, "Starting index (Img # Series)")
+            self.modifier_entry.config(foreground="gray")
 
     def maxDepthFocusIn(self, event):
         if self.maxdepth_entry.get() == "Recursion Depth (#)":
@@ -399,6 +399,11 @@ class MetadataExtractor:
             self.current_directory.set("Cancelled")
             self.percentage_done.set("Cancelled")
 
+    def _on_close(self):
+        self._save_settings()
+        self.root.destroy()
+        sys.exit()
+
     def _ask_yes_no_threadsafe(self, title, msg):
         """Call from a worker thread. Blocks until the main thread answers."""
         self._dialog_answer = None
@@ -490,6 +495,121 @@ class MetadataExtractor:
             "Focal_Lengths": [],
             "ISOs": [],
         }
+
+    def _save_settings(self):
+        try:
+            SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+            # Don't add debug_var to settings persistence
+            start = self.start_date_entry.get_date()
+            end = self.end_date_entry.get_date()
+            settings = {
+                "Directory Path": self.directory_path.as_posix() if self.directory_path else None,
+                "Output Path": self.output_path.as_posix() if self.output_path else None,
+                "Filetype": self.filetype_var.get(),
+                "Start Date": start.isoformat() if start else None,
+                "End Date": end.isoformat() if end else None,
+                "File Name": self.name_entry.get(),
+                "Modifier": self.modifier_entry.get(),
+                "Max Depth": int(self.maxdepth_entry.get()) if self.maxdepth_entry.get().isdigit() else None,
+                "Keep Open": self.keepopen_var.get(),
+                "Recursive": self.recursive_var.get(),
+                "UTC": self.utc_var.get(),
+                "Hyperlinks": self.hyperlink_var.get(),
+                "Date Range": self.date_range_var.get(),
+                "Extra EXIF": self.extra_exif_var.get(),
+                "Dimensions": self.dimensions_var.get(),
+                "Make": self.make_var.get(),
+                "Model": self.model_var.get(),
+                "Software": self.software_var.get(),
+                "Lens Model": self.lens_model_var.get(),
+                "Aperture": self.aperture_var.get(),
+                "Exposure Time": self.exposure_time_var.get(),
+                "Focal Length": self.focal_length_var.get(),
+                "ISO": self.iso_var.get(),
+            }
+            SETTINGS_PATH.write_text(json.dumps(settings, indent=2), encoding="utf-8")
+        except OSError:
+            pass
+
+    def _load_settings(self):
+        try:
+            key_to_checkbox_var = {
+                "Date Range": self.date_range_var,
+                "UTC": self.utc_var,
+                "Keep Open": self.keepopen_var,
+                "Recursive": self.recursive_var,
+                "Hyperlinks": self.hyperlink_var,
+                "Extra EXIF": self.extra_exif_var,
+                "Dimensions": self.dimensions_var,
+                "Make": self.make_var,
+                "Model": self.model_var,
+                "Software": self.software_var,
+                "Lens Model": self.lens_model_var,
+                "Aperture": self.aperture_var,
+                "Exposure Time": self.exposure_time_var,
+                "Focal Length": self.focal_length_var,
+                "ISO": self.iso_var,
+            }
+            data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+            for key, value in data.items():
+                try:
+                    if value is not None:
+                        if key == "Directory Path":
+                            if Path(value).is_dir() and Path(value).exists():
+                                self.directory_path = Path(value)
+                        elif key == "Output Path":
+                            if Path(value).is_dir() and Path(value).exists():
+                                self.output_path = Path(value)
+                        elif key == "Filetype":
+                            if value in self.filetypes:
+                                self.filetype_var.set(value)
+                        elif key == "Start Date":
+                            self.start_date_entry.set_date(date.fromisoformat(value))
+                        elif key == "End Date":
+                            self.end_date_entry.set_date(date.fromisoformat(value))
+                        elif key == "File Name":
+                            self.name_entry.delete(0, "end")
+                            self.name_entry.insert(0, value)
+                        elif key == "Modifier":
+                            self.modifier_entry.delete(0, "end")
+                            self.modifier_entry.insert(0, value)
+                        elif key == "Max Depth":
+                            if int(value) > 0:
+                                self.maxdepth_entry.delete(0, "end")
+                                self.maxdepth_entry.insert(0, str(value))
+                                self.maxdepth = int(value)
+                        elif key in (
+                            "Date Range",
+                            "UTC",
+                            "Keep Open",
+                            "Recursive",
+                            "Hyperlinks",
+                            "Extra EXIF",
+                            "Dimensions",
+                            "Make",
+                            "Model",
+                            "Software",
+                            "Lens Model",
+                            "Aperture",
+                            "Exposure Time",
+                            "Focal Length",
+                            "ISO",
+                        ):
+                            key_to_checkbox_var[key].set(value)
+                        # Explicit null in the file means "this field was cleared"
+                    else:
+                        if key == "Start Date":
+                            self.start_date_entry.set_date(None)
+                        elif key == "End Date":
+                            self.end_date_entry.set_date(None)
+                        elif key == "Directory Path":
+                            self.directory_path = None
+                        elif key == "Output Path":
+                            self.output_path = None
+                except ValueError:
+                    pass
+        except (OSError, json.JSONDecodeError):
+            return
 
     # To clean up any past executions
     # NOTE: does NOT touch cancel_event; check_recursive owns the clear
@@ -754,7 +874,7 @@ class MetadataExtractor:
         filetype = self.filetype_var.get()  # CSV or Excel
         recursive = self.recursive_var.get()  # Get status of recursive_checkbox
         debug = self.debug_var.get()
-        output_utc = self.timezone_var.get()
+        output_utc = self.utc_var.get()
         date_range = self.date_range_var.get()
         output_dimensions = False
         output_make = False
@@ -784,7 +904,7 @@ class MetadataExtractor:
                 "Invalid path(s) specified.", message="Please set an image/video directory path OR output path."
             )
             return
-        val = self.series_entry.get().strip()  # Modifier for Img # Series
+        val = self.modifier_entry.get().strip()  # Modifier for Img # Series
         if val.isdigit() and int(val) > 0 and val != "1":  # Make sure starting index is valid digit
             modifier = int(val) - 1  # We start at 1 by default, so minus 1 to not get off by one
         # Technically, user could input the default text and get rejected, but we ignore that case
@@ -1434,10 +1554,8 @@ class MetadataExtractor:
         # Input format: "YYYY:MM:DD HH:MM:SS"
         fixed_time = []
         fixed_date = []
-        for offset_index, date in enumerate(
-            list_of_dates
-        ):  # Split the EXIF metadata into a date list and time list (24h)
-            date_str = str(date)
+        for offset_index, d in enumerate(list_of_dates):  # Split the EXIF metadata into a date list and time list (24h)
+            date_str = str(d)
             if " " in date_str:
                 try:
                     dt = datetime.strptime(date_str, "%Y:%m:%d %H:%M:%S")
@@ -1669,8 +1787,8 @@ class MetadataExtractor:
         self.recursive_checkbox = tk.Checkbutton(
             self.frame, text="Recursive Mode", variable=self.recursive_var, command=self.recursive_input
         )
-        self.timezone_var = tk.BooleanVar(value=False)
-        self.timezone_checkbox = tk.Checkbutton(self.frame, text="Time in UTC", variable=self.timezone_var)
+        self.utc_var = tk.BooleanVar(value=False)
+        self.utc_checkbox = tk.Checkbutton(self.frame, text="Time in UTC", variable=self.utc_var)
         self.debug_var = tk.BooleanVar(value=False)
         self.debug_checkbox = tk.Checkbutton(
             self.frame, text="Debug Mode", variable=self.debug_var, command=self.debug_warning
@@ -1680,8 +1798,8 @@ class MetadataExtractor:
         self.hyperlink_checkbox = tk.Checkbutton(self.frame, text="Add Hyperlinks", variable=self.hyperlink_var)
         self.name_entry = tk.Entry(self.frame, width=30, foreground="gray")
         self.name_entry.insert(0, "Filename (default output.filetype)")
-        self.series_entry = tk.Entry(self.frame, width=30, foreground="gray")
-        self.series_entry.insert(0, "Starting index (Img # Series)")
+        self.modifier_entry = tk.Entry(self.frame, width=30, foreground="gray")
+        self.modifier_entry.insert(0, "Starting index (Img # Series)")
         self.maxdepth_entry = tk.Entry(self.frame, width=20, foreground="gray")
         self.maxdepth_entry.insert(0, "Recursion Depth (#)")
         self.date_range_var = tk.BooleanVar(value=False)
@@ -1695,8 +1813,8 @@ class MetadataExtractor:
         self.end_date_label = tk.Label(self.frame, text="End Date")
         self.name_entry.bind("<FocusIn>", self.nameFocusIn)
         self.name_entry.bind("<FocusOut>", self.nameFocusOut)
-        self.series_entry.bind("<FocusIn>", self.seriesFocusIn)
-        self.series_entry.bind("<FocusOut>", self.seriesFocusOut)
+        self.modifier_entry.bind("<FocusIn>", self.seriesFocusIn)
+        self.modifier_entry.bind("<FocusOut>", self.seriesFocusOut)
         self.maxdepth_entry.bind("<FocusIn>", self.maxDepthFocusIn)
         self.maxdepth_entry.bind("<FocusOut>", self.maxDepthFocusOut)
 
@@ -1791,6 +1909,9 @@ class MetadataExtractor:
         self.total_files = 0
         self.elapsed_label = tk.Label(self.progress_frame, textvariable=self.elapsed_time)
 
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        self._load_settings()
+
     # After initialization
     def run(self):
         # Pack main widgets
@@ -1798,11 +1919,11 @@ class MetadataExtractor:
         self.set_directory_button.pack()
         self.set_output_button.pack()
         self.name_entry.pack()
-        self.series_entry.pack()
+        self.modifier_entry.pack()
         self.recursive_checkbox.pack()
         self.hyperlink_checkbox.pack()
         self.date_range_checkbox.pack()
-        self.timezone_checkbox.pack()
+        self.utc_checkbox.pack()
         self.filetype_frame.pack(side="top")
         for ft in self.filetypes:
             tk.Radiobutton(self.filetype_frame, text=ft, variable=self.filetype_var, value=ft).pack(side="left")
@@ -1821,6 +1942,9 @@ class MetadataExtractor:
         self.skipped_label.pack()
         self.eta_label.pack()
         self.elapsed_label.pack()
+        self.recursive_input()
+        self.extra_exif()
+        self.date_range()
         self.root.update_idletasks()  # flush pending layout
         self.root.geometry(f"350x{self.root.winfo_reqheight()}")  # fixed width, auto height
         self.root.mainloop()

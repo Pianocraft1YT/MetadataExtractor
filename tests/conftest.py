@@ -21,6 +21,37 @@ sys.modules["tkinter.filedialog"] = MagicMock()
 sys.modules["tkinter.ttk"] = MagicMock()
 
 
+class _FakeEntry:
+    """Stand-in for tkinter.Entry in tests. Stores text so get/insert/delete round-trip."""
+
+    def __init__(self, master=None, **kwargs):
+        self._text = ""
+
+    def get(self):
+        return self._text
+
+    def insert(self, index, value):
+        self._text = value
+
+    def delete(self, first, last=None):
+        self._text = ""
+
+    def config(self, **kwargs):
+        pass
+
+    def configure(self, **kwargs):
+        pass
+
+    def bind(self, sequence, func):
+        pass
+
+    def pack(self, *args, **kwargs):
+        pass
+
+    def pack_forget(self, *args, **kwargs):
+        pass
+
+
 class _FakeDateEntry:
     """Stand-in for tk_date_entry.DateEntry in tests.
 
@@ -79,12 +110,12 @@ class FakeVar:
 _tk.BooleanVar.side_effect = FakeVar
 _tk.StringVar.side_effect = FakeVar
 _tk.DoubleVar.side_effect = FakeVar
-
+_tk.Entry.side_effect = _FakeEntry
 import metadata
 
 
 def _set_timezone(app, value):
-    app.timezone_var.set(value)
+    app.utc_var.set(value)
 
 
 def _set_filetype(app, value):
@@ -134,6 +165,12 @@ def silence_messageboxes(monkeypatch):
     fake.askokcancel.return_value = True
     monkeypatch.setattr(metadata, "messagebox", fake)
     return fake
+
+
+@pytest.fixture(autouse=True)
+def isolate_settings(monkeypatch, tmp_path):
+    """Redirect SETTINGS_PATH to tmp_path so tests never touch real user settings."""
+    monkeypatch.setattr("metadata.SETTINGS_PATH", tmp_path / "settings.json")
 
 
 @pytest.fixture(autouse=True)
