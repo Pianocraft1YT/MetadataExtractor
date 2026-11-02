@@ -484,7 +484,7 @@ class MetadataExtractor:
         except (TypeError, ValueError):
             return None
 
-    def _dataframe_to_txt(self, df):
+    def _dataframe_to_txt(self, df, directory=None, hyperlinks=False):
         def esc(v):
             if v is None:
                 return ""
@@ -513,10 +513,14 @@ class MetadataExtractor:
         fixed_columns = "|".join(fixed_columns)
         lines.append("|" + fixed_columns + "|")
         lines.append("|---" * n + "|")
-        for _, row in df.iterrows():
+        for _, row in df.iterrows():            
             values = row.tolist()
+            raw = values[0] if values else None
             for index, value in enumerate(values):
                 values[index] = esc(value)
+            if hyperlinks and directory is not None and isinstance(raw, str) and raw:
+                url = (directory / raw).as_posix()
+                values[0] = f"[{values[0]}](<{url}>)"
             values = "|".join(values)
             values = "|" + values + "|"
             lines.append(values)
@@ -1015,7 +1019,7 @@ class MetadataExtractor:
                 )
                 return
         if (
-            filetype == "CSV" or filetype == "JSON" or filetype == "Markdown"
+            filetype == "CSV" or filetype == "JSON"
         ) and self.hyperlink_var.get():  # CSV doesn't have hyperlinks, ask if they want to continue or change options
             proceed = messagebox.askyesno(
                 "Hyperlinks Unsupported.",
@@ -1824,14 +1828,14 @@ class MetadataExtractor:
                     )
                 elif filetype == "Markdown":
                     files_written = 0
-                    for sheet_df, sheet_name, _ in self.results:
+                    for sheet_df, sheet_name, directory in self.results:
                         md_path = Path(output_path.as_posix()[0:-3] + f"_{self.clean_name(sheet_name)}")
                         if md_path.exists():
                             proceed = messagebox.askyesno(
                                 "Overwrite?", message=f"{md_path}\nalready exists. Overwrite?"
                             )
                         if proceed:
-                            md_path.write_text(self._dataframe_to_txt(sheet_df), encoding="utf-8")
+                            md_path.write_text(self._dataframe_to_txt(sheet_df, directory, hyperlinks=self.hyperlink_var.get()), encoding="utf-8")
                             files_written += 1
                         else:
                             proceed = True

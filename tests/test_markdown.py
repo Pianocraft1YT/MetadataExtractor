@@ -92,3 +92,19 @@ class TestDataframeToTxt:
         result = extractor._dataframe_to_txt(df)
         assert "café ☕" in result
         assert "日本語" in result
+    def test_hyperlinks_render_as_markdown_links(self, extractor, tmp_path):
+        df = pd.DataFrame({"Files": ["a.jpg"], "Dates": ["01/01/2024"]})
+        result = extractor._dataframe_to_txt(df, directory=tmp_path, hyperlinks=True)
+        assert "[a.jpg](<" in result
+        assert tmp_path.as_posix() in result
+
+    def test_hyperlinks_disabled_renders_plain(self, extractor, tmp_path):
+        df = pd.DataFrame({"Files": ["a.jpg"]})
+        result = extractor._dataframe_to_txt(df, directory=tmp_path, hyperlinks=False)
+        assert "a.jpg|" in result
+        assert "[" not in result
+
+    def test_hyperlinks_on_empty_dataframe_no_crash(self, extractor, tmp_path):
+        df = pd.DataFrame({"Files": [], "Dates": []})
+        result = extractor._dataframe_to_txt(df, directory=tmp_path, hyperlinks=True)
+        assert "|Files|Dates|" in result

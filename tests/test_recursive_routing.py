@@ -100,7 +100,7 @@ def test_markdown_non_recursive_skips_multiple_prompt(extractor, populated, monk
     assert not any("Multiple" in t for t, _ in prompts)
 
 
-@pytest.mark.parametrize("filetype", ["CSV", "JSON", "Markdown"])
+@pytest.mark.parametrize("filetype", ["CSV", "JSON"])
 def test_hyperlink_warning_fires_for_non_excel(extractor, populated, monkeypatch, filetype):
     """Markdown was added to this condition alongside CSV and JSON."""
     _mock_widgets(extractor, filetype, recursive=False)
@@ -112,3 +112,12 @@ def test_hyperlink_warning_fires_for_non_excel(extractor, populated, monkeypatch
     extractor.check_recursive()
 
     assert any("Hyperlink" in t for t, _ in prompts), f"no hyperlink warning shown for {filetype}"
+
+def test_no_hyperlink_warning_for_markdown(extractor, populated, monkeypatch):
+    _mock_widgets(extractor, "Markdown", recursive=False)
+    extractor.hyperlink_var.set(True)
+    extractor.directory_path = extractor.output_path = populated
+    _capture_start_scan(extractor)
+    prompts = _capture_askyesno(monkeypatch)
+    extractor.check_recursive()
+    assert not any("Hyperlink" in t for t, _ in prompts)

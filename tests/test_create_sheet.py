@@ -124,6 +124,7 @@ def isolated_md(isolated):
 
 
 def test_markdown_writes_new_file(isolated_md, tmp_path, simple_df):
+    isolated_md.hyperlink_var.set(False)   # <-- add this line
     isolated_md.results.append((simple_df, "Sheet", tmp_path))
     output = tmp_path / "out.md"
 
@@ -137,8 +138,18 @@ def test_markdown_writes_new_file(isolated_md, tmp_path, simple_df):
     content = md_file.read_text(encoding="utf-8")
     assert content.startswith("|Files|Dates|Time|")
     assert "|a.jpg|01/01/2024|12:00:00|" in content
+def test_markdown_writes_hyperlinks_when_enabled(isolated_md, tmp_path, simple_df):
+    isolated_md.hyperlink_var.set(True)
+    isolated_md.results.append((simple_df, "Sheet", tmp_path))
+    output = tmp_path / "out.md"
 
+    try:
+        isolated_md.create_sheet(output, recursive=False, total_processed=2, total_skipped=0)
+    except SystemExit:
+        pass
 
+    content = (tmp_path / "out_Sheet.md").read_text(encoding="utf-8")
+    assert "[a.jpg](<" in content
 def test_markdown_recursive_writes_one_per_sheet(isolated_md, tmp_path):
     df1 = pd.DataFrame({"Files": ["a.jpg"]})
     df2 = pd.DataFrame({"Files": ["b.jpg"]})
