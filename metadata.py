@@ -513,7 +513,7 @@ class MetadataExtractor:
         fixed_columns = "|".join(fixed_columns)
         lines.append("|" + fixed_columns + "|")
         lines.append("|---" * n + "|")
-        for _, row in df.iterrows():            
+        for _, row in df.iterrows():
             values = row.tolist()
             raw = values[0] if values else None
             for index, value in enumerate(values):
@@ -1835,7 +1835,10 @@ class MetadataExtractor:
                                 "Overwrite?", message=f"{md_path}\nalready exists. Overwrite?"
                             )
                         if proceed:
-                            md_path.write_text(self._dataframe_to_txt(sheet_df, directory, hyperlinks=self.hyperlink_var.get()), encoding="utf-8")
+                            md_path.write_text(
+                                self._dataframe_to_txt(sheet_df, directory, hyperlinks=self.hyperlink_var.get()),
+                                encoding="utf-8",
+                            )
                             files_written += 1
                         else:
                             proceed = True

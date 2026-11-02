@@ -113,6 +113,7 @@ def test_hyperlink_warning_fires_for_non_excel(extractor, populated, monkeypatch
 
     assert any("Hyperlink" in t for t, _ in prompts), f"no hyperlink warning shown for {filetype}"
 
+
 def test_no_hyperlink_warning_for_markdown(extractor, populated, monkeypatch):
     _mock_widgets(extractor, "Markdown", recursive=False)
     extractor.hyperlink_var.set(True)

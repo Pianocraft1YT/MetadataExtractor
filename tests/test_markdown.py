@@ -62,7 +62,7 @@ class TestDataframeToTxt:
         df = pd.DataFrame({"A": ["a|b"]})
         result = extractor._dataframe_to_txt(df)
         assert "a\\|b" in result
-        assert _count_unescaped_pipes(result.split("\n")[2]) == 2   # was 3
+        assert _count_unescaped_pipes(result.split("\n")[2]) == 2  # was 3
 
     def test_backslash_then_pipe_escaping_order(self, extractor):
         """Critical: backslash escapes BEFORE pipe, or \\| becomes \\\\| (broken)."""
@@ -92,6 +92,7 @@ class TestDataframeToTxt:
         result = extractor._dataframe_to_txt(df)
         assert "café ☕" in result
         assert "日本語" in result
+
     def test_hyperlinks_render_as_markdown_links(self, extractor, tmp_path):
         df = pd.DataFrame({"Files": ["a.jpg"], "Dates": ["01/01/2024"]})
         result = extractor._dataframe_to_txt(df, directory=tmp_path, hyperlinks=True)
