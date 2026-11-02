@@ -16,6 +16,7 @@
 # Imports
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -49,7 +50,9 @@ EXIF_APERTURE = 33437
 EXIF_EXPOSURE_TIME = 33434
 EXIF_FOCAL_LENGTH = 37386
 EXIF_ISO = 34855
-EXIF_GPS_INFO = 34853
+
+# XML Illegals
+XML_ILLEGAL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 # Persistent Settings
 SETTINGS_PATH = Path.home() / ".metadata-extractor" / "settings.json"
 # Common video file formats to check
@@ -197,7 +200,7 @@ class MetadataExtractor:
             self.progress_var.set(0)
 
     # Turn only seconds into normal time measurements
-    def _convert_seconds(self, seconds):
+    def _convert_seconds(self, seconds, mode="ETA"):
         output = []
         minutes = 0
         hours = 0
@@ -219,7 +222,7 @@ class MetadataExtractor:
             output.append(f"{minutes} minute(s)")
         if seconds > 0:
             output.append(f"{int(seconds)} second(s)")
-        if days == 0 and hours == 0 and minutes == 0 and seconds < 5:
+        if days == 0 and hours == 0 and minutes == 0 and seconds < 5 and mode == "ETA":
             output = "Starting/Ending Soon..."
         else:
             output = ", ".join(output)
@@ -237,10 +240,10 @@ class MetadataExtractor:
                 remaining = self.total_files - files_done
                 if time_passed > 0 and files_done >= 10 and remaining > 0:
                     seconds_per_files = time_passed / files_done
-                    self.eta.set(f"{self._convert_seconds(remaining * seconds_per_files)} remaining.")
+                    self.eta.set(f"{self._convert_seconds(remaining * seconds_per_files, 'ETA')} remaining.")
                 else:
                     self.eta.set("Estimating...")
-                self.elapsed_time.set(f"Time Elapsed: {self._convert_seconds(time_passed)}")
+                self.elapsed_time.set(f"Time Elapsed: {self._convert_seconds(time_passed, 'Time Elapsed')}")
             self.scanned_count.set(f"Scanned: {processed} / {self.total_files}")
             self.skipped_count.set(f"Skipped: {skipped}")
             if self.total_files > 0:  # No divide-by-zero errors
@@ -730,6 +733,12 @@ class MetadataExtractor:
         if selected:
             self.output_path = Path(selected)
 
+    @staticmethod
+    def _decode_exif_string(v):
+        if isinstance(v, bytes):
+            return v.decode("ascii", errors="replace")
+        return v
+
     # Image metadata extractor helper function
     def scan_image(
         self,
@@ -765,47 +774,57 @@ class MetadataExtractor:
         gps_latitude = None
         gps_longitude = None
         process_image = True
+
+        def _exif_get(tag, ifd, exif_data):
+            metadata = exif_data.get(tag)
+            if metadata is None and ifd is not None:
+                metadata = ifd.get(tag)
+            return metadata
+
+        def _exif_get_str(tag, ifd, exif_data):
+            return self._decode_exif_string(_exif_get(tag, ifd, exif_data))
+
         if media_files:
             try:
                 with Image.open(Path(directory_path) / media_files[i]) as img:
-                    exif_data = img.getexif()
                     if output_dimensions:
                         dimensions = f"{img.size[0]}x{img.size[1]}"
+                    exif_data = img.getexif()
+                    general_ifd = exif_data.get_ifd(0x8769)
+                    gps_ifd = exif_data.get_ifd(0x8825)
                 dt = (
-                    exif_data.get(EXIF_DATETIME_ORIGINAL)
-                    or exif_data.get(EXIF_DATETIME_DIGITIZED)
-                    or exif_data.get(EXIF_DATETIME)
+                    _exif_get(EXIF_DATETIME_ORIGINAL, general_ifd, exif_data)
+                    or _exif_get(EXIF_DATETIME_DIGITIZED, general_ifd, exif_data)
+                    or _exif_get(EXIF_DATETIME, None, exif_data)
                 )
                 if dt is None:
                     self.collected_warnings["No Metadata"].append(f"[{directory_path}]\\{media_files[i]}")
                     return False
                 if output_utc:
-                    offset = exif_data.get(EXIF_OFFSET_TIME_ORIGINAL)
+                    offset = _exif_get(EXIF_OFFSET_TIME_ORIGINAL, general_ifd, exif_data)
                 if output_make:
-                    make = exif_data.get(EXIF_CAMERA_MAKE)
+                    make = _exif_get_str(EXIF_CAMERA_MAKE, None, exif_data)
                 if output_model:
-                    model = exif_data.get(EXIF_CAMERA_MODEL)
+                    model = _exif_get_str(EXIF_CAMERA_MODEL, None, exif_data)
                 if output_software:
-                    software = exif_data.get(EXIF_SOFTWARE)
+                    software = _exif_get_str(EXIF_SOFTWARE, None, exif_data)
                 if output_lens_model:
-                    lens_model = exif_data.get(EXIF_LENS_MODEL)
+                    lens_model = _exif_get_str(EXIF_LENS_MODEL, general_ifd, exif_data)
                 if output_aperture:
-                    aperture = self._format_aperture(exif_data.get(EXIF_APERTURE))
+                    aperture = self._format_aperture(_exif_get(EXIF_APERTURE, general_ifd, exif_data))
                 if output_exposure_time:
-                    exposure_time = self._format_exposure_time(exif_data.get(EXIF_EXPOSURE_TIME))
+                    exposure_time = self._format_exposure_time(_exif_get(EXIF_EXPOSURE_TIME, general_ifd, exif_data))
                 if output_focal_length:
-                    focal_length = self._format_focal_length(exif_data.get(EXIF_FOCAL_LENGTH))
+                    focal_length = self._format_focal_length(_exif_get(EXIF_FOCAL_LENGTH, general_ifd, exif_data))
                 if output_iso:
-                    iso = self._format_iso(exif_data.get(EXIF_ISO))
-                if output_gps:
-                    gps_info = exif_data.get(EXIF_GPS_INFO)
-                    if gps_info:
-                        lat_ref = gps_info.get(1)
-                        lat = gps_info.get(2)
-                        long_ref = gps_info.get(3)
-                        long = gps_info.get(4)
-                        gps_latitude = self._format_gps_coord(lat, lat_ref)
-                        gps_longitude = self._format_gps_coord(long, long_ref)
+                    iso = self._format_iso(_exif_get(EXIF_ISO, general_ifd, exif_data))
+                if output_gps and gps_ifd:
+                    lat_ref = gps_ifd.get(1)
+                    lat = gps_ifd.get(2)
+                    long_ref = gps_ifd.get(3)
+                    long = gps_ifd.get(4)
+                    gps_latitude = self._format_gps_coord(lat, lat_ref)
+                    gps_longitude = self._format_gps_coord(long, long_ref)
                 if date_range:
                     d = self._parse_exif_datetime(dt)
                     if not d:
@@ -1155,6 +1174,17 @@ class MetadataExtractor:
                         "Empty directory", message="No files were found. Please select a valid directory"
                     )
                     return
+
+    # XML forbids control characters that sometimes are used as padding, so scrub them out.
+    def _sanitize_for_excel(self, df):
+        copy = df.copy()
+        if copy.empty:
+            return copy
+        for col in copy.columns:
+            current_col = copy[col]
+            if current_col.dtype == object or pd.api.types.is_string_dtype(current_col):
+                copy[col] = current_col.apply(lambda v: XML_ILLEGAL_CHARS.sub("", v) if isinstance(v, str) else v)
+        return copy
 
     # For Sheet Names
     def verify_name(self, name, used):
@@ -1772,7 +1802,7 @@ class MetadataExtractor:
                 if filetype == "Excel":
                     with pd.ExcelWriter(output_path) as writer:  # Opens ExcelWriter and closes automatically
                         for sheet_df, sheet_name, _ in self.results:
-                            sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                            self._sanitize_for_excel(sheet_df).to_excel(writer, sheet_name=sheet_name, index=False)
                     if self.hyperlink_var.get():
                         self.add_hyperlinks(output_path.as_posix())
                     messagebox.showinfo(
@@ -2057,6 +2087,7 @@ class MetadataExtractor:
         self.hyperlink_checkbox.pack()
         self.date_range_checkbox.pack()
         self.utc_checkbox.pack()
+        self.gps_checkbox.pack()
         self.filetype_frame.pack(side="top")
         for ft in self.filetypes:
             tk.Radiobutton(self.filetype_frame, text=ft, variable=self.filetype_var, value=ft).pack(side="left")

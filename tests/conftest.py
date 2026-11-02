@@ -321,3 +321,14 @@ def make_jpeg_with_tags(tmp_path):
         return path
 
     return _make
+
+
+def make_jpeg_with_nested_exif(path, exif_tags=None, gps_tags=None):
+    img = Image.new("RGB", (10, 10), color="red")
+    exif = Image.Exif()
+    if exif_tags:
+        exif[0x8769] = exif_tags  # Exif Sub-IFD
+    if gps_tags:
+        exif[0x8825] = gps_tags  # GPS IFD
+    img.save(path, format="JPEG", exif=exif)
+    return path

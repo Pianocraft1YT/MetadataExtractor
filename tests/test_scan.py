@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from tests.conftest import make_jpeg_with_nested_exif
+
 _EXTRA_OFF = dict(
     output_utc=False,
     output_dimensions=False,
@@ -43,6 +45,29 @@ def _scan(extractor, tmp_path, media_files, output_utc=False):
         end_date=None,
     )
     return ok, data
+
+
+def test_datetime_original_from_exif_sub_ifd(extractor, tmp_path):
+    path = tmp_path / "real.jpg"
+    make_jpeg_with_nested_exif(path, {36867: "2024:05:15 12:30:45"})
+    data = extractor._empty_scan_data()
+    ok = extractor.scan_image(tmp_path, 0, data, ["real.jpg"], **_EXTRA_OFF)
+    assert ok
+    assert data["Dates"] == ["2024:05:15 12:30:45"]  # fails today: comes back as file mtime or None
+
+
+def test_gps_from_gps_ifd_does_not_crash_folder(extractor, tmp_path):
+    path = tmp_path / "real.jpg"
+    make_jpeg_with_nested_exif(
+        path,
+        {36867: "2024:05:15 12:30:45"},
+        {1: "N", 2: (37.0, 46.0, 30.0), 3: "W", 4: (122.0, 25.0, 0.0)},
+    )
+    data = extractor._empty_scan_data()
+    ok = extractor.scan_image(tmp_path, 0, data, ["real.jpg"], **{**_EXTRA_OFF, "output_gps": True})
+    assert ok
+    assert data["GPS_Latitudes"][0] is not None
+    assert data["GPS_Longitudes"][0] is not None
 
 
 def test_valid_image_with_exif_returns_true(extractor_tz_off, make_jpeg, tmp_path):
