@@ -75,3 +75,6 @@ To compile the standalone Windows executable:
 pyinstaller --onefile --windowed metadata.py
 ```
 This program *should* run on Linux, though currently a distributable is not available.
+
+## Video Tutorial
+A video tutorial is planned for December 2026, will add when finished
