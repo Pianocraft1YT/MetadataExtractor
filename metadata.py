@@ -6,7 +6,7 @@
 # Please increment this counter as a warning
 # For the next person:
 #
-# hours_spent_original = 67
+# hours_spent_original = 68
 # hours_wasted_here = 0
 
 # Coded by Pianocraft1YT
@@ -50,6 +50,7 @@ EXIF_EXPOSURE_TIME = 33434
 EXIF_FOCAL_LENGTH = 37386
 EXIF_ISO = 34855
 EXIF_GPS_INFO = 34853
+# Persistent Settings
 SETTINGS_PATH = Path.home() / ".metadata-extractor" / "settings.json"
 # Common video file formats to check
 VIDEO_TYPES = (".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv")
@@ -133,6 +134,15 @@ class MetadataExtractor:
         self.root.update_idletasks()  # flush pending layout
         self.root.geometry(f"350x{self.root.winfo_reqheight()}")
 
+    def debug_warning(self):
+        if self.debug_var.get():
+            self.debug_var.set(
+                messagebox.askokcancel(
+                    "Debug selected",
+                    message="Debug mode has been enabled.\nThis means that output directory is Path.home()/Downloads/output.filetype.\nSeries will always output regardles of irregularity.\n\nPlease disable if this was an accident.",
+                )
+            )
+
     # Show recursive_input entry box when recursive is checked
     def recursive_input(self):
         if self.recursive_var.get():
@@ -168,18 +178,7 @@ class MetadataExtractor:
         self.root.update_idletasks()  # flush pending layout
         self.root.geometry(f"350x{self.root.winfo_reqheight()}")  # fixed width, auto height
 
-    # For debug_checkbox warning
-    def debug_warning(self):
-        if self.debug_var.get():
-            self.debug_var.set(
-                messagebox.askokcancel(
-                    "Debug selected",
-                    message="Debug mode has been enabled.\nThis means that output directory is Path.home()/Downloads/output.filetype.\nSeries will always output regardles of irregularity.\n\nPlease disable if this was an accident.",
-                )
-            )
-
     # Helpers for progress bar
-    # NOTE: now cancellable; runs on the worker thread, never touches Tk.
     def get_total_files(self, max_depth):
         file_count = 0
         for _, _, files in self.walk_to_depth(self.directory_path, max_depth):
@@ -221,7 +220,7 @@ class MetadataExtractor:
         if seconds > 0:
             output.append(f"{int(seconds)} second(s)")
         if days == 0 and hours == 0 and minutes == 0 and seconds < 5:
-            output = "Almost done"
+            output = "Starting/Ending Soon..."
         else:
             output = ", ".join(output)
         return output
@@ -434,6 +433,7 @@ class MetadataExtractor:
         self._dialog_event.wait()  # now block the worker for real
         return bool(self._dialog_answer)
 
+    # Conversion Helpers
     def _rational_to_float(self, value: Any) -> float | None:
         if value is None:
             return None
@@ -484,6 +484,44 @@ class MetadataExtractor:
         except (TypeError, ValueError):
             return None
 
+    def _dataframe_to_txt(self, df):
+        def esc(v):
+            if v is None:
+                return ""
+            try:
+                # pd.isna returns array for list-like cells; guard truthiness
+                na = pd.isna(v)
+                if not hasattr(na, "__len__") and na:
+                    return ""
+            except (TypeError, ValueError):
+                pass
+            v = str(v)
+            # Replacement rules, do not change order
+            v = v.replace("\\", "\\\\")
+            v = v.replace("|", "\\|")
+            v = v.replace("\r\n", " ")
+            v = v.replace("\n", " ")
+            v = v.replace("\r", " ")
+            return v
+
+        lines = []
+        fixed_columns = []
+        columns = df.columns
+        n = len(columns)
+        for index, column in enumerate(columns):
+            fixed_columns.append(esc(column))
+        fixed_columns = "|".join(fixed_columns)
+        lines.append("|" + fixed_columns + "|")
+        lines.append("|---" * n + "|")
+        for _, row in df.iterrows():
+            values = row.tolist()
+            for index, value in enumerate(values):
+                values[index] = esc(value)
+            values = "|".join(values)
+            values = "|" + values + "|"
+            lines.append(values)
+        return "\n".join(lines)
+
     def _parse_exif_datetime(self, dt_value):
         """Parse "YYYY:MM:DD HH:MM:SS" or "YYYY:MM:DD" to a date object, or None."""
         s = str(dt_value)
@@ -514,6 +552,7 @@ class MetadataExtractor:
             converted = -converted
         return f"{converted:.6f}"
 
+    # Creates empty dict for data to fill
     def _empty_scan_data(self):
         return {
             "Dates": [],
@@ -652,7 +691,6 @@ class MetadataExtractor:
             return
 
     # To clean up any past executions
-    # NOTE: does NOT touch cancel_event; check_recursive owns the clear
     def reset(self):
         self.used = set()
         self.results.clear()
@@ -669,9 +707,6 @@ class MetadataExtractor:
         self.time_started = None
 
     # Runs on "Cancel" button press
-    # NOTE: set event IMMEDIATELY. No dialog — a dialog runs a nested event
-    # loop, which lets the worker keep scanning and lets root.after callbacks
-    # (including _clean_up / create_sheet) fire behind the modal.
     def cancel(self):
         self.cancel_event.set()
         self.cancel_button.config(state="disabled")
@@ -851,12 +886,12 @@ class MetadataExtractor:
             if not any(f.lower().endswith(PHOTO_TYPES) for f in files):
                 continue
             dirpath = Path(dirpath)
-            directories_to_scan.append(dirpath)
             try:
                 rel = Path(os.path.relpath(dirpath, directory_path))
             except ValueError:
                 self.collected_warnings["Directory Error"].append(str(dirpath))
                 continue
+            directories_to_scan.append(dirpath)
             sheet_name = "_".join(rel.parts)
             if len(sheet_name) > SHEET_NAME_MAX_CHARS:
                 sheet_name = sheet_name[-SHEET_NAME_MAX_CHARS:]
@@ -980,11 +1015,11 @@ class MetadataExtractor:
                 )
                 return
         if (
-            filetype == "CSV" or filetype == "JSON"
+            filetype == "CSV" or filetype == "JSON" or filetype == "Markdown"
         ) and self.hyperlink_var.get():  # CSV doesn't have hyperlinks, ask if they want to continue or change options
             proceed = messagebox.askyesno(
                 "Hyperlinks Unsupported.",
-                message="Hyperlinks are unsupported with CSV. Please select Excel for hyperlinks. Proceed without?",
+                message="Hyperlinks are Excel-only. Please select Excel for hyperlinks. Proceed without?",
             )
             if not proceed:
                 return
@@ -1007,7 +1042,11 @@ class MetadataExtractor:
         else:
             ext = self.filetype_to_ext[filetype]
             final_output = Path(self.output_path) / f"output.{ext}"  # Default filename
-        if filetype != "CSV":
+        with os.scandir(self.directory_path) as entries:
+            self._set_total_files(
+                sum(1 for entry in entries if entry.is_file() and entry.name.lower().endswith(PHOTO_TYPES))
+            )
+        if filetype != "CSV" and filetype != "Markdown":
             if recursive:
                 self._start_scan(
                     recursive,
@@ -1030,10 +1069,6 @@ class MetadataExtractor:
                     end_date,
                 )
             else:
-                with os.scandir(self.directory_path) as entries:
-                    self._set_total_files(
-                        sum(1 for entry in entries if entry.is_file() and entry.name.lower().endswith(PHOTO_TYPES))
-                    )
                 if self.total_files > 0:
                     self._start_scan(
                         recursive,
@@ -1060,11 +1095,11 @@ class MetadataExtractor:
                         "Empty directory", message="No files were found. Please select a valid directory"
                     )
                     return
-        else:  # Prompt for multiple CSV files output
+        else:  # Prompt for multiple CSV or Markdown files output
             if recursive:
                 ok = messagebox.askyesno(
-                    "Multiple CSV Files",
-                    message="Recursive mode on CSV output will create multiple CSVs, one for each valid folder. Proceed?",
+                    f"Multiple {filetype} Files",
+                    message=f"Recursive mode on {filetype} output will create multiple {filetype} files, one for each valid folder. Proceed?",
                 )
                 if ok:
                     self._start_scan(
@@ -1090,12 +1125,7 @@ class MetadataExtractor:
                 else:
                     return
             else:
-                with os.scandir(self.directory_path) as entries:
-                    photo_count = sum(
-                        1 for entry in entries if entry.is_file() and entry.name.lower().endswith(PHOTO_TYPES)
-                    )
-                if photo_count > 0:
-                    self._set_total_files(photo_count)
+                if self.total_files > 0:
                     self._start_scan(
                         recursive,
                         final_output,
@@ -1287,7 +1317,7 @@ class MetadataExtractor:
                                 else:  # Video was detected
                                     photos_before_video_updated = True
                                     if (
-                                        photos_before_video > MAX_PHOTOS_BEFORE_VIDEO and not self.debug_var.get()
+                                        photos_before_video > MAX_PHOTOS_BEFORE_VIDEO and not debug
                                     ):  # Pattern not found, usually not more than 5 images + 1 video. Do not output series.
                                         output_series = False
                             else:  # All photos found
@@ -1415,7 +1445,7 @@ class MetadataExtractor:
                                     initial_check += 1
                                 else:
                                     photos_before_video_updated = True
-                                    if photos_before_video > MAX_PHOTOS_BEFORE_VIDEO and not self.debug_var.get():
+                                    if photos_before_video > MAX_PHOTOS_BEFORE_VIDEO and not debug:
                                         output_series = False
                             else:
                                 photos_before_video_updated = True
@@ -1737,13 +1767,13 @@ class MetadataExtractor:
                 # Data was found
                 if filetype == "Excel":
                     with pd.ExcelWriter(output_path) as writer:  # Opens ExcelWriter and closes automatically
-                        for sheet_df, sheet_name, directory in self.results:
+                        for sheet_df, sheet_name, _ in self.results:
                             sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
                     if self.hyperlink_var.get():
                         self.add_hyperlinks(output_path.as_posix())
                     messagebox.showinfo(
                         "Success!",
-                        message="Images successfully scanned: "
+                        message="Images: "
                         + str(total_processed)
                         + "\nImages skipped: "
                         + str(total_skipped)
@@ -1752,7 +1782,7 @@ class MetadataExtractor:
                     )
                 elif filetype == "CSV":  # CSV mode
                     files_written = 0
-                    for sheet_df, sheet_name, directory in self.results:
+                    for sheet_df, sheet_name, _ in self.results:
                         csv_path = output_path.as_posix()[0:-4] + f"_{self.clean_name(sheet_name)}"
                         if Path(csv_path).exists():
                             proceed = messagebox.askyesno(
@@ -1767,7 +1797,7 @@ class MetadataExtractor:
                     if files_written > 0:
                         messagebox.showinfo(
                             "Success!",
-                            message="Images successfully scanned: "
+                            message="Images: "
                             + str(total_processed)
                             + "\nImages skipped: "
                             + str(total_skipped)
@@ -1780,18 +1810,46 @@ class MetadataExtractor:
                         messagebox.showinfo("No output.", message="No files were written.")
                 elif filetype == "JSON":  # Local export time
                     json_data = {"exported_at": datetime.now().isoformat(), "sheets": {}}
-                    for sheet_df, sheet_name, directory in self.results:
+                    for sheet_df, sheet_name, _ in self.results:
                         json_data["sheets"][sheet_name] = json.loads(sheet_df.to_json(orient="records"))
                     output_path.write_text(json.dumps(json_data, indent=2, ensure_ascii=False), encoding="utf-8")
                     messagebox.showinfo(
                         "Success!",
-                        message="Images successfully scanned: "
+                        message="Images: "
                         + str(total_processed)
                         + "\nImages skipped: "
                         + str(total_skipped)
                         + "\nOutput: "
                         + output_path.as_posix(),
                     )
+                elif filetype == "Markdown":
+                    files_written = 0
+                    for sheet_df, sheet_name, _ in self.results:
+                        md_path = Path(output_path.as_posix()[0:-3] + f"_{self.clean_name(sheet_name)}")
+                        if md_path.exists():
+                            proceed = messagebox.askyesno(
+                                "Overwrite?", message=f"{md_path}\nalready exists. Overwrite?"
+                            )
+                        if proceed:
+                            md_path.write_text(self._dataframe_to_txt(sheet_df), encoding="utf-8")
+                            files_written += 1
+                        else:
+                            proceed = True
+                            continue
+                    if files_written > 0:
+                        messagebox.showinfo(
+                            "Success!",
+                            message="Images: "
+                            + str(total_processed)
+                            + "\nImages skipped: "
+                            + str(total_skipped)
+                            + "\nFiles written: "
+                            + str(files_written)
+                            + "\nLocated at: "
+                            + output_path.parent.as_posix(),
+                        )
+                    else:
+                        messagebox.showinfo("No output.", message="No files were written.")
                 if self.collected_warnings:
                     output = ""
                     # Writes error messages from the dictionary collected_warnings
@@ -1804,7 +1862,7 @@ class MetadataExtractor:
                         elif error == "Directory Error":
                             output += "File/Directory couldn't be accessed."
                         elif error == "Irregular":
-                            output += f"Irregular pattern (started with more than {MAX_PHOTOS_BEFORE_VIDEO} before a video. Please add mock files to the beginning to set correct pattern.\nFor example, if the pattern is 3 photos and 1 video, choose 3 photos and 1 video and duplicate them, naming them to be first when sorted, like DCSF0000."
+                            output += f"Irregular pattern (started with more than {MAX_PHOTOS_BEFORE_VIDEO} before a video)\n Please add mock files to the beginning to set correct pattern.\nFor example, if the pattern is 3 photos and 1 video, choose 3 photos and 1 video and duplicate them, naming them to be first when sorted, like DCSF0000."
                         elif error == "Hyperlink Error":
                             output += "The following sheets do not have hyperlinks."
                         elif error == "Bad Timestamp":
@@ -1945,7 +2003,7 @@ class MetadataExtractor:
         # Variable for use with recursive directories, list of dataframes
         self.results = []
         # For output filetypes
-        self.filetypes = ["Excel", "CSV", "JSON"]
+        self.filetypes = ["Excel", "CSV", "JSON", "Markdown"]
         # For recursion
         self.maxdepth = 1
         # For cancel event (set by cancel(), checked in loops, cleared in check_recursive)
@@ -1955,7 +2013,7 @@ class MetadataExtractor:
         # For ETA
         self.time_started = None
         # For filetype resolving
-        self.filetype_to_ext = {"Excel": ".xlsx", "CSV": ".csv", "JSON": ".json"}
+        self.filetype_to_ext = {"Excel": ".xlsx", "CSV": ".csv", "JSON": ".json", "Markdown": ".md"}
         # For blocking
         self._dialog_answer = None
         self._dialog_event = threading.Event()

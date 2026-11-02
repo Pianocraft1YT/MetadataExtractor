@@ -1,6 +1,7 @@
 """Tests for clean_name (filename) and verify_name (sheet name)."""
 
 # clean_name
+import pytest
 
 
 def test_clean_name_appends_xlsx(extractor):
@@ -82,3 +83,34 @@ def test_verify_name_empty_becomes_sheet(extractor):
 def test_verify_name_31_char_name_unchanged(extractor):
     name = "x" * 31
     assert extractor.verify_name(name, set()) == name
+
+
+# --- Markdown-specific clean_name cases ---
+
+
+@pytest.fixture
+def md(extractor):
+    extractor.filetype_var.set("Markdown")
+    return extractor
+
+
+def test_clean_name_appends_md(md):
+    assert md.clean_name("report") == "report.md"
+
+
+def test_clean_name_keeps_existing_md(md):
+    assert md.clean_name("report.md") == "report.md"
+
+
+@pytest.mark.parametrize("wrong_ext", ["report.txt", "report.csv", "report.xlsx", "report.json"])
+def test_clean_name_replaces_wrong_extension_with_md(md, wrong_ext):
+    assert md.clean_name(wrong_ext).endswith(".md")
+    assert wrong_ext.split(".")[-1] not in md.clean_name(wrong_ext)
+
+
+def test_clean_name_illegal_chars_replaced_md(md):
+    assert md.clean_name("my:file?name") == "my_file_name.md"
+
+
+def test_clean_name_reserved_with_md(md):
+    assert md.clean_name("CON") == "_CON.md"

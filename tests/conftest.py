@@ -139,6 +139,11 @@ def extractor(request):
 
 
 @pytest.fixture
+def extractor_markdown(request):
+    return _build_extractor(request, "Markdown", timezone=False)
+
+
+@pytest.fixture
 def extractor_csv(request):
     return _build_extractor(request, "CSV", timezone=False)
 

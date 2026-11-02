@@ -110,3 +110,87 @@ def test_recursive_no_data(isolated, tmp_path, monkeypatch):
 
     assert not output.exists()
     assert any("No data" in t for t, _ in errors)
+
+
+# ---------------------------------------------------------------------------
+# Markdown
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def isolated_md(isolated):
+    isolated.filetype_var.set("Markdown")
+    return isolated
+
+
+def test_markdown_writes_new_file(isolated_md, tmp_path, simple_df):
+    isolated_md.results.append((simple_df, "Sheet", tmp_path))
+    output = tmp_path / "out.md"
+
+    try:
+        isolated_md.create_sheet(output, recursive=False, total_processed=2, total_skipped=0)
+    except SystemExit:
+        pass
+
+    md_file = tmp_path / "out_Sheet.md"
+    assert md_file.exists(), "Markdown file was not written"
+    content = md_file.read_text(encoding="utf-8")
+    assert content.startswith("|Files|Dates|Time|")
+    assert "|a.jpg|01/01/2024|12:00:00|" in content
+
+
+def test_markdown_recursive_writes_one_per_sheet(isolated_md, tmp_path):
+    df1 = pd.DataFrame({"Files": ["a.jpg"]})
+    df2 = pd.DataFrame({"Files": ["b.jpg"]})
+    isolated_md.results = [(df1, "Folder1", None), (df2, "Folder2", None)]
+    output = tmp_path / "out.md"
+
+    try:
+        isolated_md.create_sheet(output, recursive=True, total_processed=2, total_skipped=0)
+    except SystemExit:
+        pass
+
+    names = sorted(p.name for p in tmp_path.glob("*.md"))
+    assert names == ["out_Folder1.md", "out_Folder2.md"]
+
+
+def test_markdown_overwrite_confirmed(isolated_md, tmp_path, simple_df, monkeypatch):
+    """Regression: `md_path + str` raised TypeError on second run."""
+    existing = tmp_path / "out_Sheet.md"
+    existing.write_text("OLD", encoding="utf-8")
+
+    isolated_md.results.append((simple_df, "Sheet", tmp_path))
+    output = tmp_path / "out.md"
+
+    errors = []
+    monkeypatch.setattr(
+        metadata.messagebox,
+        "showerror",
+        lambda title, message, **k: errors.append((title, message)),
+    )
+    monkeypatch.setattr(metadata.messagebox, "askyesno", lambda *a, **k: True)
+
+    try:
+        isolated_md.create_sheet(output, recursive=False, total_processed=2, total_skipped=0)
+    except SystemExit:
+        pass
+
+    assert "Unexpected" not in str(errors), f"unexpected error raised: {errors}"
+    assert existing.read_text(encoding="utf-8").startswith("|Files|")
+
+
+def test_markdown_overwrite_declined(isolated_md, tmp_path, simple_df, monkeypatch):
+    existing = tmp_path / "out_Sheet.md"
+    existing.write_text("OLD", encoding="utf-8")
+
+    isolated_md.results.append((simple_df, "Sheet", tmp_path))
+    output = tmp_path / "out.md"
+
+    monkeypatch.setattr(metadata.messagebox, "askyesno", lambda *a, **k: False)
+
+    try:
+        isolated_md.create_sheet(output, recursive=False, total_processed=2, total_skipped=0)
+    except SystemExit:
+        pass
+
+    assert existing.read_text(encoding="utf-8") == "OLD"

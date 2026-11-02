@@ -327,3 +327,14 @@ def test_full_round_trip_preserves_multiple_fields(extractor, tmp_path):
     assert extractor.end_date_entry.get_date() == date(2024, 5, 31)
     assert extractor.maxdepth_entry.get() == "3"
     assert extractor.maxdepth == 3
+
+
+def test_markdown_filetype_round_trips(extractor, tmp_path):
+    extractor.filetype_var.set("Markdown")
+    extractor.directory_path = tmp_path
+    extractor.output_path = tmp_path
+    extractor._save_settings()
+
+    fresh = metadata.MetadataExtractor()
+    fresh._load_settings()
+    assert fresh.filetype_var.get() == "Markdown"

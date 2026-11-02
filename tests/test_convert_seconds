@@ -3,9 +3,9 @@ import pytest
 
 
 @pytest.mark.parametrize("seconds, expected", [
-    (0,    "Almost done"),
-    (1,    "Almost done"),
-    (4,    "Almost done"),
+    (0,    "Starting/Ending Soon..."),
+    (1,    "Starting/Ending Soon..."),
+    (4,    "Starting/Ending Soon..."),
     (5,    "5 second(s)"),
     (59,   "59 second(s)"),
     (60,   "1 minute(s)"),
