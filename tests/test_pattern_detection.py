@@ -93,17 +93,13 @@ def test_trailing_photos_with_no_video(extractor, tmp_path):
     assert extractor.results
 
 
-def test_all_videos_no_photos(extractor, tmp_path, monkeypatch):
-    folder = tmp_path / "all_videos"
+def test_all_videos_no_photos(extractor, tmp_path):
+    folder = tmp_path / "videos_only"
     folder.mkdir()
-    for i in range(3):
-        (folder / f"{i:04d}_video.mp4").write_bytes(b"\x00\x00\x00\x18ftypmp42")
-
-    monkeypatch.setattr(metadata.messagebox, "askyesno", lambda *a, **k: True)
+    for name in ["a.mp4", "b.mp4", "c.mp4"]:
+        (folder / name).write_bytes(b"fake")
     _scan(extractor, folder)
-
-    assert len(extractor.results) == 1
-    assert extractor.results[0][0].empty
+    assert len(extractor.results) == 0
 
 
 def test_starting_index_zero(extractor, tmp_path):

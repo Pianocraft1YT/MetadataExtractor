@@ -218,24 +218,26 @@ def test_create_dataframe_selective_columns(extractor, tmp_path):
     assert "Img # Series" not in df.columns
 
 
-def test_create_dataframe_empty_data_creates_empty_sheet(extractor, tmp_path):
+def test_create_dataframe_empty_data_skips_sheet(extractor, tmp_path):
+    """Empty folders no longer produce an empty sheet — create_dataframe returns early."""
     data = extractor._empty_scan_data()
     extractor.create_dataframe(
-        None,
+        [],
         data,
         tmp_path,
-        output_series=True,
-        output_dimensions=True,
-        output_make=True,
-        output_model=True,
-        output_software=True,
-        output_lens_model=True,
-        **_DF_OFF,
+        True,
+        False,
+        False,
+        False,
+        False,
+        False,
+        False,
+        False,
+        False,
+        False,
+        False,
     )
-    df, _, directory = extractor.results[0]
-    assert df.empty
-    assert list(df.columns) == ["Files", "Dates", "Time"]
-    assert directory is None
+    assert len(extractor.results) == 0
 
 
 def test_extra_exif_checkbox_shows_frame(extractor):

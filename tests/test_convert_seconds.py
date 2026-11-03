@@ -9,18 +9,33 @@ import pytest
         (0, "Starting/Ending Soon..."),
         (1, "Starting/Ending Soon..."),
         (4, "Starting/Ending Soon..."),
-        (5, "5 second(s)"),
-        (59, "59 second(s)"),
-        (60, "1 minute(s)"),
-        (61, "1 minute(s), 1 second(s)"),
-        (119, "1 minute(s), 59 second(s)"),
-        (120, "2 minute(s)"),
-        (3600, "1 hour(s)"),
-        (3661, "1 hour(s), 1 minute(s), 1 second(s)"),
-        (86399, "23 hour(s), 59 minute(s), 59 second(s)"),
-        (86400, "1 day(s)"),
-        (90061, "1 day(s), 1 hour(s), 1 minute(s), 1 second(s)"),
+        (5, "5 second(s) remaining."),
+        (59, "59 second(s) remaining."),
+        (60, "1 minute(s) remaining."),
+        (61, "1 minute(s), 1 second(s) remaining."),
+        (119, "1 minute(s), 59 second(s) remaining."),
+        (120, "2 minute(s) remaining."),
+        (3600, "1 hour(s) remaining."),
+        (3661, "1 hour(s), 1 minute(s), 1 second(s) remaining."),
+        (86399, "23 hour(s), 59 minute(s), 59 second(s) remaining."),
+        (86400, "1 day(s) remaining."),
+        (90061, "1 day(s), 1 hour(s), 1 minute(s), 1 second(s) remaining."),
     ],
 )
 def test_convert_seconds(extractor, seconds, expected):
     assert extractor._convert_seconds(seconds) == expected
+
+
+@pytest.mark.parametrize(
+    "seconds, expected",
+    [
+        (5, "5 second(s)"),
+        (60, "1 minute(s)"),
+        (61, "1 minute(s), 1 second(s)"),
+        (3600, "1 hour(s)"),
+        (90061, "1 day(s), 1 hour(s), 1 minute(s), 1 second(s)"),
+    ],
+)
+def test_convert_seconds_elapsed(extractor, seconds, expected):
+    """Elapsed mode has no 'remaining.' suffix and no Starting placeholder."""
+    assert extractor._convert_seconds(seconds, "Time Elapsed") == expected

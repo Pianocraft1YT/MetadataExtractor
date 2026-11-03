@@ -343,7 +343,7 @@ class MetadataExtractor:
             if recursive:
                 self.root.after(0, self.current_directory.set, "Counting files...")
                 count = self.get_total_files(self.maxdepth)
-                if self.cancel_event.set():
+                if self.cancel_event.is_set():
                     return
                 self.root.after(0, self._set_total_files, count)
                 if self.cancel_event.is_set():
@@ -1075,10 +1075,7 @@ class MetadataExtractor:
         if not recursive:
             try:
                 with os.scandir(self.directory_path) as entries:
-                    count = sum(
-                        1 for e in entries
-                        if e.is_file() and e.name.lower().endswith(PHOTO_TYPES)
-                    )
+                    count = sum(1 for e in entries if e.is_file() and e.name.lower().endswith(PHOTO_TYPES))
             except (FileNotFoundError, PermissionError, OSError):
                 count = 0
             self._set_total_files(count)
