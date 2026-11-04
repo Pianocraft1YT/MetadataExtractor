@@ -3,35 +3,14 @@
 import pandas as pd
 import pytest
 
-_EXTRA_OFF = dict(
-    output_utc=False,
-    output_dimensions=False,
-    output_make=False,
-    output_model=False,
-    output_software=False,
-    output_lens_model=False,
-    output_aperture=False,
-    output_exposure_time=False,
-    output_focal_length=False,
-    output_iso=False,
-    output_gps=False,
-    date_range=False,
-    start_date=None,
-    end_date=None,
-)
+from tests.conftest import make_jpeg_with_exif
+from tests.helpers import sort_scan
 
 
 @pytest.mark.real_create_sheet
 def test_excel_mode_writes_xlsx(extractor, photos_only, tmp_path):
     output = tmp_path / "output.xlsx"
-    extractor.sort_and_extract(
-        photos_only,
-        recursive=False,
-        final_output=output,
-        modifier=0,
-        output_series=True,
-        **_EXTRA_OFF,
-    )
+    sort_scan(extractor, photos_only, final_output=output)
     assert output.exists()
     df = pd.read_excel(output, sheet_name="Sheet")
     assert len(df) == 3
@@ -41,14 +20,7 @@ def test_excel_mode_writes_xlsx(extractor, photos_only, tmp_path):
 @pytest.mark.real_create_sheet
 def test_csv_mode_writes_csv_per_sheet(extractor_csv, photos_only, tmp_path):
     output = tmp_path / "output.csv"
-    extractor_csv.sort_and_extract(
-        photos_only,
-        recursive=False,
-        final_output=output,
-        modifier=0,
-        output_series=True,
-        **_EXTRA_OFF,
-    )
+    sort_scan(extractor_csv, photos_only, final_output=output)
     assert not output.exists()
     csv_path = tmp_path / "output_Sheet.csv"
     assert csv_path.exists()
@@ -61,30 +33,23 @@ def test_csv_mode_writes_csv_per_sheet(extractor_csv, photos_only, tmp_path):
 @pytest.mark.real_create_sheet
 def test_csv_mode_includes_series_column(extractor_csv, photos_only, tmp_path):
     output = tmp_path / "output.csv"
-    extractor_csv.sort_and_extract(
-        photos_only,
-        recursive=False,
-        final_output=output,
-        modifier=0,
-        output_series=True,
-        **_EXTRA_OFF,
-    )
+    sort_scan(extractor_csv, photos_only, final_output=output)
     df = pd.read_csv(tmp_path / "output_Sheet.csv")
     assert list(df.columns) == ["Files", "Dates", "Time", "Img # Series"]
     assert list(df["Img # Series"]) == [1, 2, 3]
 
 
 @pytest.mark.real_create_sheet
-def test_csv_mode_without_series_column(extractor_csv, photos_only, tmp_path):
+def test_csv_mode_without_series_column(extractor_csv, tmp_path):
+    """6 photos before a video -> output_series disabled -> no series column."""
+    folder = tmp_path / "six_photos"
+    folder.mkdir()
+    for i in range(1, 7):
+        make_jpeg_with_exif(folder / f"{i:04d}.jpg", "2024:05:15 12:00:00")
+    (folder / "0007.mp4").write_bytes(b"fake")
+
     output = tmp_path / "output.csv"
-    extractor_csv.sort_and_extract(
-        photos_only,
-        recursive=False,
-        final_output=output,
-        modifier=0,
-        output_series=False,
-        **_EXTRA_OFF,
-    )
+    sort_scan(extractor_csv, folder, final_output=output)
     df = pd.read_csv(tmp_path / "output_Sheet.csv")
     assert "Img # Series" not in df.columns
 
@@ -116,13 +81,6 @@ def test_clean_name_reserved_word_csv_mode(extractor_csv):
 @pytest.mark.real_create_sheet
 def test_default_sheet_name_used(extractor, photos_only, tmp_path):
     output = tmp_path / "output.xlsx"
-    extractor.sort_and_extract(
-        photos_only,
-        recursive=False,
-        final_output=output,
-        modifier=0,
-        output_series=True,
-        **_EXTRA_OFF,
-    )
+    sort_scan(extractor, photos_only, final_output=output)
     xl = pd.ExcelFile(output)
     assert xl.sheet_names == ["Sheet"]

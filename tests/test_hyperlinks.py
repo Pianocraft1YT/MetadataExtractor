@@ -5,23 +5,7 @@ import pandas as pd
 import pytest
 
 from tests.conftest import make_jpeg_with_exif
-
-_EXTRA_OFF = dict(
-    output_utc=False,
-    output_dimensions=False,
-    output_make=False,
-    output_model=False,
-    output_software=False,
-    output_lens_model=False,
-    output_aperture=False,
-    output_exposure_time=False,
-    output_focal_length=False,
-    output_iso=False,
-    output_gps=False,
-    date_range=False,
-    start_date=None,
-    end_date=None,
-)
+from tests.helpers import find_scan, sort_scan
 
 
 def _write_workbook(path, sheets):
@@ -129,14 +113,7 @@ def test_create_sheet_adds_hyperlinks_when_enabled(extractor, photos_only, tmp_p
     extractor.keepopen_var.set(True)
     output = tmp_path / "output.xlsx"
 
-    extractor.sort_and_extract(
-        photos_only,
-        recursive=False,
-        final_output=output,
-        modifier=0,
-        output_series=True,
-        **_EXTRA_OFF,
-    )
+    sort_scan(extractor, photos_only, final_output=output)
 
     assert output.exists()
     wb = openpyxl.load_workbook(output)
@@ -151,14 +128,7 @@ def test_create_sheet_skips_hyperlinks_when_disabled(extractor, photos_only, tmp
     extractor.keepopen_var.set(True)
     output = tmp_path / "output.xlsx"
 
-    extractor.sort_and_extract(
-        photos_only,
-        recursive=False,
-        final_output=output,
-        modifier=0,
-        output_series=True,
-        **_EXTRA_OFF,
-    )
+    sort_scan(extractor, photos_only, final_output=output)
 
     assert output.exists()
     wb = openpyxl.load_workbook(output)
@@ -176,15 +146,10 @@ def test_recursive_mode_links_each_sheet_to_its_own_directory(extractor, tmp_pat
         folder.mkdir(parents=True)
         make_jpeg_with_exif(folder / "IMG_001.jpg", "2024:05:15 12:30:45")
 
-    output = tmp_path / "output.xlsx"
     extractor.maxdepth = 1
-    extractor.find_directories(
-        parent,
-        output,
-        modifier=0,
-        debug=False,
-        **_EXTRA_OFF,
-    )
+    output = tmp_path / "output.xlsx"
+    find_scan(extractor, parent, final_output=output)
+
     assert output.exists()
     wb = openpyxl.load_workbook(output)
 

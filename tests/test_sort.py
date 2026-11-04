@@ -1,25 +1,10 @@
-"""Tests for sort_and_extract and sort_and_extract_irregular."""
+"""Tests for sort_and_extract (the merged scan function)."""
 
+import os
 from pathlib import Path
 
 from tests.conftest import make_jpeg_with_exif, make_jpeg_no_exif
-
-_EXTRA_OFF = dict(
-    output_utc=False,
-    output_dimensions=False,
-    output_make=False,
-    output_model=False,
-    output_software=False,
-    output_lens_model=False,
-    output_aperture=False,
-    output_exposure_time=False,
-    output_focal_length=False,
-    output_iso=False,
-    output_gps=False,
-    date_range=False,
-    start_date=None,
-    end_date=None,
-)
+from tests.helpers import sort_scan
 
 
 def _capture_create_sheet(extractor):
@@ -34,31 +19,9 @@ def _capture_create_sheet(extractor):
     return captured
 
 
-def _sort(extractor, folder, modifier=0, output_series=True):
-    return extractor.sort_and_extract(
-        folder,
-        recursive=False,
-        final_output=Path("out.xlsx"),
-        modifier=modifier,
-        output_series=output_series,
-        **_EXTRA_OFF,
-    )
-
-
-def _sort_irregular(extractor, folder, modifier=0):
-    return extractor.sort_and_extract_irregular(
-        folder,
-        recursive=False,
-        final_output=Path("out.xlsx"),
-        modifier=modifier,
-        debug=False,
-        **_EXTRA_OFF,
-    )
-
-
 def test_sort_and_extract_all_photos(extractor, photos_only):
     _capture_create_sheet(extractor)
-    _sort(extractor, photos_only)
+    sort_scan(extractor, photos_only)
     assert len(extractor.results) == 1
     df, _, _ = extractor.results[0]
     assert len(df) == 3
@@ -67,7 +30,7 @@ def test_sort_and_extract_all_photos(extractor, photos_only):
 
 def test_sort_and_extract_missing_exif_skips_file(extractor, folder_missing_exif):
     captured = _capture_create_sheet(extractor)
-    _sort(extractor, folder_missing_exif)
+    sort_scan(extractor, folder_missing_exif)
     df, _, _ = extractor.results[0]
     assert len(df) == 2
     assert "IMG_002.jpg" not in list(df["Files"])
@@ -77,7 +40,7 @@ def test_sort_and_extract_missing_exif_skips_file(extractor, folder_missing_exif
 
 def test_sort_and_extract_corrupt_file_does_not_hang(extractor, folder_with_corrupt_photo):
     captured = _capture_create_sheet(extractor)
-    _sort(extractor, folder_with_corrupt_photo)
+    sort_scan(extractor, folder_with_corrupt_photo)
     df, _, _ = extractor.results[0]
     assert len(df) == 6
     assert captured["skipped"] == 1
@@ -92,28 +55,31 @@ def test_sort_and_extract_no_exif_gap_in_series(extractor, tmp_path):
     make_jpeg_no_exif(folder / "IMG_002.jpg")
 
     captured = _capture_create_sheet(extractor)
-    _sort(extractor, folder)
+    sort_scan(extractor, folder)
     assert captured["processed"] == 2
     assert captured["skipped"] == 1
 
 
-def test_irregular_3_photos_1_video_pattern(extractor, photos_and_videos):
+def test_3_photos_1_video_pattern(extractor, photos_and_videos):
+    """Pattern (3 photos, 1 video) × 3 groups -> one row per group."""
     _capture_create_sheet(extractor)
-    _sort_irregular(extractor, photos_and_videos)
+    sort_scan(extractor, photos_and_videos)
     df, _, _ = extractor.results[0]
     assert len(df) == 3
     if "Img # Series" in df.columns:
         assert list(df["Img # Series"]) == ["1-4", "5-8", "9-12"]
 
 
-def test_irregular_all_photos_falls_through_to_sort_and_extract(extractor, photos_only):
+def test_pattern_with_modifier(extractor, photos_and_videos):
     _capture_create_sheet(extractor)
-    _sort_irregular(extractor, photos_only)
+    sort_scan(extractor, photos_and_videos, modifier=4)
     df, _, _ = extractor.results[0]
-    assert len(df) == 3
+    if "Img # Series" in df.columns:
+        assert list(df["Img # Series"]) == ["5-8", "9-12", "13-16"]
 
 
-def test_irregular_video_first_shows_warning_and_returns(extractor, tmp_path, monkeypatch):
+def test_video_first_orphan_returns_correctly(extractor, tmp_path, monkeypatch):
+    """Single leading video, user says 'orphan' -> strip, scan photos."""
     folder = tmp_path / "video_first"
     folder.mkdir()
     (folder / "A_video.mp4").write_bytes(b"fake")
@@ -121,15 +87,41 @@ def test_irregular_video_first_shows_warning_and_returns(extractor, tmp_path, mo
 
     monkeypatch.setattr("metadata.messagebox.askyesno", lambda *args, **kwargs: True)
 
-    _sort_irregular(extractor, folder)
+    sort_scan(extractor, folder)
 
     assert "Video First" not in extractor.collected_warnings
     assert extractor.results[0][0].shape[0] == 1
 
 
-def test_irregular_with_modifier(extractor, photos_and_videos):
+def test_video_first_not_orphan_falls_to_one_offs(extractor, tmp_path, monkeypatch):
+    """Single leading video, user says 'not orphan' -> one-off photos."""
+    folder = tmp_path / "video_first_pattern"
+    folder.mkdir()
+    (folder / "A_video.mp4").write_bytes(b"fake")
+    make_jpeg_with_exif(folder / "B_photo.jpg", "2024:05:15 12:30:45")
+    make_jpeg_with_exif(folder / "C_photo.jpg", "2024:05:16 12:30:45")
+
+    monkeypatch.setattr("metadata.messagebox.askyesno", lambda *args, **kwargs: False)
+
+    sort_scan(extractor, folder)
+
+    # Photos are one-off'd since no closing video confirms a pattern
+    assert len(extractor.results) == 1
+    assert extractor.results[0][0].shape[0] == 2
+
+
+def test_multiple_leading_videos_stripped(extractor, tmp_path):
+    """Multiple leading videos -> all stripped without prompting, photos scan."""
+    folder = tmp_path / "multi_video_first"
+    folder.mkdir()
+    (folder / "A1.mp4").write_bytes(b"fake")
+    (folder / "A2.mp4").write_bytes(b"fake")
+    (folder / "A3.mp4").write_bytes(b"fake")
+    make_jpeg_with_exif(folder / "B.jpg", "2024:05:15 12:30:45")
+    make_jpeg_with_exif(folder / "C.jpg", "2024:05:16 12:30:45")
+
     _capture_create_sheet(extractor)
-    _sort_irregular(extractor, photos_and_videos, modifier=4)
+    sort_scan(extractor, folder)
+
     df, _, _ = extractor.results[0]
-    if "Img # Series" in df.columns:
-        assert list(df["Img # Series"]) == ["5-8", "9-12", "13-16"]
+    assert sorted(list(df["Files"])) == ["B.jpg", "C.jpg"]

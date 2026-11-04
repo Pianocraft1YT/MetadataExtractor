@@ -1,27 +1,11 @@
 """Tests for JSON output mode."""
 
 import json
+
 import pytest
 
 from tests.conftest import make_jpeg_with_exif
-
-_EXTRA_OFF = dict(
-    output_utc=False,
-    output_dimensions=False,
-    output_make=False,
-    output_model=False,
-    output_software=False,
-    output_lens_model=False,
-    output_aperture=False,
-    output_exposure_time=False,
-    output_focal_length=False,
-    output_iso=False,
-    output_gps=False,
-    date_range=False,
-    start_date=None,
-    end_date=None,
-)
-
+from tests.helpers import find_scan, sort_scan
 
 # ---------------------------------------------------------------------------
 # clean_name extension handling (no file I/O — should pass immediately)
@@ -47,35 +31,21 @@ def test_clean_name_typed_json_case_preserved(extractor_json):
 
 
 # ---------------------------------------------------------------------------
-# End-to-end output (fail until create_sheet has the JSON branch)
+# End-to-end output
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.real_create_sheet
 def test_json_mode_writes_json_file(extractor_json, photos_only, tmp_path):
     output = tmp_path / "output.json"
-    extractor_json.sort_and_extract(
-        photos_only,
-        recursive=False,
-        final_output=output,
-        modifier=0,
-        output_series=True,
-        **_EXTRA_OFF,
-    )
+    sort_scan(extractor_json, photos_only, final_output=output)
     assert output.exists()
 
 
 @pytest.mark.real_create_sheet
 def test_json_mode_is_parseable_with_expected_top_level_keys(extractor_json, photos_only, tmp_path):
     output = tmp_path / "output.json"
-    extractor_json.sort_and_extract(
-        photos_only,
-        recursive=False,
-        final_output=output,
-        modifier=0,
-        output_series=True,
-        **_EXTRA_OFF,
-    )
+    sort_scan(extractor_json, photos_only, final_output=output)
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert "exported_at" in payload
     assert "sheets" in payload
@@ -85,14 +55,7 @@ def test_json_mode_is_parseable_with_expected_top_level_keys(extractor_json, pho
 @pytest.mark.real_create_sheet
 def test_json_mode_sheet_structure(extractor_json, photos_only, tmp_path):
     output = tmp_path / "output.json"
-    extractor_json.sort_and_extract(
-        photos_only,
-        recursive=False,
-        final_output=output,
-        modifier=0,
-        output_series=True,
-        **_EXTRA_OFF,
-    )
+    sort_scan(extractor_json, photos_only, final_output=output)
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert "Sheet" in payload["sheets"]
     records = payload["sheets"]["Sheet"]
@@ -112,15 +75,9 @@ def test_json_mode_recursive_produces_multiple_sheets(extractor_json, tmp_path):
         folder.mkdir(parents=True)
         make_jpeg_with_exif(folder / "IMG_001.jpg", "2024:05:15 12:30:45")
 
-    output = tmp_path / "output.json"
     extractor_json.maxdepth = 1
-    extractor_json.find_directories(
-        parent,
-        output,
-        modifier=0,
-        debug=False,
-        **_EXTRA_OFF,
-    )
+    output = tmp_path / "output.json"
+    find_scan(extractor_json, parent, final_output=output)
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert set(payload["sheets"].keys()) == {"Trip_A", "Trip_B"}
     assert len(payload["sheets"]["Trip_A"]) == 1

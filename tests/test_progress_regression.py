@@ -1,25 +1,7 @@
 """Regression tests for the >100% progress bug and trailing-photo rescan."""
 
-from pathlib import Path
-
 from tests.conftest import make_jpeg_with_exif
-
-_EXTRA_OFF = dict(
-    output_utc=False,
-    output_dimensions=False,
-    output_make=False,
-    output_model=False,
-    output_software=False,
-    output_lens_model=False,
-    output_aperture=False,
-    output_exposure_time=False,
-    output_focal_length=False,
-    output_iso=False,
-    output_gps=False,
-    date_range=False,
-    start_date=None,
-    end_date=None,
-)
+from tests.helpers import sort_scan
 
 
 def _build(folder, layout):
@@ -38,14 +20,7 @@ def test_trailing_photos_do_not_exceed_total(extractor, tmp_path):
     _build(folder, "PPPVPPPPPP")
 
     extractor.debug_var.set(False)
-    extractor.sort_and_extract_irregular(
-        folder,
-        recursive=False,
-        final_output=Path("out.xlsx"),
-        modifier=0,
-        debug=False,
-        **_EXTRA_OFF,
-    )
+    sort_scan(extractor, folder)
     assert len(extractor.results) == 1
     df = extractor.results[0][0]
     assert len(df) <= 9
@@ -57,14 +32,7 @@ def test_no_duplicate_series_after_tail(extractor, tmp_path):
     _build(folder, "PPPVPPPPPP")
 
     extractor.debug_var.set(False)
-    extractor.sort_and_extract_irregular(
-        folder,
-        recursive=False,
-        final_output=Path("out.xlsx"),
-        modifier=0,
-        debug=False,
-        **_EXTRA_OFF,
-    )
+    sort_scan(extractor, folder)
     df = extractor.results[0][0]
     if "Img # Series" in df.columns:
         assert len(df["Img # Series"]) == len(set(df["Img # Series"]))

@@ -142,17 +142,12 @@ def test_scan_image_missing_offset_when_timezone_on(extractor_tz_on, make_jpeg, 
 
 
 def test_scan_image_first_corrupt_file_does_not_abort_folder(extractor, make_jpeg, tmp_path):
+    from tests.helpers import sort_scan
+
     (tmp_path / "a_bad.jpg").write_bytes(b"not a jpeg")
     make_jpeg("b_good.jpg", datetime_original="2024:05:15 12:30:45")
 
-    processed, skipped = extractor.sort_and_extract(
-        tmp_path,
-        recursive=False,
-        final_output=Path("out.xlsx"),
-        modifier=0,
-        output_series=True,
-        **_EXTRA_OFF,
-    )
+    processed, skipped = sort_scan(extractor, tmp_path)
     assert processed == 1
     assert skipped == 1
     assert len(extractor.results) == 1

@@ -77,3 +77,34 @@ def test_yields_files_per_folder(extractor, tmp_path):
     results = list(extractor.walk_to_depth(str(root), 0))
     _, _, files = results[0]
     assert "photo.jpg" in files
+
+
+def test_skips_hidden_files(extractor, tmp_path):
+    """Hidden files are filtered before reaching sort_and_extract."""
+    (tmp_path / "visible.jpg").write_bytes(b"fake")
+    (tmp_path / ".hidden.jpg").write_bytes(b"fake")
+
+    results = list(extractor.walk_to_depth(str(tmp_path), 0))
+    _, _, files = results[0]
+    assert "visible.jpg" in files
+    assert ".hidden.jpg" not in files
+
+
+def test_skips_non_media_files(extractor, tmp_path):
+    (tmp_path / "photo.jpg").write_bytes(b"fake")
+    (tmp_path / "readme.txt").write_bytes(b"fake")
+
+    results = list(extractor.walk_to_depth(str(tmp_path), 0))
+    _, _, files = results[0]
+    assert "photo.jpg" in files
+    assert "readme.txt" not in files
+
+
+def test_natural_sort_order(extractor, tmp_path):
+    """IMG_9 should sort before IMG_10 (not lexicographic)."""
+    for name in ["IMG_10.jpg", "IMG_9.jpg", "IMG_1.jpg"]:
+        (tmp_path / name).write_bytes(b"fake")
+
+    results = list(extractor.walk_to_depth(str(tmp_path), 0))
+    _, _, files = results[0]
+    assert files == ["IMG_1.jpg", "IMG_9.jpg", "IMG_10.jpg"]

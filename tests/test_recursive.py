@@ -44,8 +44,11 @@ def _capture(extractor):
     return calls
 
 
+from tests.helpers import find_scan
+
+
 def _run(extractor, parent, out):
-    extractor.find_directories(parent, out, modifier=0, debug=False, **_EXTRA_OFF)
+    return find_scan(extractor, parent)
 
 
 def test_two_clean_subfolders(extractor, tmp_path):
@@ -132,7 +135,7 @@ def test_deep_tree_produces_relative_path_sheet_names(extractor, tmp_path):
     assert len(results) == 1
     _, sheet_name, directory = results[0]
     assert sheet_name == "2023_Beach"
-    assert directory == parent / "2023" / "Beach"
+    assert directory == (parent / "2023" / "Beach").as_posix()
 
 
 def test_sibling_branches_with_same_leaf_name(extractor, tmp_path):
@@ -201,14 +204,10 @@ def test_first_folder_corrupt_does_not_prevent_later_folders(extractor, tmp_path
     good.mkdir()
     (bad / "broken.jpg").write_bytes(b"not an image")
     make_jpeg_with_exif(good / "IMG_001.jpg", "2024:05:15 12:30:45")
+    from tests.helpers import find_scan
 
     extractor.maxdepth = 1
-    p, s = extractor.find_directories(
-        parent,
-        tmp_path / "out.xlsx",
-        modifier=0,
-        debug=False,
-        **_EXTRA_OFF,
-    )
+    p, s = find_scan(extractor, parent)
+
     assert p == 1
     assert s == 1

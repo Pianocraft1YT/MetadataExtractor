@@ -154,29 +154,18 @@ def test_scan_image_no_filter_keeps_everything(extractor, tmp_path):
 
 
 def test_sort_and_extract_with_date_range(extractor, tmp_path):
+    from datetime import date
+    from tests.helpers import sort_scan
+
     make_jpeg_with_exif(tmp_path / "may1.jpg", "2024:05:01 12:00:00")
     make_jpeg_with_exif(tmp_path / "may2.jpg", "2024:05:15 12:00:00")
     make_jpeg_with_exif(tmp_path / "may3.jpg", "2024:05:31 23:59:59")
     make_jpeg_with_exif(tmp_path / "jun1.jpg", "2024:06:01 00:00:00")
     make_jpeg_with_exif(tmp_path / "jun2.jpg", "2024:06:30 12:00:00")
 
-    processed, skipped = extractor.sort_and_extract(
+    processed, skipped = sort_scan(
+        extractor,
         tmp_path,
-        recursive=False,
-        final_output=Path("out.xlsx"),
-        modifier=0,
-        output_series=True,
-        output_utc=False,
-        output_dimensions=False,
-        output_make=False,
-        output_model=False,
-        output_software=False,
-        output_lens_model=False,
-        output_aperture=False,
-        output_exposure_time=False,
-        output_focal_length=False,
-        output_iso=False,
-        output_gps=False,
         date_range=True,
         start_date=date(2024, 5, 1),
         end_date=date(2024, 5, 31),

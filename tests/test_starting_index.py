@@ -1,5 +1,7 @@
-"""
-Tests for the "Starting index" entry in check_recursive.
+"""Tests for the "Starting index" entry in check_recursive.
+
+Mocks _start_scan rather than the old sort_and_extract_irregular, which
+no longer exists after the scanner refactor.
 """
 
 from unittest.mock import MagicMock
@@ -52,11 +54,7 @@ def test_invalid_starting_index_rejected(extractor, monkeypatch, tmp_path, value
 
 @pytest.mark.parametrize(
     "value,expected_modifier",
-    [
-        ("1", 0),
-        ("5", 4),
-        ("100", 99),
-    ],
+    [("1", 0), ("5", 4), ("100", 99)],
 )
 def test_valid_starting_index_accepted(extractor, monkeypatch, tmp_path, value, expected_modifier):
     _mock_widgets(extractor, series_value=value)
@@ -64,12 +62,10 @@ def test_valid_starting_index_accepted(extractor, monkeypatch, tmp_path, value, 
 
     captured = {}
 
-    def fake_scan(dp, r, fo, m, *args, **kwargs):
-        captured["modifier"] = m
-        return 0, 0
+    def fake_start(recursive, final_output, modifier, *args, **kwargs):
+        captured["modifier"] = modifier
 
-    extractor.sort_and_extract_irregular = fake_scan
-    extractor._clean_up = lambda *a, **k: None
+    extractor._start_scan = fake_start
 
     extractor.directory_path = tmp_path
     extractor.output_path = tmp_path
