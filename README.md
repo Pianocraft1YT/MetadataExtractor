@@ -1,5 +1,6 @@
 # Metadata Extractor by Pianocraft1YT
 ![Image of Metadata Extractor App](image.png)
+---
 Metadata Extractor is a Tkinter desktop utility for cataloging folders of camera, drone, or image media. It reads EXIF metadata from photos, uses video files as sequence delimiters, and writes a formatted Excel, CSV, JSON, or Markdown output.
 
 It is designed for folders where files are sorted alphabetically and often follow a pattern like:
