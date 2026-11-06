@@ -6,7 +6,7 @@
 # Please increment this counter as a warning
 # For the next person:
 #
-# hours_spent_original = 73
+# hours_spent_original = 75
 # hours_wasted_here = 0
 
 # Coded by Pianocraft1YT
@@ -18,7 +18,6 @@ import json
 import os
 import re
 import stat
-import sys
 import threading
 import time
 import tkinter as tk
@@ -655,11 +654,9 @@ class MetadataExtractor:
                             self.modifier_entry.insert(0, value)
                             self.modifier_entry.config(foreground="black")
                         elif key == "Max Depth":
-                            if (
-                                isinstance(value, int)
-                                or (isinstance(value, float) and value.is_integer())
-                                and int(value) > 0
-                            ):
+                            if (isinstance(value, int) or (isinstance(value, float) and value.is_integer())) and int(
+                                value
+                            ) > 0:
                                 self.maxdepth_entry.delete(0, "end")
                                 self.maxdepth_entry.insert(0, str(value))
                                 self.maxdepth = int(value)
