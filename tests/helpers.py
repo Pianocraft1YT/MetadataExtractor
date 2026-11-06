@@ -2,6 +2,11 @@
 
 Centralizes the keyword defaults for sort_and_extract / find_directories
 and the media file listing, so each test file doesn't re-define them.
+
+The refactored scan functions no longer call create_sheet themselves —
+only _clean_up (in the worker thread) does. Tests that want output on disk
+call sort_scan / find_scan, which drive the scan then invoke create_sheet
+directly.
 """
 
 import os
@@ -28,20 +33,27 @@ _EXTRA_OFF = dict(
 def media_files(folder):
     """Return the list sort_and_extract expects as its media_files argument.
 
-    Matches the ordering walk_to_depth produces: alphabetical by stem,
-    case-insensitive, extension ignored.
+    Matches the ordering walk_to_depth produces: alphabetical by stem
+    (natural), photos before videos at the same stem.
     """
     return sorted(
         [f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))],
-        key=lambda x: os.path.splitext(x)[0].lower(),
+        key=lambda x: (
+            [int(t) if t.isdigit() else t.lower() for t in __import__("re").split(r"(\d+)", os.path.splitext(x)[0])],
+            (
+                0
+                if x.lower().endswith((".jpg", ".jpeg", ".png", ".tiff", ".tif", ".dng", ".heic", ".heif", ".raw"))
+                else 1
+            ),
+        ),
     )
 
 
-def sort_scan(extractor, folder, modifier=0, debug=False, final_output=None, **overrides):
-    """Run sort_and_extract with defaults. Override kwargs by passing them."""
+def sort_scan(extractor, folder, modifier=0, debug=False, final_output=None, write=True, **overrides):
+    """Run sort_and_extract, then create_sheet. Returns (processed, skipped)."""
     if final_output is None:
         final_output = Path("out.xlsx")
-    return extractor.sort_and_extract(
+    processed, skipped = extractor.sort_and_extract(
         folder,
         False,
         final_output,
@@ -50,13 +62,16 @@ def sort_scan(extractor, folder, modifier=0, debug=False, final_output=None, **o
         media_files(folder),
         **{**_EXTRA_OFF, **overrides},
     )
+    if write:
+        extractor.create_sheet(final_output, processed, skipped)
+    return processed, skipped
 
 
-def find_scan(extractor, parent, modifier=0, debug=False, final_output=None, **overrides):
-    """Run find_directories with defaults."""
+def find_scan(extractor, parent, modifier=0, debug=False, final_output=None, write=True, **overrides):
+    """Run find_directories, then create_sheet. Returns (processed, skipped)."""
     if final_output is None:
         final_output = Path("out.xlsx")
-    return extractor.find_directories(
+    processed, skipped = extractor.find_directories(
         parent,
         True,
         final_output,
@@ -64,3 +79,6 @@ def find_scan(extractor, parent, modifier=0, debug=False, final_output=None, **o
         debug,
         **{**_EXTRA_OFF, **overrides},
     )
+    if write:
+        extractor.create_sheet(final_output, processed, skipped)
+    return processed, skipped

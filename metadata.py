@@ -143,7 +143,7 @@ class MetadataExtractor:
             self.debug_var.set(
                 messagebox.askokcancel(
                     "Debug selected",
-                    message="Debug mode has been enabled.\nThis means that output directory is Path.home()/Downloads/output.filetype.\nSeries will always output regardles of irregularity.\n\nPlease disable if this was an accident.",
+                    message="Debug mode has been enabled.\nThis means that output directory is Path.home()/Downloads/output.filetype.\nSeries will always output regardles of irregularity.\n\nProceed?",
                 )
             )
 
@@ -165,7 +165,7 @@ class MetadataExtractor:
         else:
             self.extra_exif_frame.pack_forget()
         self.root.update_idletasks()
-        self.root.geometry(f"{self.root.winfo_width()}x{self.root.winfo_reqheight()}")
+        self.root.geometry(f"350x{self.root.winfo_reqheight()}")
 
     def date_range(self):
         if self.date_range_var.get():
@@ -222,8 +222,10 @@ class MetadataExtractor:
             output.append(f"{hours} hour(s)")
         if minutes > 0:
             output.append(f"{minutes} minute(s)")
-        if seconds > 0:
+        if seconds >= 1:
             output.append(f"{int(seconds)} second(s)")
+        elif not output and mode != "ETA":
+            output.append("< 1 second")
         if days == 0 and hours == 0 and minutes == 0 and seconds < 5 and mode == "ETA":
             output = "Starting/Ending Soon..."
         elif (days > 0 or hours > 0 or minutes > 0 or seconds > 0) and mode == "ETA":
@@ -341,13 +343,14 @@ class MetadataExtractor:
             self.root.after(0, lambda: self.update_progress(p, s, d, t))
 
         try:
-            self.root.after(0, self.current_directory.set, "Counting files...")
-            count = self.get_total_files(self.maxdepth)
-            if self.cancel_event.is_set():
-                return
-            self.root.after(0, self._set_total_files, count)
-            if self.cancel_event.is_set():
-                return
+            if recursive:
+                self.root.after(0, self.current_directory.set, "Counting files...")
+                count = self.get_total_files(self.maxdepth)
+                if self.cancel_event.is_set():
+                    return
+                self.root.after(0, self._set_total_files, count)
+                if self.cancel_event.is_set():
+                    return
             total_scanned, total_skipped = self.find_directories(
                 self.directory_path,
                 recursive,
@@ -378,34 +381,41 @@ class MetadataExtractor:
                 0,
                 self._clean_up,
                 final_output,
-                recursive,
                 total_scanned,
                 total_skipped,
             )
 
-    def _clean_up(self, final_output, recursive, processed, skipped):
+    def _clean_up(self, final_output, processed, skipped):
         # Guard so a queued _clean_up can't fire twice (e.g. through nested dialogs)
         if not self._scan_running:
             return
         self._scan_running = False
         cancelled = self.cancel_event.is_set()
-        if not cancelled:
-            self.create_sheet(final_output, recursive, processed, skipped)
-        self.eta.set("Done")
-        self.execute_button.config(state="normal")
-        self.cancel_button.config(state="disabled")
-        if cancelled:
-            self.current_directory.set("Cancelled")
-            self.percentage_done.set("Cancelled")
+        try:
+            if not cancelled:
+                self.create_sheet(final_output, processed, skipped)
+        except Exception as e:  # noqa: BLE001
+            self.collected_warnings["Unexpected"].append(f"_clean_up/create_sheet: {e}\n{traceback.format_exc()}")
+        finally:
+            self.eta.set("Done")
+            self.execute_button.config(state="normal")
+            self.cancel_button.config(state="disabled")
+            if cancelled:
+                self.current_directory.set("Cancelled")
+                self.percentage_done.set("Cancelled")
 
     def _on_close(self):
-        self._save_settings()
+        try:
+            self._save_settings()
+        except Exception:  # noqa: BLE001
+            messagebox.showerror("Setting Save Error", message=f"Your settings could not be saved at {SETTINGS_PATH}")
         self.root.destroy()
-        sys.exit()
 
     def _ask_yes_no_threadsafe(self, title, msg):
         """Call from a worker thread. Blocks until the main thread answers."""
-        # Use a lock to ensure only one worker thread manages a dialog lifecycle at a time
+        # Use a lock to ensure only one worker thread manages a dialog at a time
+        if threading.current_thread() is threading.main_thread():
+            return bool(messagebox.askyesno(title, msg))  # already on main, just call it
         with self._dialog_lock:
             self._dialog_answer = None
             self._dialog_event.clear()
@@ -451,7 +461,7 @@ class MetadataExtractor:
             return f"{v:g}s"  # 1.0 -> "1s", 2.5 -> "2.5s", 30.0 -> "30s"
         inv = 1.0 / v
         rounded = round(inv)
-        if abs(inv - rounded) < 0.1:
+        if rounded > 1 and abs(inv - rounded) / inv < 0.01:
             return f"1/{rounded}"  # 0.004 -> "1/250", 0.5 -> "1/2"
         return f"{v:g}s"  # 0.3 -> "0.3s" (not "1/3")
 
@@ -506,7 +516,7 @@ class MetadataExtractor:
             for index, value in enumerate(values):
                 values[index] = esc(value)
             if hyperlinks and directory is not None and isinstance(raw, str) and raw:
-                url = (directory / raw).as_posix()
+                url = (Path(directory) / raw).as_posix()
                 values[0] = f"[{values[0]}](<{url}>)"
             values = "|".join(values)
             values = "|" + values + "|"
@@ -531,7 +541,7 @@ class MetadataExtractor:
                 return None
         if not isinstance(ref, str) or not ref.strip():
             return None
-        if not isinstance(dms_tuple, tuple) or len(dms_tuple) != 3:
+        if not isinstance(dms_tuple, (tuple, list)) or len(dms_tuple) != 3:
             return None
         degree = self._rational_to_float(dms_tuple[0])
         minute = self._rational_to_float(dms_tuple[1])
@@ -639,14 +649,25 @@ class MetadataExtractor:
                         elif key == "File Name":
                             self.name_entry.delete(0, "end")
                             self.name_entry.insert(0, value)
+                            self.name_entry.config(foreground="black")
                         elif key == "Modifier":
                             self.modifier_entry.delete(0, "end")
                             self.modifier_entry.insert(0, value)
+                            self.modifier_entry.config(foreground="black")
                         elif key == "Max Depth":
-                            if int(value) > 0:
+                            if (
+                                isinstance(value, int)
+                                or (isinstance(value, float) and value.is_integer())
+                                and int(value) > 0
+                            ):
                                 self.maxdepth_entry.delete(0, "end")
                                 self.maxdepth_entry.insert(0, str(value))
                                 self.maxdepth = int(value)
+                                self.maxdepth_entry.config(foreground="black")
+                            else:
+                                self.maxdepth_entry.delete(0, "end")
+                                self.maxdepth_entry.insert(0, "Recursion Depth (#)")
+                                self.maxdepth = 0
                         elif key in (
                             "Date Range",
                             "UTC",
@@ -664,7 +685,7 @@ class MetadataExtractor:
                             "Focal Length",
                             "ISO",
                             "GPS",
-                        ):
+                        ) and isinstance(value, bool):
                             key_to_checkbox_var[key].set(value)
                         # Explicit null in the file means "this field was cleared"
                     else:
@@ -676,7 +697,7 @@ class MetadataExtractor:
                             self.directory_path = None
                         elif key == "Output Path":
                             self.output_path = None
-                except ValueError:
+                except (ValueError, TypeError):
                     pass
         except (OSError, json.JSONDecodeError, AttributeError):
             return
@@ -793,11 +814,12 @@ class MetadataExtractor:
                     or _exif_get(EXIF_DATETIME_DIGITIZED, general_ifd, exif_data)
                     or _exif_get(EXIF_DATETIME, None, exif_data)
                 )
+                dt = self._decode_exif_string(dt)
                 if dt is None:
                     self.collected_warnings["No Metadata"].append(f"[{directory_path}]\\{media_files[i]}")
                     return False
                 if output_utc:
-                    offset = _exif_get(EXIF_OFFSET_TIME_ORIGINAL, general_ifd, exif_data)
+                    offset = self._decode_exif_string(_exif_get(EXIF_OFFSET_TIME_ORIGINAL, general_ifd, exif_data))
                 if output_make:
                     make = _exif_get_str(EXIF_CAMERA_MAKE, None, exif_data)
                 if output_model:
@@ -901,7 +923,7 @@ class MetadataExtractor:
         directories = []
         total_skipped = 0
         total_processed = 0
-        for dirpath, _, files in self.walk_to_depth(directory_path, self.maxdepth):  # Only one level of recursion
+        for dirpath, _, files in self.walk_to_depth(directory_path, self.maxdepth):
             if self.cancel_event.is_set():
                 break
             if not any(f.lower().endswith(PHOTO_TYPES) for f in files):
@@ -930,34 +952,41 @@ class MetadataExtractor:
                 )
             else:
                 wrapped_cb = None
-            p, s = self.sort_and_extract(
-                directory,
-                recursive,
-                final_output,
-                modifier,
-                debug,
-                media_files,
-                output_utc,
-                output_dimensions,
-                output_make,
-                output_model,
-                output_software,
-                output_lens_model,
-                output_aperture,
-                output_exposure_time,
-                output_focal_length,
-                output_iso,
-                output_gps,
-                date_range,
-                start_date,
-                end_date,
-                progress_callback=wrapped_cb,
-                defer_create_sheet=defer_create_sheet,
-            )
+            try:
+                p, s = self.sort_and_extract(
+                    directory,
+                    recursive,
+                    final_output,
+                    modifier,
+                    debug,
+                    media_files,
+                    output_utc,
+                    output_dimensions,
+                    output_make,
+                    output_model,
+                    output_software,
+                    output_lens_model,
+                    output_aperture,
+                    output_exposure_time,
+                    output_focal_length,
+                    output_iso,
+                    output_gps,
+                    date_range,
+                    start_date,
+                    end_date,
+                    progress_callback=wrapped_cb,
+                    defer_create_sheet=defer_create_sheet,
+                )
+            except (OSError, PermissionError, FileNotFoundError):
+                skipped_count = sum(1 for f in media_files if f.lower().endswith(PHOTO_TYPES))
+                self.collected_warnings["Directory Error"].append(f"{directory}")
+                p, s = 0, skipped_count  # match the existing convention in sort_and_extract
+            except Exception as e:  # noqa: BLE001
+                self.collected_warnings["Unexpected"].append(f"[{directory}]: {e}\n{traceback.format_exc()}")
+                skipped_count = sum(1 for f in media_files if f.lower().endswith(PHOTO_TYPES))
+                p, s = 0, skipped_count
             total_processed += p
             total_skipped += s
-        if not defer_create_sheet and not self.cancel_event.is_set():
-            self.create_sheet(final_output, True, total_processed, total_skipped)
         return total_processed, total_skipped
 
     def natural_key(self, s):
@@ -975,7 +1004,7 @@ class MetadataExtractor:
                 for d in dirs
                 if not d.startswith(".") and d.lower() not in {"system volume information", "$recycle.bin"}
             ]
-            dirs.sort()
+            dirs.sort(key=lambda x: self.natural_key(os.path.splitext(x)[0]))
             # Symlinked files included
             media_files[:] = [
                 f
@@ -983,7 +1012,12 @@ class MetadataExtractor:
                 if not self._check_hidden(f, dirpath) and f.lower().endswith(PHOTO_TYPES + VIDEO_TYPES)
             ]
             # Sorts files alphabetically, ignoring file extensions and capitalization, ignoring any non-photo or non-video files
-            media_files.sort(key=lambda x: self.natural_key(os.path.splitext(x)[0]))
+            media_files.sort(
+                key=lambda x: (
+                    self.natural_key(os.path.splitext(x)[0]),
+                    0 if x.lower().endswith(PHOTO_TYPES) else 1,
+                )
+            )
             yield dirpath, dirs, media_files
 
             # Calculate current depth relative to root_dir
@@ -1026,13 +1060,17 @@ class MetadataExtractor:
             output_iso = self.iso_var.get()
         if debug:  # No need to set output_path every time on debug mode
             self.output_path = Path.home() / "Downloads"
-        if self.directory_path is None or self.output_path is None:  # Validating paths
+        else:
+            if self.output_path is None:
+                messagebox.showinfo("No output path.", message="No output path was set, and debug is not checked.")
+                return
+        if self.directory_path is None:  # Validating paths
             messagebox.showerror(  # If no output/directory path was set, error to allow for changes
-                "Invalid path(s) specified.", message="Please set an image/video directory path OR output path."
+                "Image directory not set.", message="Please set an image/video directory path."
             )
             return
         val = self.modifier_entry.get().strip()  # Modifier for Img # Series
-        if val.isdigit() and int(val) > 0 and val != "1":  # Make sure starting index is valid digit
+        if val.isdigit() and int(val) > 0 and int(val) != 1:  # Make sure starting index is valid digit
             modifier = int(val) - 1  # We start at 1 by default, so minus 1 to not get off by one
         # Technically, user could input the default text and get rejected, but we ignore that case
         elif not (
@@ -1049,12 +1087,14 @@ class MetadataExtractor:
                     "Numbers only.", message="Recursion Depth must be a whole number greater than zero."
                 )
                 return
+        else:
+            self.maxdepth = 0
         if (
             filetype == "CSV" or filetype == "JSON"
         ) and self.hyperlink_var.get():  # CSV doesn't have hyperlinks, ask if they want to continue or change options
             proceed = messagebox.askyesno(
                 "Hyperlinks Unsupported.",
-                message="Hyperlinks are Excel-only. Please select Excel for hyperlinks. Proceed without?",
+                message="Hyperlinks are Excel/Markdown only. Please select Excel/Markdown for hyperlinks. Proceed without?",
             )
             if not proceed:
                 return
@@ -1080,7 +1120,13 @@ class MetadataExtractor:
         if not recursive:
             try:
                 with os.scandir(self.directory_path) as entries:
-                    count = sum(1 for e in entries if e.is_file() and e.name.lower().endswith(PHOTO_TYPES))
+                    count = sum(
+                        1
+                        for e in entries
+                        if e.is_file()
+                        and e.name.lower().endswith(PHOTO_TYPES)
+                        and not self._check_hidden(e.name, self.directory_path)
+                    )
             except (FileNotFoundError, PermissionError, OSError):
                 count = 0
             self._set_total_files(count)
@@ -1130,7 +1176,7 @@ class MetadataExtractor:
                     )
                 else:
                     messagebox.showerror(
-                        "Empty directory", message="No files were found. Please select a valid directory"
+                        "Empty directory", message="No photos were found. Please select a valid directory"
                     )
                     return
         else:  # Prompt for multiple CSV or Markdown files output
@@ -1438,7 +1484,7 @@ class MetadataExtractor:
                             return 0, skipped_count
 
                         fixed_date, fixed_time = self.fix_time(
-                            output_utc, data["Dates"], data["Offsets"], data["Images"]
+                            output_utc, data["Dates"], data["Offsets"], data["Images"], directory_path
                         )
                         data["Dates"] = fixed_date
                         data["Times"] = fixed_time
@@ -1460,8 +1506,6 @@ class MetadataExtractor:
                             output_iso,
                             output_gps,
                         )
-                        if not (recursive or defer_create_sheet or self.cancel_event.is_set()):  # Single folder mode
-                            self.create_sheet(final_output, recursive, processed, skipped)
                         return processed, skipped  # Recursive mode
                     if (
                         photos_before_video_updated and regular_pattern_found == False
@@ -1618,7 +1662,9 @@ class MetadataExtractor:
             self.collected_warnings["Unexpected"].append(f"[{directory_path}]: {e}\n{traceback.format_exc()}")
             skipped_count = sum(1 for f in media_files if f.lower().endswith(PHOTO_TYPES))
             return 0, skipped_count
-        fixed_date, fixed_time = self.fix_time(output_utc, data["Dates"], data["Offsets"], data["Images"])
+        fixed_date, fixed_time = self.fix_time(
+            output_utc, data["Dates"], data["Offsets"], data["Images"], directory_path
+        )
         data["Dates"] = fixed_date
         data["Times"] = fixed_time
         self.create_dataframe(
@@ -1637,12 +1683,10 @@ class MetadataExtractor:
             output_iso,
             output_gps,
         )
-        if not recursive and not defer_create_sheet and not self.cancel_event.is_set():
-            self.create_sheet(final_output, recursive, processed, skipped)  # One folder only, output time
         return processed, skipped  # For tallying total processed and skipped
 
     # Handles time and date formatting, along with UTC offsets
-    def fix_time(self, output_utc, list_of_dates, list_of_offsets, list_of_images):
+    def fix_time(self, output_utc, list_of_dates, list_of_offsets, list_of_images, directory):
         # Input format: "YYYY:MM:DD HH:MM:SS"
         fixed_time = []
         fixed_date = []
@@ -1664,13 +1708,13 @@ class MetadataExtractor:
                             minutes = int(offset[1])
                             sign = hours[0:1]
                             hours = int(hours[1:])
-                            if sign == "+":
-                                dt -= timedelta(hours=hours, minutes=minutes)
-                            else:
+                            if sign == "-":
                                 dt += timedelta(hours=hours, minutes=minutes)
+                            else:
+                                dt -= timedelta(hours=hours, minutes=minutes)
                         except (AttributeError, IndexError, ValueError, TypeError):
                             self.collected_warnings["Bad Timestamp"].append(
-                                f"{self.directory_path}\\{list_of_images[offset_index]}"
+                                f"{os.path.join(directory, list_of_images[offset_index])}"
                             )
                             fixed_date.append(date_str)
                             fixed_time.append("")  # or "00:00:00" if preferred
@@ -1736,7 +1780,7 @@ class MetadataExtractor:
                 df_data["Img # Series"] = img_series  # Add on img_series
             else:
                 self.collected_warnings["Irregular"].append(
-                    f"{directory_path.as_posix()}"
+                    directory_path
                 )  # If irregular pattern starts with more than MAX_PHOTOS_BEFORE_VIDEO images in a row, will break program, so error.
             df = pd.DataFrame(df_data)  # Create DataFrame
             current_sheet_name = self.verify_name(self.current_sheet_name, self.used)
@@ -1746,14 +1790,13 @@ class MetadataExtractor:
             return
 
     # Makes CSVs or Excel files
-    def create_sheet(self, output_path, recursive, total_processed, total_skipped):  # File creation
+    def create_sheet(self, output_path, total_processed, total_skipped):  # File creation
         try:
             # Check for empty results before prompting so the user isn't asked to overwrite for nothing
             if not self.results:
                 messagebox.showerror("No data", message="No folders with photos were found.")
                 if not self.keepopen_var.get():
                     self.root.destroy()
-                    sys.exit()
                 return
             filetype = self.filetype_var.get()
             proceed = True
@@ -1782,7 +1825,7 @@ class MetadataExtractor:
                 elif filetype == "CSV":  # CSV mode
                     files_written = 0
                     for sheet_df, sheet_name, _ in self.results:
-                        csv_path = output_path.as_posix()[0:-4] + f"_{self.clean_name(sheet_name)}"
+                        csv_path = output_path.with_suffix("").as_posix() + f"_{self.clean_name(sheet_name)}"
                         if Path(csv_path).exists():
                             proceed = messagebox.askyesno(
                                 "Overwrite?", message=csv_path + " \nalready exists. Overwrite?"
@@ -1791,7 +1834,7 @@ class MetadataExtractor:
                             sheet_df.to_csv(csv_path, index=False)
                             files_written += 1
                         else:
-                            proceed = True
+                            proceed = True  # Reset it
                             continue
                     if files_written > 0 and not self.cancel_event.is_set():
                         messagebox.showinfo(
@@ -1825,7 +1868,7 @@ class MetadataExtractor:
                 elif filetype == "Markdown":
                     files_written = 0
                     for sheet_df, sheet_name, directory in self.results:
-                        md_path = Path(output_path.as_posix()[0:-3] + f"_{self.clean_name(sheet_name)}")
+                        md_path = Path(output_path.with_suffix("").as_posix() + f"_{self.clean_name(sheet_name)}")
                         if md_path.exists():
                             proceed = messagebox.askyesno(
                                 "Overwrite?", message=f"{md_path}\nalready exists. Overwrite?"
@@ -1855,38 +1898,39 @@ class MetadataExtractor:
                         messagebox.showinfo("No output.", message="No files were written.")
                 self.progress_var.set(100)
                 self.percentage_done.set("100%")
-                if self.collected_warnings:
-                    output = ""
-                    # Writes error messages from the dictionary collected_warnings
-                    for error, file in self.collected_warnings.items():
-                        output += f"{error}\n"
-                        if error == "Scan Error":
-                            output += "These files are corrupt or non-image files, and were excluded."
-                        elif error == "No Metadata":
-                            output += "These files had no metadata to scan and were excluded."
-                        elif error == "Directory Error":
-                            output += "File/Directory couldn't be accessed."
-                        elif error == "Irregular":
-                            output += f"Irregular pattern (started with more than {MAX_PHOTOS_BEFORE_VIDEO} before a video)\n Please add mock files to the beginning to set correct pattern.\nFor example, if the pattern is 3 photos and 1 video, choose 3 photos and 1 video and duplicate them, naming them to be first when sorted, like DCSF0000."
-                        elif error == "Hyperlink Error":
-                            output += "The following sheets do not have hyperlinks."
-                        elif error == "Bad Timestamp":
-                            output += "The following files did not have embedded UTC offsets."
-                        elif error == "Unexpected":
-                            output += "Unexpected Errors - please report at https://github.com/Pianocraft1YT/MetadataExtractor/"
-                        for filename in file:
-                            output += f"\n{filename}\n"
-                if self.collected_warnings:
-                    try:
-                        log_path = output_path.parent / "warnings.log"
-                        log_path.write_text(output, encoding="utf-8")
-                        summary = f"{len(self.collected_warnings)} warning categories.\n\nFull details: {log_path.as_posix()}\n\nPlease verify any issues"
-                        messagebox.showwarning("Warning(s)", message=summary)
-                    except (OSError, PermissionError):
-                        messagebox.showerror("Log Error", message=f"Couldn't write log file to {log_path}.\n{summary}")
-            else:
+            else:  # Proceed is False
                 messagebox.showinfo("Cancelled", message="File not overwritten. Cancelled successfully.")
                 return
+            if self.collected_warnings:
+                output = ""
+                # Writes error messages from the dictionary collected_warnings
+                for error, file in self.collected_warnings.items():
+                    output += f"{error}\n"
+                    if error == "Scan Error":
+                        output += "These files are corrupt or non-image files, and were excluded."
+                    elif error == "No Metadata":
+                        output += "These files had no metadata to scan and were excluded."
+                    elif error == "Directory Error":
+                        output += "File/Directory couldn't be accessed."
+                    elif error == "Irregular":
+                        output += f"Irregular pattern (started with more than {MAX_PHOTOS_BEFORE_VIDEO} before a video)\n Please add mock files to the beginning to set correct pattern.\nFor example, if the pattern is 3 photos and 1 video, choose 3 photos and 1 video and duplicate them, naming them to be first when sorted, like DCSF0000."
+                    elif error == "Hyperlink Error":
+                        output += "The following sheets do not have hyperlinks."
+                    elif error == "Bad Timestamp":
+                        output += "The following files did not have embedded UTC offsets."
+                    elif error == "Unexpected":
+                        output += (
+                            "Unexpected Errors - please report at https://github.com/Pianocraft1YT/MetadataExtractor/"
+                        )
+                    for filename in file:
+                        output += f"\n{filename}\n"
+                try:
+                    log_path = output_path.parent / "warnings.log"
+                    log_path.write_text(output, encoding="utf-8")
+                    summary = f"{len(self.collected_warnings)} warning categories.\n\nFull details: {log_path.as_posix()}\n\nPlease verify any issues"
+                    messagebox.showwarning("Warning(s)", message=summary)
+                except (OSError, PermissionError):
+                    messagebox.showerror("Log Error", message=f"Couldn't write log file to {log_path}.\n{summary}")
             if not self.keepopen_var.get():  # Checks to close program or not
                 self._on_close()
         except (PermissionError, OSError) as e:
@@ -1895,12 +1939,10 @@ class MetadataExtractor:
             )
             if not self.keepopen_var.get():
                 self.root.destroy()
-                sys.exit()
         except Exception as e:  # noqa: BLE001
             messagebox.showerror("Unexpected error", f"{e}\n\n{traceback.format_exc()}")
             if not self.keepopen_var.get():
                 self.root.destroy()
-                sys.exit()
 
     # Initialization function when constructed
     def __init__(self):

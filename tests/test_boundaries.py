@@ -1,31 +1,31 @@
 """Boundary-condition tests for MetadataExtractor.fix_time."""
 
 
-def test_fix_time_empty_list(extractor):
-    dates, times = extractor.fix_time(False, [], [], [])
+def test_fix_time_empty_list(extractor, tmp_path):
+    dates, times = extractor.fix_time(False, [], [], [], tmp_path)
     assert dates == []
     assert times == []
 
 
-def test_fix_time_invalid_date_preserved(extractor):
-    dates, times = extractor.fix_time(False, ["not-a-date"], [None], ["a.jpg"])
+def test_fix_time_invalid_date_preserved(extractor, tmp_path):
+    dates, times = extractor.fix_time(False, ["not-a-date"], [None], ["a.jpg"], tmp_path)
     assert dates == ["not-a-date"]
     assert times == [""]
 
 
-def test_fix_time_invalid_calendar_date_preserved(extractor):
-    dates, times = extractor.fix_time(False, ["2024:13:45"], [None], ["a.jpg"])
+def test_fix_time_invalid_calendar_date_preserved(extractor, tmp_path):
+    dates, times = extractor.fix_time(False, ["2024:13:45"], [None], ["a.jpg"], tmp_path)
     assert dates == ["2024:13:45"]
     assert times == [""]
 
 
-def test_fix_time_with_timezone_suffix_preserved(extractor):
-    dates, times = extractor.fix_time(False, ["2024:05:15 12:30:45+00:00"], [None], ["a.jpg"])
+def test_fix_time_with_timezone_suffix_preserved(extractor, tmp_path):
+    dates, times = extractor.fix_time(False, ["2024:05:15 12:30:45+00:00"], [None], ["a.jpg"], tmp_path)
     assert dates == ["2024:05:15 12:30:45+00:00"]
     assert times == [""]
 
 
-def test_fix_time_zero_date_preserved(extractor):
-    dates, times = extractor.fix_time(False, ["0000:00:00 00:00:00"], [None], ["a.jpg"])
+def test_fix_time_zero_date_preserved(extractor, tmp_path):
+    dates, times = extractor.fix_time(False, ["0000:00:00 00:00:00"], [None], ["a.jpg"], tmp_path)
     assert dates == ["0000:00:00 00:00:00"]
     assert times == [""]

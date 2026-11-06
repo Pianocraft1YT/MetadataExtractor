@@ -19,8 +19,7 @@ def test_trailing_photos_do_not_exceed_total(extractor, tmp_path):
     folder.mkdir()
     _build(folder, "PPPVPPPPPP")
 
-    extractor.debug_var.set(False)
-    sort_scan(extractor, folder)
+    sort_scan(extractor, folder, write=False)
     assert len(extractor.results) == 1
     df = extractor.results[0][0]
     assert len(df) <= 9
@@ -31,8 +30,7 @@ def test_no_duplicate_series_after_tail(extractor, tmp_path):
     folder.mkdir()
     _build(folder, "PPPVPPPPPP")
 
-    extractor.debug_var.set(False)
-    sort_scan(extractor, folder)
+    sort_scan(extractor, folder, write=False)
     df = extractor.results[0][0]
     if "Img # Series" in df.columns:
         assert len(df["Img # Series"]) == len(set(df["Img # Series"]))

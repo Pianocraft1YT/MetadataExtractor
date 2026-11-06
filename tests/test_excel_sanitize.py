@@ -5,7 +5,6 @@ The sanitizer strips them at the Excel boundary only — CSV/JSON/Markdown
 keep the raw bytes so users can inspect them if needed.
 """
 
-import sys
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -14,19 +13,24 @@ import pytest
 pytestmark = pytest.mark.real_create_sheet
 
 
+class _FakeBool:
+    """Minimal stand-in for tk.BooleanVar — supports .get() and .set()."""
+
+    def __init__(self, value=False):
+        self._value = value
+
+    def get(self):
+        return self._value
+
+    def set(self, value):
+        self._value = value
+
+
 @pytest.fixture
-def isolated(extractor, monkeypatch):
-    """Isolated extractor that exits cleanly via SystemExit."""
-    extractor.keepopen_var = MagicMock()
-    extractor.keepopen_var.get.return_value = False
-    extractor.hyperlink_var = MagicMock()
-    extractor.hyperlink_var.get.return_value = False
-    extractor.root = MagicMock()
-
-    def fake_exit(code=0):
-        raise SystemExit(code)
-
-    monkeypatch.setattr(sys, "exit", fake_exit)
+def isolated(extractor):
+    extractor.keepopen_var = _FakeBool(False)
+    extractor.hyperlink_var = _FakeBool(False)
+    extractor.root = MagicMock()  # stays a mock — nothing checks specific calls on it
     return extractor
 
 
@@ -43,14 +47,12 @@ def test_strips_null_pads(isolated):
 
 
 def test_strips_all_xml_illegal_control_chars(isolated):
-    # XML 1.0 forbids 0x00-0x08, 0x0b, 0x0c, 0x0e-0x1f
     df = pd.DataFrame({"A": ["a\x00b\x01c\x08d\x0be\x0cf\x0eg\x1fh"]})
     result = isolated._sanitize_for_excel(df)
     assert result.iloc[0, 0] == "abcdefgh"
 
 
 def test_preserves_tab_cr_lf(isolated):
-    # \x09, \x0a, \x0d are legal XML — must not be stripped
     df = pd.DataFrame({"A": ["line1\nline2\ttabbed\rCR"]})
     result = isolated._sanitize_for_excel(df)
     assert result.iloc[0, 0] == "line1\nline2\ttabbed\rCR"
@@ -103,14 +105,12 @@ def test_empty_dataframe_returns_copy(isolated):
 
 
 def test_barn_owl_real_model_value(isolated):
-    """Exact value from the probe: 19 nulls, nothing else."""
     df = pd.DataFrame({"Camera Model": ["\x00" * 19]})
     result = isolated._sanitize_for_excel(df)
     assert result.iloc[0, 0] == ""
 
 
 def test_mixed_types_in_one_column(isolated):
-    """Object-dtype column with str, None, int, float, and null-padded str."""
     df = pd.DataFrame({"A": ["Canon", None, 123, 3.14, "\x00\x00"]})
     result = isolated._sanitize_for_excel(df)
     assert result.iloc[0, 0] == "Canon"
@@ -126,69 +126,34 @@ def test_mixed_types_in_one_column(isolated):
 
 
 def test_excel_write_succeeds_with_null_model(isolated, tmp_path):
-    df = pd.DataFrame(
-        {
-            "Files": ["a.jpg"],
-            "Camera Model": ["\x00" * 19],
-            "Dates": ["10/18/2025"],
-        }
-    )
+    df = pd.DataFrame({"Files": ["a.jpg"], "Camera Model": ["\x00" * 19], "Dates": ["10/18/2025"]})
     isolated.results.append((df, "Sheet", tmp_path))
     output = tmp_path / "out.xlsx"
 
-    try:
-        isolated.create_sheet(output, recursive=False, total_processed=1, total_skipped=0)
-    except SystemExit:
-        pass
+    isolated.create_sheet(output, 1, 0)
 
     assert output.exists()
 
 
 def test_excel_model_reads_back_blank(isolated, tmp_path):
-    df = pd.DataFrame(
-        {
-            "Files": ["a.jpg"],
-            "Camera Model": ["\x00" * 19],
-            "Dates": ["10/18/2025"],
-        }
-    )
+    df = pd.DataFrame({"Files": ["a.jpg"], "Camera Model": ["\x00" * 19], "Dates": ["10/18/2025"]})
     isolated.results.append((df, "Sheet", tmp_path))
     output = tmp_path / "out.xlsx"
 
-    try:
-        isolated.create_sheet(output, recursive=False, total_processed=1, total_skipped=0)
-    except SystemExit:
-        pass
+    isolated.create_sheet(output, 1, 0)
 
     back = pd.read_excel(output, sheet_name="Sheet")
-    # Blank cell reads back as NaN in pandas
     assert pd.isna(back.iloc[0]["Camera Model"]) or back.iloc[0]["Camera Model"] == ""
 
 
 def test_excel_mixed_photos_write_cleanly(isolated, tmp_path):
-    """Barn Owl (null Model) + phone (clean Model) both land in separate sheets."""
-    barn_owl = pd.DataFrame(
-        {
-            "Files": ["owl.jpg"],
-            "Camera Make": ["barn owl"],
-            "Camera Model": ["\x00" * 19],
-        }
-    )
-    phone = pd.DataFrame(
-        {
-            "Files": ["phone.jpg"],
-            "Camera Make": ["Apple"],
-            "Camera Model": ["iPhone 15"],
-        }
-    )
+    barn_owl = pd.DataFrame({"Files": ["owl.jpg"], "Camera Make": ["barn owl"], "Camera Model": ["\x00" * 19]})
+    phone = pd.DataFrame({"Files": ["phone.jpg"], "Camera Make": ["Apple"], "Camera Model": ["iPhone 15"]})
     isolated.results.append((barn_owl, "Owl", tmp_path))
     isolated.results.append((phone, "Phone", tmp_path))
     output = tmp_path / "out.xlsx"
 
-    try:
-        isolated.create_sheet(output, recursive=False, total_processed=2, total_skipped=0)
-    except SystemExit:
-        pass
+    isolated.create_sheet(output, 2, 0)
 
     owl = pd.read_excel(output, sheet_name="Owl")
     phone_df = pd.read_excel(output, sheet_name="Phone")
@@ -198,17 +163,13 @@ def test_excel_mixed_photos_write_cleanly(isolated, tmp_path):
 
 
 def test_csv_keeps_null_pads_raw(isolated, tmp_path):
-    """Sanitizer is Excel-only. CSV keeps raw bytes for debugging."""
     isolated.filetype_var.set("CSV")
     df = pd.DataFrame({"Files": ["a.jpg"], "Camera Model": ["\x00\x00"]})
     isolated.results.append((df, "Sheet", tmp_path))
     output = tmp_path / "out.csv"
 
-    try:
-        isolated.create_sheet(output, recursive=False, total_processed=1, total_skipped=0)
-    except SystemExit:
-        pass
+    isolated.create_sheet(output, 1, 0)
 
     csv_path = tmp_path / "out_Sheet.csv"
     content = csv_path.read_text(encoding="utf-8")
-    assert "\x00" in content  # raw preserved
+    assert "\x00" in content

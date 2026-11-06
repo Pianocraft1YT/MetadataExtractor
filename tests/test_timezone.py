@@ -19,36 +19,37 @@ import pytest
         ("2024:01:31 12:00:00", "-03:30", "01/31/2024", "15:30:00"),
     ],
 )
-def test_offset_applied_when_timezone_on(extractor_tz_on, raw, offset, expect_date, expect_time):
-    dates, times = extractor_tz_on.fix_time(True, [raw], [offset], ["img.jpg"])
+def test_offset_applied_when_timezone_on(extractor_tz_on, tmp_path, raw, offset, expect_date, expect_time):
+    dates, times = extractor_tz_on.fix_time(True, [raw], [offset], ["img.jpg"], tmp_path)
     assert dates == [expect_date]
     assert times == [expect_time]
 
 
-def test_offset_ignored_when_timezone_off(extractor_tz_off):
-    dates, times = extractor_tz_off.fix_time(False, ["2024:01:31 14:30:00"], ["+05:30"], ["img.jpg"])
+def test_offset_ignored_when_timezone_off(extractor_tz_off, tmp_path):
+    dates, times = extractor_tz_off.fix_time(False, ["2024:01:31 14:30:00"], ["+05:30"], ["img.jpg"], tmp_path)
     assert dates == ["01/31/2024"]
     assert times == ["14:30:00"]
 
 
-def test_none_offset_no_change(extractor_tz_on):
-    dates, times = extractor_tz_on.fix_time(True, ["2024:01:31 14:30:00"], [None], ["img.jpg"])
+def test_none_offset_no_change(extractor_tz_on, tmp_path):
+    dates, times = extractor_tz_on.fix_time(True, ["2024:01:31 14:30:00"], [None], ["img.jpg"], tmp_path)
     assert dates == ["01/31/2024"]
     assert times == ["14:30:00"]
 
 
-def test_empty_offset_no_change(extractor_tz_on):
-    dates, times = extractor_tz_on.fix_time(True, ["2024:01:31 14:30:00"], [""], ["img.jpg"])
+def test_empty_offset_no_change(extractor_tz_on, tmp_path):
+    dates, times = extractor_tz_on.fix_time(True, ["2024:01:31 14:30:00"], [""], ["img.jpg"], tmp_path)
     assert dates == ["01/31/2024"]
     assert times == ["14:30:00"]
 
 
-def test_multiple_images_use_matching_offsets(extractor_tz_on):
+def test_multiple_images_use_matching_offsets(extractor_tz_on, tmp_path):
     dates, times = extractor_tz_on.fix_time(
         True,
         ["2024:01:31 14:30:00", "2024:01:31 14:30:00"],
         ["+05:30", "-08:00"],
         ["a.jpg", "b.jpg"],
+        tmp_path,
     )
     assert dates == ["01/31/2024", "01/31/2024"]
     assert times == ["09:00:00", "22:30:00"]
