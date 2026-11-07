@@ -3,6 +3,7 @@
 import os
 
 from tests.conftest import make_jpeg_with_exif
+from tests.helpers import sort_scan
 
 
 def _filtered_listing(extractor, folder):
@@ -24,17 +25,6 @@ def test_hidden_photo_not_scanned(extractor, tmp_path):
     media_files = _filtered_listing(extractor, tmp_path)
     assert media_files == ["visible.jpg"]
 
-    from tests.helpers import _EXTRA_OFF
-
-    extractor.create_sheet = lambda *a, **k: None
-    extractor.sort_and_extract(
-        tmp_path,
-        False,
-        tmp_path / "out.xlsx",
-        0,
-        False,
-        media_files,
-        **_EXTRA_OFF,
-    )
+    sort_scan(extractor, tmp_path, write=False)
     df, _, _ = extractor.results[0]
     assert list(df["Files"]) == ["visible.jpg"]
