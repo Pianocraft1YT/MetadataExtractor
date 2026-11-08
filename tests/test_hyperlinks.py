@@ -158,3 +158,15 @@ def test_recursive_mode_links_each_sheet_to_its_own_directory(extractor, tmp_pat
 
     ws_b = wb["Trip_B"]
     assert ws_b["A2"].hyperlink.target == (parent / "Trip_B" / "IMG_001.jpg").as_posix()
+
+
+def test_hyperlink_escapes_brackets(extractor, tmp_path):
+    """_dataframe_to_txt must escape [ ] in hyperlink display text,
+    or Markdown parses it as a broken link. Regression for the
+    no-assignment on values[0].replace(...)."""
+    import pandas as pd
+
+    df = pd.DataFrame({"Files": ["file[1].jpg"], "Dates": ["01/01/2024"]})
+    result = extractor._dataframe_to_txt(df, directory=tmp_path, hyperlinks=True)
+    assert "\\[1\\]" in result, "brackets not escaped"
+    assert "[file[1].jpg](" not in result, "unescaped brackets leaked into link text"

@@ -338,3 +338,29 @@ def test_markdown_filetype_round_trips(extractor, tmp_path):
     fresh = metadata.MetadataExtractor()
     fresh._load_settings()
     assert fresh.filetype_var.get() == "Markdown"
+
+
+def test_maxdepth_invalid_value_restores_placeholder(extractor):
+    """A non-integer Max Depth in the settings file must reset the entry
+    to placeholder text. The bug: make_checkbox.config(foreground='gray')
+    was called instead of maxdepth_entry.config(...), so the Camera Make
+    checkbox got greyed out and the depth entry stayed black."""
+    # Save a valid value
+    extractor.maxdepth_entry.delete(0, "end")
+    extractor.maxdepth_entry.insert(0, "5")
+    extractor._save_settings()
+
+    # Corrupt Max Depth
+    data = json.loads(metadata.SETTINGS_PATH.read_text(encoding="utf-8"))
+    data["Max Depth"] = "not-an-int"
+    metadata.SETTINGS_PATH.write_text(json.dumps(data), encoding="utf-8")
+
+    # Reset state and clear any mock history on the wrong widget
+    extractor.maxdepth = 5
+    extractor.make_checkbox.config.reset_mock()
+
+    extractor._load_settings()
+
+    assert extractor.maxdepth == 0
+    assert extractor.maxdepth_entry.get() == "Recursion Depth (#)"
+    extractor.make_checkbox.config.assert_not_called()

@@ -26,7 +26,7 @@ def test_find_directories_breaks_on_cancel(extractor, tmp_path):
 
 def test_cancel_reenables_buttons(extractor, tmp_path):
     """_clean_up must re-enable Execute even when the scan was cancelled."""
-    extractor._scan_running = True
+    extractor._cleanup_pending = True
     extractor.cancel_event.set()
     extractor.execute_button = MagicMock()
     extractor.cancel_button = MagicMock()

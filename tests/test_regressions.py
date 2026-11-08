@@ -1,0 +1,160 @@
+"""Regression tests for bugs fixed in v3.20.2.
+
+Each test would fail on the pre-fix code. Named for the specific bug
+they lock in, so a future change that reintroduces one breaks a test
+with a clear failure message.
+"""
+
+import json
+from unittest.mock import MagicMock
+
+from tests.conftest import make_jpeg_with_exif
+from tests.helpers import sort_scan
+
+# ---------------------------------------------------------------------------
+# Bug 1: first_video_orphan UnboundLocalError on photo-first directories
+# ---------------------------------------------------------------------------
+
+
+def test_photo_first_directory_end_to_end(extractor, tmp_path):
+    """Regression: first_video_orphan was only assigned inside the
+    `if media_files[0] is a video:` block. Photo-first directories
+    reached `if not first_photo_found and not first_video_orphan` with
+    the variable unbound → UnboundLocalError, caught by the outer
+    except, returned (0, 0). Every photo-first scan silently produced
+    zero rows."""
+    folder = tmp_path / "photo_first"
+    folder.mkdir()
+    for i, name in enumerate(["IMG_001.jpg", "IMG_002.jpg", "IMG_003.jpg"], start=1):
+        make_jpeg_with_exif(folder / name, f"2024:05:{14 + i:02d} 12:30:45")
+    (folder / "IMG_004.mp4").write_bytes(b"\x00\x00\x00\x18ftypmp42")
+
+    processed, skipped = sort_scan(extractor, folder, write=False)
+
+    assert processed == 3, f"expected 3 processed, got {processed} — UnboundLocalError?"
+    assert skipped == 0
+    assert len(extractor.results) == 1, "folder produced 0 results — UnboundLocalError swallowed?"
+    df, _, _ = extractor.results[0]
+    assert len(df) == 1  # one series row representing the 3-photo group
+    assert df.iloc[0]["Files"] == "IMG_003.jpg"  # last photo of the group
+    assert (
+        "Unexpected" not in extractor.collected_warnings
+    ), f"bug logged as Unexpected: {extractor.collected_warnings.get('Unexpected')}"
+
+
+# ---------------------------------------------------------------------------
+# Bug 2: starting-index validation
+# ---------------------------------------------------------------------------
+
+
+def _mock_widgets(extractor, series_value, name_value="Filename (default output.filetype)"):
+    """Mirrors the helper in test_starting_index.py."""
+    modifier_entry = MagicMock()
+    modifier_entry.get.return_value = series_value
+    extractor.modifier_entry = modifier_entry
+
+    name_entry = MagicMock()
+    name_entry.get.return_value = name_value
+    extractor.name_entry = name_entry
+
+    recursive_var = MagicMock()
+    recursive_var.get.return_value = False
+    extractor.recursive_var = recursive_var
+
+    keepopen_var = MagicMock()
+    keepopen_var.get.return_value = False
+    extractor.keepopen_var = keepopen_var
+
+    maxdepth_entry = MagicMock()
+    maxdepth_entry.get.return_value = "Recursion Depth (#)"
+    extractor.maxdepth_entry = maxdepth_entry
+
+
+def test_starting_index_zero_padded_accepted(extractor, tmp_path):
+    """Regression: '01' was rejected even though int('01') == 1, and
+    `int(val)` was called before `val.isdigit()` so garbage input raised
+    ValueError before the 'Numbers only.' dialog could fire."""
+    _mock_widgets(extractor, series_value="01")
+    (tmp_path / "IMG_001.jpg").write_bytes(b"fake")
+
+    captured = {}
+
+    def fake_start(recursive, final_output, modifier, *args, **kwargs):
+        captured["modifier"] = modifier
+
+    extractor._start_scan = fake_start
+    extractor.directory_path = tmp_path
+    extractor.output_path = tmp_path
+    extractor.check_recursive()
+
+    assert "modifier" in captured, "check_recursive returned before _start_scan — ValueError or rejection"
+    assert captured["modifier"] == 0, f"'01' should map to modifier 0, got {captured['modifier']}"
+
+
+def test_starting_index_placeholder_uses_zero_modifier(extractor, tmp_path):
+    """Placeholder text left unmodified must default to modifier 0."""
+    _mock_widgets(extractor, series_value="Starting index (Img # Series)")
+    (tmp_path / "IMG_001.jpg").write_bytes(b"fake")
+
+    captured = {}
+
+    def fake_start(recursive, final_output, modifier, *args, **kwargs):
+        captured["modifier"] = modifier
+
+    extractor._start_scan = fake_start
+    extractor.directory_path = tmp_path
+    extractor.output_path = tmp_path
+    extractor.check_recursive()
+
+    assert captured.get("modifier") == 0
+
+
+# ---------------------------------------------------------------------------
+# Bug 3: De Morgan mistake on the default-filename check
+# ---------------------------------------------------------------------------
+
+
+def test_default_filename_when_placeholder_left(extractor, tmp_path):
+    """Regression: `name != placeholder or name != ''` was always true,
+    so the `output.<ext>` default branch was unreachable. The output
+    filename became the placeholder text itself."""
+    _mock_widgets(
+        extractor,
+        series_value="1",
+        name_value="Filename (default output.filetype)",
+    )
+    (tmp_path / "IMG_001.jpg").write_bytes(b"fake")
+
+    captured = {}
+
+    def fake_start(recursive, final_output, modifier, *args, **kwargs):
+        captured["final_output"] = final_output
+
+    extractor._start_scan = fake_start
+    extractor.directory_path = tmp_path
+    extractor.output_path = tmp_path
+    extractor.check_recursive()
+
+    assert "final_output" in captured, "check_recursive returned before _start_scan"
+    assert (
+        captured["final_output"].name == "output.xlsx"
+    ), f"expected 'output.xlsx', got '{captured['final_output'].name}' — De Morgan bug?"
+
+
+# ---------------------------------------------------------------------------
+# Bug 4: _save_settings did not strip the max-depth entry
+# ---------------------------------------------------------------------------
+
+
+def test_maxdepth_save_strips_whitespace(extractor):
+    """Regression: ' 5 ' persisted as None because isdigit() fails on
+    leading/trailing whitespace in a narrow entry."""
+    import metadata
+
+    extractor.maxdepth_entry.delete(0, "end")
+    extractor.maxdepth_entry.insert(0, " 5 ")
+
+    extractor._save_settings()
+
+    data = json.loads(metadata.SETTINGS_PATH.read_text(encoding="utf-8"))
+    assert data["Max Depth"] == 5, f"expected 5, got {data['Max Depth']!r} — strip missing?"

@@ -6,7 +6,7 @@
 # Please increment this counter as a warning
 # For the next person:
 #
-# hours_spent_original = 76
+# hours_spent_original = 77
 # hours_wasted_here = 0
 
 # Coded by Pianocraft1YT
@@ -94,6 +94,8 @@ PHOTO_TYPES = (
     ".srw",
     ".mrw",
 )
+# Width of window
+X_WIDTH = 350
 
 
 class MetadataExtractor:
@@ -135,7 +137,7 @@ class MetadataExtractor:
         else:
             self.gps_warning_label.pack_forget()
         self.root.update_idletasks()  # flush pending layout
-        self.root.geometry(f"350x{self.root.winfo_reqheight()}")
+        self.root.geometry(f"{X_WIDTH}x{self.root.winfo_reqheight()}")
 
     def debug_warning(self):
         if self.debug_var.get():
@@ -153,7 +155,7 @@ class MetadataExtractor:
         else:
             self.maxdepth_entry.pack_forget()
         self.root.update_idletasks()  # flush pending layout
-        self.root.geometry(f"350x{self.root.winfo_reqheight()}")  # fixed width, auto height
+        self.root.geometry(f"{X_WIDTH}x{self.root.winfo_reqheight()}")  # fixed width, auto height
 
     # Show extra metadata checkboxes when extra_exif_checkbox is checked
     def extra_exif(self):
@@ -164,7 +166,7 @@ class MetadataExtractor:
         else:
             self.extra_exif_frame.pack_forget()
         self.root.update_idletasks()
-        self.root.geometry(f"350x{self.root.winfo_reqheight()}")
+        self.root.geometry(f"{X_WIDTH}x{self.root.winfo_reqheight()}")
 
     def date_range(self):
         if self.date_range_var.get():
@@ -180,7 +182,7 @@ class MetadataExtractor:
             self.end_date_entry.pack_forget()
             self.date_notice_label.pack_forget()
         self.root.update_idletasks()  # flush pending layout
-        self.root.geometry(f"350x{self.root.winfo_reqheight()}")  # fixed width, auto height
+        self.root.geometry(f"{X_WIDTH}x{self.root.winfo_reqheight()}")  # fixed width, auto height
 
     # Helpers for progress bar
     def get_total_files(self, max_depth):
@@ -282,7 +284,7 @@ class MetadataExtractor:
         start_date,
         end_date,
     ):
-        self._scan_running = True
+        self._cleanup_pending = True
         self.execute_button.config(state="disabled")
         self.cancel_button.config(state="normal")
         threading.Thread(
@@ -384,9 +386,9 @@ class MetadataExtractor:
 
     def _clean_up(self, final_output, processed, skipped):
         # Guard so a queued _clean_up can't fire twice (e.g. through nested dialogs)
-        if not self._scan_running:
+        if not self._cleanup_pending or self._destroyed:
             return
-        self._scan_running = False
+        self._cleanup_pending = False
         cancelled = self.cancel_event.is_set()
         try:
             if not cancelled:
@@ -476,7 +478,9 @@ class MetadataExtractor:
         if value is None:
             return None
         if isinstance(value, (list, tuple)):
-            return value[0] if value else None  # multi-ISO capture, take first
+            if not value:
+                return None
+            value = value[0]
         try:
             return int(value)
         except (TypeError, ValueError):
@@ -518,6 +522,7 @@ class MetadataExtractor:
                 values[index] = esc(value)
             if hyperlinks and directory is not None and isinstance(raw, str) and raw:
                 url = (Path(directory) / raw).as_posix()
+                values[0] = values[0].replace("[", "\\[").replace("]", "\\]")
                 values[0] = f"[{values[0]}](<{url}>)"
             values = "|".join(values)
             values = "|" + values + "|"
@@ -614,7 +619,9 @@ class MetadataExtractor:
             }
             SETTINGS_PATH.write_text(json.dumps(settings, indent=2), encoding="utf-8")
         except (OSError, ValueError, TypeError):
-            pass
+            messagebox.showerror(
+                "Settings could not be saved.", message=f"Your settings could not be saved at {SETTINGS_PATH}"
+            )
 
     def _load_settings(self):
         try:
@@ -672,26 +679,12 @@ class MetadataExtractor:
                             else:
                                 self.maxdepth_entry.delete(0, "end")
                                 self.maxdepth_entry.insert(0, "Recursion Depth (#)")
+                                self.maxdepth_entry.config(foreground="gray")
                                 self.maxdepth = 0
-                        elif key in (
-                            "Date Range",
-                            "UTC",
-                            "Keep Open",
-                            "Recursive",
-                            "Hyperlinks",
-                            "Extra EXIF",
-                            "Dimensions",
-                            "Make",
-                            "Model",
-                            "Software",
-                            "Lens Model",
-                            "Aperture",
-                            "Exposure Time",
-                            "Focal Length",
-                            "ISO",
-                            "GPS",
-                        ) and isinstance(value, bool):
+                        elif key in (key_to_checkbox_var) and isinstance(value, bool):
                             key_to_checkbox_var[key].set(value)
+                        elif key in key_to_checkbox_var:  # Value not a boolean
+                            key_to_checkbox_var[key].set(False)
                         # Explicit null in the file means "this field was cleared"
                     else:
                         if key == "Start Date":
@@ -702,6 +695,13 @@ class MetadataExtractor:
                             self.directory_path = None
                         elif key == "Output Path":
                             self.output_path = None
+                        elif key == "Max Depth":
+                            self.maxdepth_entry.delete(0, "end")
+                            self.maxdepth_entry.insert(0, "Recursion Depth (#)")
+                            self.maxdepth_entry.config(foreground="gray")
+                            self.maxdepth = 0
+                        elif key in key_to_checkbox_var:
+                            key_to_checkbox_var[key].set(False)
                 except (ValueError, TypeError):
                     pass
         except (OSError, json.JSONDecodeError, AttributeError):
@@ -989,7 +989,7 @@ class MetadataExtractor:
         return total_processed, total_skipped
 
     def natural_key(self, s):
-        return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", s)]
+        return [(0, t.lower()) if not t.isdigit() else (1, int(t)) for t in re.split(r"(\d+)", s)]
 
     # Helper to find directories one-by-one to max_depth
     def walk_to_depth(self, root_dir, max_depth):
@@ -1111,6 +1111,7 @@ class MetadataExtractor:
                     "Date Range Unset", message="Date Range is checked, but no date(s) were input. Proceeding without."
                 )
                 self.date_range_var.set(False)
+                date_range = False
             else:
                 if start_date and end_date and start_date > end_date:
                     messagebox.showerror("Invalid range", "Start date must be on or before end date.")
@@ -1123,7 +1124,7 @@ class MetadataExtractor:
             final_output = Path(self.output_path) / self.clean_name(name)
         else:
             ext = self.filetype_to_ext[filetype]
-            final_output = Path(self.output_path) / f"output.{ext}"  # Default filename
+            final_output = Path(self.output_path) / f"output{ext}"  # Default filename
         if not recursive:
             try:
                 with os.scandir(self.directory_path) as entries:
@@ -1381,16 +1382,20 @@ class MetadataExtractor:
         try:
             # Initial check: if the first file is a video and second file is photo
             first_video_orphan = False
+            video_opens_group = False
             if media_files and media_files[0].lower().endswith(VIDEO_TYPES):
                 leading_videos = 0
                 while leading_videos < len(media_files) and media_files[leading_videos].lower().endswith(VIDEO_TYPES):
                     leading_videos += 1
-
-                if leading_videos > 1:
+                if leading_videos == len(media_files):
+                    self.collected_warnings["Only Video(s)"].append(directory_path)
+                elif leading_videos > 1:
                     media_files = media_files[leading_videos:]
-                elif leading_videos == 1 and len(media_files) > 1 and media_files[1].lower().endswith(PHOTO_TYPES):
+                    self.collected_warnings["Leading Video"].append(directory_path)
+                elif leading_videos == 1 and media_files[1].lower().endswith(PHOTO_TYPES):
                     if debug:
                         first_video_orphan = False  # keep it as part of the series
+                        video_opens_group = True
                     else:
                         first_video_orphan = self._ask_yes_no_threadsafe(
                             "Video First",
@@ -1398,6 +1403,8 @@ class MetadataExtractor:
                         )
                         if first_video_orphan:
                             media_files = media_files[1:]
+                        else:
+                            video_opens_group = True
                     if self.cancel_event.is_set():
                         return processed, skipped
             # Iterates through every file in the directory
@@ -1427,7 +1434,6 @@ class MetadataExtractor:
                                         output_series = False
                             else:  # All photos found
                                 photos_before_video_updated = True
-                                photos_before_video = 0
                         pattern_check = 1  # Reset for next check
                     if (i == 0 and photos_before_video == 0) or output_series == False:
                         # For images-only or no Img # Series collumn
@@ -1517,16 +1523,13 @@ class MetadataExtractor:
                         photos_before_video_updated and regular_pattern_found == False
                     ):  # No pattern found yet, or is in between sets
                         end = False  # For scanning last files in a pattern
-                        while pattern_check < photos_before_video:
-                            if photos_before_video + i > len(media_files) - 1:
-                                regular_pattern_found = True
-                                end = True
-                                break
-                            pattern_check += 1
-                        if not end:  # Not nearing the end of files to scan/check yet
-                            if i + pattern_check < len(media_files) and media_files[i + pattern_check].lower().endswith(
-                                VIDEO_TYPES
-                            ):  # Verifies expected pattern
+                        if photos_before_video + i > len(media_files) - 1:
+                            regular_pattern_found = True
+                            end = True
+                        if not end:
+                            if photos_before_video + i < len(media_files) and media_files[
+                                photos_before_video + i
+                            ].lower().endswith(VIDEO_TYPES):
                                 regular_pattern_found = True
                                 for photo_check in range(photos_before_video):
                                     idx = i + photo_check
@@ -1568,13 +1571,15 @@ class MetadataExtractor:
                                 if progress_callback:
                                     progress_callback(processed, skipped, directory_path)
                         else:  # Nearing end of directory listing
-                            for r in range(i, len(media_files)):
-                                if self.cancel_event.is_set():
-                                    return processed, skipped
-                                if media_files[r].lower().endswith(PHOTO_TYPES):
+                            # video_opens_group is only True for a kept leading video.
+                            # Multi-strip and orphan-strip both leave it False by design:
+                            # once the leading video is gone, no group has been opened,
+                            # so trailing photos can only be one-offs.
+                            if video_opens_group:
+                                if photos_before_video + i <= len(media_files) and not self.cancel_event.is_set():
                                     ok = self.scan_image(
                                         directory_path,
-                                        r,
+                                        photos_before_video + i - 1,  # Minus one to not go out of bounds
                                         data,
                                         media_files,
                                         output_utc,
@@ -1593,13 +1598,47 @@ class MetadataExtractor:
                                         end_date,
                                     )
                                     if not ok:
-                                        skipped += 1
+                                        skipped += photos_before_video
                                     else:
-                                        processed += 1
-                                        img_series.append(str(r - i + index + modifier))
+                                        processed += photos_before_video
+                                        img_series.append(f"{index}-{i+photos_before_video}")
                                     if progress_callback:
                                         progress_callback(processed, skipped, directory_path)
-                            break  # exit the outer `for file in data["Images"]:` loop
+                                else:
+                                    return processed, skipped
+                            else:
+                                for r in range(i, len(media_files)):
+                                    if self.cancel_event.is_set():
+                                        return processed, skipped
+                                    if media_files[r].lower().endswith(PHOTO_TYPES):
+                                        ok = self.scan_image(
+                                            directory_path,
+                                            r,
+                                            data,
+                                            media_files,
+                                            output_utc,
+                                            output_dimensions,
+                                            output_make,
+                                            output_model,
+                                            output_software,
+                                            output_lens_model,
+                                            output_aperture,
+                                            output_exposure_time,
+                                            output_focal_length,
+                                            output_iso,
+                                            output_gps,
+                                            date_range,
+                                            start_date,
+                                            end_date,
+                                        )
+                                        if not ok:
+                                            skipped += 1
+                                        else:
+                                            processed += 1
+                                            img_series.append(str(r - i + index + modifier))
+                                        if progress_callback:
+                                            progress_callback(processed, skipped, directory_path)
+                                break  # exit the outer `for file in data["Images"]:` loop
                     # Always increment
                     i += 1
                     index += 1
@@ -1620,7 +1659,6 @@ class MetadataExtractor:
                                         output_series = False
                             else:
                                 photos_before_video_updated = True
-                                photos_before_video = 0
                         pattern_check = 1  # Reset as always
 
                     # Standard pattern found logic otherwise
@@ -1652,12 +1690,11 @@ class MetadataExtractor:
                             regular_pattern_found = False
                             continue
                         processed += photos_before_video
-                        if not first_video_orphan:
-                            img_series.append(
-                                str(index - photos_before_video + modifier)
-                                + "-"
-                                + str(index + modifier)  # Not index - 1 + modifier b/c videos count in a series
-                            )  # Image + video series
+                        img_series.append(
+                            str(index - photos_before_video + modifier)
+                            + "-"
+                            + str(index + modifier)  # Not index - 1 + modifier b/c videos count in a series
+                        )  # Image + video series
                         if progress_callback:
                             progress_callback(processed, skipped, directory_path)
                         regular_pattern_found = False
@@ -1912,10 +1949,8 @@ class MetadataExtractor:
                         messagebox.showinfo("No output.", message="No files were written.")
                 self.progress_var.set(100)
                 self.percentage_done.set("100%")
-            else:  # Proceed is False
+            else:  # Proceed is False; output errors then close
                 messagebox.showinfo("Cancelled", message="File not overwritten. Cancelled successfully.")
-                if not self.keepopen_var.get():
-                    self._on_close()
             if self.collected_warnings:
                 output = ""
                 # Writes error messages from the dictionary collected_warnings
@@ -1927,6 +1962,10 @@ class MetadataExtractor:
                         output += "These files had no metadata to scan and were excluded."
                     elif error == "Directory Error":
                         output += "File/Directory couldn't be accessed."
+                    elif error == "Leading Video":
+                        output += "More than one video was scanned first, so all leading videos were ignored in these folders."
+                    elif error == "Only Video(s)":
+                        output += "These directories only had videos present."
                     elif error == "Irregular":
                         output += f"Irregular pattern (started with more than {MAX_PHOTOS_BEFORE_VIDEO} before a video)\n Please add mock files to the beginning to set correct pattern.\nFor example, if the pattern is 3 photos and 1 video, choose 3 photos and 1 video and duplicate them, naming them to be first when sorted, like DCSF0000."
                     elif error == "Hyperlink Error":
@@ -1945,7 +1984,7 @@ class MetadataExtractor:
                     summary = f"{len(self.collected_warnings)} warning categories.\n\nFull details: {log_path.as_posix()}\n\nPlease verify any issues"
                     messagebox.showwarning("Warning(s)", message=summary)
                 except OSError:
-                    messagebox.showerror("Log Error", message=f"Couldn't write log file to {log_path}.\n{summary}")
+                    messagebox.showerror("Log Error", message=f"Couldn't write log file to {log_path}.")
             if not self.keepopen_var.get():  # Checks to close program or not
                 self._on_close()
         except OSError as e:
@@ -2081,7 +2120,7 @@ class MetadataExtractor:
         # For cancel event (set by cancel(), checked in loops, cleared in check_recursive)
         self.cancel_event = threading.Event()
         # Guard so _clean_up can't fire twice through nested dialogs
-        self._scan_running = False
+        self._cleanup_pending = False
         # For ETA
         self.time_started = None
         # For filetype resolving
@@ -2152,7 +2191,7 @@ class MetadataExtractor:
         self.date_range()
         self.gps_warning()
         self.root.update_idletasks()  # flush pending layout
-        self.root.geometry(f"350x{self.root.winfo_reqheight()}")  # fixed width, auto height
+        self.root.geometry(f"{X_WIDTH}x{self.root.winfo_reqheight()}")  # fixed width, auto height
         self.root.mainloop()
 
 

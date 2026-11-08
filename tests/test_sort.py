@@ -70,7 +70,9 @@ def test_video_first_orphan_returns_correctly(extractor, tmp_path, monkeypatch):
     assert extractor.results[0][0].shape[0] == 1
 
 
-def test_video_first_not_orphan_falls_to_one_offs(extractor, tmp_path, monkeypatch):
+def test_video_first_not_orphan_groups_trailing(extractor, tmp_path, monkeypatch):
+    """Non-orphan leading video opens a group; trailing photos belong to it
+    even with no closing video (end-of-array closes the group)."""
     folder = tmp_path / "video_first_pattern"
     folder.mkdir()
     (folder / "A_video.mp4").write_bytes(b"fake")
@@ -82,7 +84,10 @@ def test_video_first_not_orphan_falls_to_one_offs(extractor, tmp_path, monkeypat
     sort_scan(extractor, folder, write=False)
 
     assert len(extractor.results) == 1
-    assert extractor.results[0][0].shape[0] == 2
+    df = extractor.results[0][0]
+    assert df.shape[0] == 1
+    assert list(df["Files"]) == ["C_photo.jpg"]
+    assert list(df["Img # Series"]) == ["1-3"]
 
 
 def test_multiple_leading_videos_stripped(extractor, tmp_path):
