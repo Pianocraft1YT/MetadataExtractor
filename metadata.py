@@ -32,7 +32,7 @@ from typing import Any
 import openpyxl
 import pandas as pd
 from openpyxl.styles import Font
-from PIL import Image, UnidentifiedImageError
+from PIL import Image
 from tk_date_entry import DateEntry
 
 # Constants
@@ -410,6 +410,7 @@ class MetadataExtractor:
         except Exception:  # noqa: BLE001
             messagebox.showerror("Setting Save Error", message=f"Your settings could not be saved at {SETTINGS_PATH}")
         self.cancel_event.set()
+        self._dialog_event.set()
         self._destroyed = True
         self.root.destroy()
 
@@ -430,7 +431,8 @@ class MetadataExtractor:
 
             if not self._destroyed:
                 self.root.after(0, _show)  # enqueue, return immediately
-                self._dialog_event.wait()  # now block the worker for real
+                self._dialog_event.wait(timeout=20.0)  # now block the worker for real
+            # Timeout or destroyed root = non-orphan
             return bool(self._dialog_answer)
 
     # Conversion Helpers
@@ -592,10 +594,14 @@ class MetadataExtractor:
                 "Start Date": start.isoformat() if start else None,
                 "End Date": end.isoformat() if end else None,
                 "File Name": (
-                    self.name_entry.get() if self.name_entry.get() != "Filename (default output.filetype)" else None
+                    self.name_entry.get()
+                    if self.name_entry.get() != "Filename (default output.filetype)" and self.name_entry.get() != ""
+                    else None
                 ),
                 "Modifier": (
-                    self.modifier_entry.get() if self.modifier_entry.get() != "Starting index (Img # Series)" else None
+                    self.modifier_entry.get()
+                    if self.modifier_entry.get() != "Starting index (Img # Series)" and self.modifier_entry.get() != ""
+                    else None
                 ),
                 "Max Depth": (
                     int(self.maxdepth_entry.get().strip()) if self.maxdepth_entry.get().strip().isdigit() else None
@@ -648,10 +654,10 @@ class MetadataExtractor:
                 try:
                     if value is not None:
                         if key == "Directory Path":
-                            if Path(value).is_dir() and Path(value).exists():
+                            if Path(value).is_dir():
                                 self.directory_path = Path(value)
                         elif key == "Output Path":
-                            if Path(value).is_dir() and Path(value).exists():
+                            if Path(value).is_dir():
                                 self.output_path = Path(value)
                         elif key == "Filetype":
                             if value in self.filetypes:
@@ -669,9 +675,11 @@ class MetadataExtractor:
                             self.modifier_entry.insert(0, value)
                             self.modifier_entry.config(foreground="black")
                         elif key == "Max Depth":
-                            if (isinstance(value, int) or (isinstance(value, float) and value.is_integer())) and int(
-                                value
-                            ) > 0:
+                            if isinstance(value, bool):
+                                value = None
+                            elif isinstance(value, float) and value.is_integer():
+                                value = int(value)
+                            if isinstance(value, int):
                                 self.maxdepth_entry.delete(0, "end")
                                 self.maxdepth_entry.insert(0, str(value))
                                 self.maxdepth = int(value)
@@ -854,7 +862,7 @@ class MetadataExtractor:
                         return False
                     if start_date and d < start_date or end_date and d > end_date:
                         process_image = False
-            except (OSError, SyntaxError, ValueError, UnidentifiedImageError):
+            except (OSError, SyntaxError, ValueError):
                 self.collected_warnings["Scan Error"].append(f"[{directory_path}]\\{media_files[i]}")
                 return False
             else:
@@ -1281,14 +1289,23 @@ class MetadataExtractor:
                 return candidate
             f += 1
 
+    def _sanitize_for_filename(self, name):
+        """Sheet name → filename component. No extension logic, no reserved names."""
+        illegal = ("<", ">", ":", '"', "/", "\\", "|", "?", "*")
+        for c in illegal:
+            name = name.replace(c, "_")
+        return name
+
     # For filenames
     def clean_name(self, name):
-        # Windows-illegal filename characters
+        name = name.strip().rstrip(".")
+        # Check if anything useful survives stripping
+        if not any(c.isalnum() for c in name):
+            name = "output"
         illegal_chars = ("<", ">", ":", '"', "/", "\\", "|", "?", "*")
         for c in illegal_chars:
             name = name.replace(c, "_")
         # Trim whitespace and trailing dots (Windows strips trailing dots silently)
-        name = name.strip().rstrip(".")
         # Fall back if the user typed only illegal chars or spaces
         if len(name) < 1:
             name = "output"
@@ -1373,6 +1390,7 @@ class MetadataExtractor:
         output_series = True  # If photos_before_video is less than MAX_PHOTOS_BEFORE_VIDEO.
         data = self._empty_scan_data()  # Data dictionary
         img_series = []
+        # photos_before_video is assumed to be whatever the first pattern found is
         photos_before_video_updated = False
         i = 0  # Internal usage to scan files
         index = 1  # For img_series generation
@@ -1435,7 +1453,7 @@ class MetadataExtractor:
                             else:  # All photos found
                                 photos_before_video_updated = True
                         pattern_check = 1  # Reset for next check
-                    if (i == 0 and photos_before_video == 0) or output_series == False:
+                    if output_series == False:
                         # For images-only or no Img # Series collumn
                         processed = 0
                         skipped = 0
@@ -1575,37 +1593,38 @@ class MetadataExtractor:
                             # Multi-strip and orphan-strip both leave it False by design:
                             # once the leading video is gone, no group has been opened,
                             # so trailing photos can only be one-offs.
-                            if video_opens_group:
-                                if photos_before_video + i <= len(media_files) and not self.cancel_event.is_set():
-                                    ok = self.scan_image(
-                                        directory_path,
-                                        photos_before_video + i - 1,  # Minus one to not go out of bounds
-                                        data,
-                                        media_files,
-                                        output_utc,
-                                        output_dimensions,
-                                        output_make,
-                                        output_model,
-                                        output_software,
-                                        output_lens_model,
-                                        output_aperture,
-                                        output_exposure_time,
-                                        output_focal_length,
-                                        output_iso,
-                                        output_gps,
-                                        date_range,
-                                        start_date,
-                                        end_date,
-                                    )
-                                    if not ok:
-                                        skipped += photos_before_video
-                                    else:
-                                        processed += photos_before_video
-                                        img_series.append(f"{index}-{i+photos_before_video}")
-                                    if progress_callback:
-                                        progress_callback(processed, skipped, directory_path)
+                            if (
+                                video_opens_group
+                                and photos_before_video + i == len(media_files)
+                                and not self.cancel_event.is_set()
+                            ):
+                                ok = self.scan_image(
+                                    directory_path,
+                                    photos_before_video + i - 1,  # Minus one to not go out of bounds
+                                    data,
+                                    media_files,
+                                    output_utc,
+                                    output_dimensions,
+                                    output_make,
+                                    output_model,
+                                    output_software,
+                                    output_lens_model,
+                                    output_aperture,
+                                    output_exposure_time,
+                                    output_focal_length,
+                                    output_iso,
+                                    output_gps,
+                                    date_range,
+                                    start_date,
+                                    end_date,
+                                )
+                                if not ok:
+                                    skipped += photos_before_video
                                 else:
-                                    return processed, skipped
+                                    processed += photos_before_video
+                                    img_series.append(f"{index + modifier}-{i+photos_before_video+modifier}")
+                                if progress_callback:
+                                    progress_callback(processed, skipped, directory_path)
                             else:
                                 for r in range(i, len(media_files)):
                                     if self.cancel_event.is_set():
@@ -1638,7 +1657,7 @@ class MetadataExtractor:
                                             img_series.append(str(r - i + index + modifier))
                                         if progress_callback:
                                             progress_callback(processed, skipped, directory_path)
-                                break  # exit the outer `for file in data["Images"]:` loop
+                            break  # exit the outer `for file in data["Images"]:` loop
                     # Always increment
                     i += 1
                     index += 1
@@ -1806,6 +1825,12 @@ class MetadataExtractor:
                 "Dates": data["Dates"],
                 "Time": data["Times"],
             }
+            if output_series:
+                df_data["Img # Series"] = img_series  # Add on img_series
+            else:
+                self.collected_warnings["Irregular"].append(
+                    directory_path
+                )  # If irregular pattern starts with more than MAX_PHOTOS_BEFORE_VIDEO images in a row, will break program, so error.
             if output_dimensions:
                 df_data["Dimensions"] = data["Dimensions"]
             if output_make:
@@ -1827,12 +1852,6 @@ class MetadataExtractor:
             if output_gps:
                 df_data["GPS Latitude"] = data["GPS_Latitudes"]
                 df_data["GPS Longitude"] = data["GPS_Longitudes"]
-            if output_series:
-                df_data["Img # Series"] = img_series  # Add on img_series
-            else:
-                self.collected_warnings["Irregular"].append(
-                    directory_path
-                )  # If irregular pattern starts with more than MAX_PHOTOS_BEFORE_VIDEO images in a row, will break program, so error.
             df = pd.DataFrame(df_data)  # Create DataFrame
             current_sheet_name = self.verify_name(self.current_sheet_name, self.used)
             self.results.append((df, current_sheet_name, directory_path))
@@ -1876,7 +1895,9 @@ class MetadataExtractor:
                 elif filetype == "CSV":  # CSV mode
                     files_written = 0
                     for sheet_df, sheet_name, _ in self.results:
-                        csv_path = output_path.with_suffix("").as_posix() + f"_{self.clean_name(sheet_name)}"
+                        csv_path = (
+                            output_path.with_suffix("").as_posix() + f"_{self._sanitize_for_filename(sheet_name)}.csv"
+                        )
                         if Path(csv_path).exists():
                             proceed = messagebox.askyesno(
                                 "Overwrite?", message=csv_path + " \nalready exists. Overwrite?"
@@ -1919,7 +1940,9 @@ class MetadataExtractor:
                 elif filetype == "Markdown":
                     files_written = 0
                     for sheet_df, sheet_name, directory in self.results:
-                        md_path = Path(output_path.with_suffix("").as_posix() + f"_{self.clean_name(sheet_name)}")
+                        md_path = Path(
+                            output_path.with_suffix("").as_posix() + f"_{self._sanitize_for_filename(sheet_name)}.md"
+                        )
                         if md_path.exists():
                             proceed = messagebox.askyesno(
                                 "Overwrite?", message=f"{md_path}\nalready exists. Overwrite?"
