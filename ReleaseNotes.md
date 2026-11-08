@@ -2,7 +2,7 @@
 A quaint table for release information.
 Created from new tags/releases and old tags/releases from past repo.
 
-# Full tag history — 54 tags
+# Full tag history — 61 tags
 
 | Version | Date | Summary |
 |---|---|---|
@@ -60,3 +60,10 @@ Created from new tags/releases and old tags/releases from past repo.
 | v3.17.0 | 2026-11-01 | GPS coordinates (EXIF tag 34853 sub-IFD) |
 | v3.18.0 | 2026-11-01 | Markdown output (GFM tables, one file per sheet) |
 | v3.18.1 | 2026-11-01 | Markdown hyperlinks (`[name](<url>)` in Files column) |
+| v3.19.0 | 2026-11-02 | Real-photo EXIF fixes: 8 sub-IFD tags (`DateTimeOriginal`, `FNumber`, `ExposureTime`, `FocalLength`, `ISO`, `LensModel`, `OffsetTimeOriginal`, `DateTimeDigitized`), GPS IFD abort, Excel illegal-character crash. `gps_checkbox` finally packed. |
+| v3.19.1 | 2026-11-02 | Review-response fixes for v3.19.0: `fix_time` placeholder on bad UTC, `media_files` NameError, `_convert_seconds` precedence, `pattern_check` reset, empty-folder guard, `create_dataframe` early-return, `create_sheet` cancel-close, `warnings.log` guard, dialog serialization, `cancel_event.set()` typo. |
+| v3.20.0 | 2026-11-04 | Scanner refactor: `sort_and_extract_irregular` merged into `sort_and_extract`, 11 mutable counters → 6. Hidden-file filtering moved to `walk_to_depth`. Four long-standing bugs fixed as side effects. |
+| v3.20.1 | 2026-11-05 | Bug-fix release for v3.20.0: recursive mode completely broken, "Cancelled" dialog on success, CSV overwrite leaking `proceed`, Markdown hyperlink `Path + str`, irregular-pattern `.as_posix()`, UTC-offset path, settings `TypeError`, gray-entry-after-load, progress-bar overcount, recursive isolation, `IMG_001.jpg`/`.mov` sort determinism. |
+| v3.20.2 | 2026-11-06 | Scan/signature cleanup and 15-item bug sweep. Three self-introduced regressions caught pre-tag (`first_video_orphan` UnboundLocalError, starting-index `int()` ValueError, De Morgan default-filename). Dropped `recursive`/`final_output`/`defer_create_sheet` params. |
+| v3.20.3 | 2026-11-08 | Leading-video trailer fix: non-orphan videos open groups, `[v,p,p,p,v,p,p,p]` → `"1-4"`, `"5-8"`. New `"Leading Video"` / `"Only Video(s)"` warnings. Seven-item sweep: settings silent failure, `_format_iso` rational, `date_range` local drift, key dedup, `_clean_up` destroyed-root, hyperlink bracket escape, `natural_key` tagged tuples. |
+| v3.20.4 | 2026-11-08 | Second sweep: `_sanitize_for_filename` splits sheet-name cleaning from filename cleaning (dots preserved). Max Depth bool/float, blank File Name/Modifier, null Max Depth, null booleans, dialog race. Tail-end modifier on both ends, partial group → one-offs, double-scan regression fixed. Dead-code removal ×3. |

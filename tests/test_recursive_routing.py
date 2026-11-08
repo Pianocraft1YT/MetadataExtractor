@@ -1,5 +1,5 @@
 """
-Regression tests for check_recursive's filetype routing.
+Regression tests for initialize's filetype routing.
 
 Before the fix: `if filetype != "CSV" or filetype != "Markdown":` was always
 True, so the "Multiple X Files" prompt was dead code for CSV and Markdown.
@@ -57,11 +57,11 @@ def test_recursive_prompts_multiple_files(extractor, populated, monkeypatch, fil
     _capture_start_scan(extractor)
     prompts = _capture_askyesno(monkeypatch)
 
-    extractor.check_recursive()
+    extractor.initialize()
 
     assert any(
         f"Multiple {filetype} Files" in t for t, _ in prompts
-    ), f"no 'Multiple {filetype} Files' prompt — is the `or` still in check_recursive?"
+    ), f"no 'Multiple {filetype} Files' prompt — is the `or` still in initialize?"
 
 
 @pytest.mark.parametrize("filetype", ["Excel", "JSON"])
@@ -72,7 +72,7 @@ def test_non_multi_recursive_skips_multiple_prompt(extractor, populated, monkeyp
     _capture_start_scan(extractor)
     prompts = _capture_askyesno(monkeypatch)
 
-    extractor.check_recursive()
+    extractor.initialize()
 
     assert not any("Multiple" in t for t, _ in prompts)
 
@@ -83,7 +83,7 @@ def test_recursive_markdown_declined_returns_without_scan(extractor, populated, 
     calls = _capture_start_scan(extractor)
     monkeypatch.setattr("metadata.messagebox.askyesno", lambda *a, **k: False)
 
-    extractor.check_recursive()
+    extractor.initialize()
 
     assert calls == []
 
@@ -95,7 +95,7 @@ def test_markdown_non_recursive_skips_multiple_prompt(extractor, populated, monk
     _capture_start_scan(extractor)
     prompts = _capture_askyesno(monkeypatch)
 
-    extractor.check_recursive()
+    extractor.initialize()
 
     assert not any("Multiple" in t for t, _ in prompts)
 
@@ -109,7 +109,7 @@ def test_hyperlink_warning_fires_for_non_excel(extractor, populated, monkeypatch
     _capture_start_scan(extractor)
     prompts = _capture_askyesno(monkeypatch)
 
-    extractor.check_recursive()
+    extractor.initialize()
 
     assert any("Hyperlink" in t for t, _ in prompts), f"no hyperlink warning shown for {filetype}"
 
@@ -120,5 +120,5 @@ def test_no_hyperlink_warning_for_markdown(extractor, populated, monkeypatch):
     extractor.directory_path = extractor.output_path = populated
     _capture_start_scan(extractor)
     prompts = _capture_askyesno(monkeypatch)
-    extractor.check_recursive()
+    extractor.initialize()
     assert not any("Hyperlink" in t for t, _ in prompts)

@@ -1,4 +1,4 @@
-"""Tests for the "Starting index" entry in check_recursive.
+"""Tests for the "Starting index" entry in initialize.
 
 Mocks _start_scan rather than the old sort_and_extract_irregular, which
 no longer exists after the scanner refactor.
@@ -47,7 +47,7 @@ def test_invalid_starting_index_rejected(extractor, monkeypatch, tmp_path, value
 
     extractor.directory_path = tmp_path
     extractor.output_path = tmp_path
-    extractor.check_recursive()
+    extractor.initialize()
 
     assert errors, f"expected rejection for {value!r}"
 
@@ -69,6 +69,6 @@ def test_valid_starting_index_accepted(extractor, monkeypatch, tmp_path, value, 
 
     extractor.directory_path = tmp_path
     extractor.output_path = tmp_path
-    extractor.check_recursive()
+    extractor.initialize()
 
     assert captured.get("modifier") == expected_modifier, f"value={value!r} should give modifier={expected_modifier}"

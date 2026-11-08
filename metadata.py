@@ -6,12 +6,13 @@
 # Please increment this counter as a warning
 # For the next person:
 #
-# hours_spent_original = 77
+# hours_spent_original = 79
 # hours_wasted_here = 0
 
 # Coded by Pianocraft1YT
 # Tutorial: https://youtu.be/ruWNKBdbYoo
 # GitHub Repo: https://github.com/Pianocraft1YT/MetadataExtractor/
+# Releases: https://github.com/Pianocraft1YT/MetadataExtractor/releases/
 
 # Imports
 import json
@@ -28,19 +29,16 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
-# For spreadsheet making
 import openpyxl
 import pandas as pd
 from openpyxl.styles import Font
 from PIL import Image
 from tk_date_entry import DateEntry
 
-# Constants
+# EXIF Constants
 EXIF_DATETIME = 306
 EXIF_DATETIME_ORIGINAL = 36867
 EXIF_DATETIME_DIGITIZED = 36868
-MAX_PHOTOS_BEFORE_VIDEO = 5
-SHEET_NAME_MAX_CHARS = 31
 EXIF_OFFSET_TIME_ORIGINAL = 36881
 EXIF_CAMERA_MAKE = 271
 EXIF_CAMERA_MODEL = 272
@@ -51,6 +49,9 @@ EXIF_EXPOSURE_TIME = 33434
 EXIF_FOCAL_LENGTH = 37386
 EXIF_ISO = 34855
 
+# General Constants
+MAX_PHOTOS_BEFORE_VIDEO = 5
+SHEET_NAME_MAX_CHARS = 31
 # XML Illegals
 XML_ILLEGAL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 # Persistent Settings
@@ -159,7 +160,6 @@ class MetadataExtractor:
 
     # Show extra metadata checkboxes when extra_exif_checkbox is checked
     def extra_exif(self):
-        # Pack all 9 checkboxes inside the frame ONCE, at init time (see below)
         # The toggle only moves the frame itself in/out of root's layout.
         if self.extra_exif_var.get():
             self.extra_exif_frame.pack(before=self.progress_frame)
@@ -168,6 +168,7 @@ class MetadataExtractor:
         self.root.update_idletasks()
         self.root.geometry(f"{X_WIDTH}x{self.root.winfo_reqheight()}")
 
+    # Show starting date and ending date calendar widgets on checkbox click only
     def date_range(self):
         if self.date_range_var.get():
             self.date_notice_label.pack(after=self.date_range_checkbox)
@@ -184,26 +185,37 @@ class MetadataExtractor:
         self.root.update_idletasks()  # flush pending layout
         self.root.geometry(f"{X_WIDTH}x{self.root.winfo_reqheight()}")  # fixed width, auto height
 
-    # Helpers for progress bar
-    def get_total_files(self, max_depth):
-        file_count = 0
-        for _, _, files in self.walk_to_depth(self.directory_path, max_depth):
-            if self.cancel_event.is_set():
-                return file_count
-            file_count += sum(1 for entry in files if entry.lower().endswith(PHOTO_TYPES))
-        return file_count
+    # Sort helper
+    @staticmethod
+    def natural_key(s):
+        return [(0, t.lower()) if not t.isdigit() else (1, int(t)) for t in re.split(r"(\d+)", s)]
 
-    # Main-thread setter for total_files (queued via root.after from worker)
-    def _set_total_files(self, count):
-        self.time_started = time.perf_counter()
-        self.total_files = count
-        self.scanned_count.set(f"Scanned: 0 / {count}")
-        if count > 0:
-            self.percentage_done.set("0%")
-            self.progress_var.set(0)
+    # Create a messagebox.askyesno() that is thread-safe
+    def _ask_yes_no_threadsafe(self, title, msg):
+        """Call from a worker thread. Blocks until the main thread answers."""
+        # Use a lock to ensure only one worker thread manages a dialog at a time
+        if threading.current_thread() is threading.main_thread():
+            return bool(messagebox.askyesno(title, msg))  # already on main, just call it
+        with self._dialog_lock:
+            self._dialog_answer = None
+            self._dialog_event.clear()
 
+            def _show():
+                try:
+                    self._dialog_answer = messagebox.askyesno(title, msg)
+                finally:
+                    self._dialog_event.set()
+
+            if not self._destroyed:
+                self.root.after(0, _show)  # enqueue, return immediately
+                self._dialog_event.wait(timeout=20.0)  # now block the worker for real
+            # Timeout or destroyed root = non-orphan
+            return bool(self._dialog_answer)
+
+    # Conversion Helpers
     # Turn only seconds into normal time measurements
-    def _convert_seconds(self, seconds, mode="ETA"):
+    @staticmethod
+    def _convert_seconds(seconds, mode="ETA"):
         output = []
         minutes = 0
         hours = 0
@@ -234,6 +246,269 @@ class MetadataExtractor:
         else:
             output = ", ".join(output)
         return output
+
+    @staticmethod
+    def _decode_exif_string(v):
+        if isinstance(v, bytes):
+            return v.decode("ascii", errors="replace")
+        return v
+
+    @staticmethod
+    def _rational_to_float(value: Any) -> float | None:
+        if value is None:
+            return None
+        if isinstance(value, tuple):
+            if len(value) != 2:
+                return None
+            num, den = value
+            try:
+                return num / den if den else None
+            except (TypeError, ZeroDivisionError):
+                return None
+        try:
+            return float(value)
+        except (TypeError, ValueError, ZeroDivisionError):
+            return None
+
+    def _format_aperture(self, value):
+        v = self._rational_to_float(value)
+        if v is None or v <= 0:
+            return None
+        return f"f/{v:g}"  # 5.6 -> "f/5.6", 8.0 -> "f/8"
+
+    def _format_exposure_time(self, value):
+        v = self._rational_to_float(value)
+        if v is None or v <= 0:
+            return None
+        if v >= 1:
+            return f"{v:g}s"  # 1.0 -> "1s", 2.5 -> "2.5s", 30.0 -> "30s"
+        inv = 1.0 / v
+        rounded = round(inv)
+        if rounded > 1 and abs(inv - rounded) / inv < 0.01:
+            return f"1/{rounded}"  # 0.004 -> "1/250", 0.5 -> "1/2"
+        return f"{v:g}s"  # 0.3 -> "0.3s" (not "1/3")
+
+    def _format_focal_length(self, value):
+        v = self._rational_to_float(value)
+        if v is None or v <= 0:
+            return None
+        return f"{v:g}mm"  # 23.0 -> "23mm", 18.5 -> "18.5mm"
+
+    @staticmethod
+    def _format_iso(value):
+        if value is None:
+            return None
+        if isinstance(value, (list, tuple)):
+            if not value:
+                return None
+            value = value[0]
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _dataframe_to_txt(self, df, directory=None, hyperlinks=False):
+        def esc(v):
+            if v is None:
+                return ""
+            try:
+                # pd.isna returns array for list-like cells; guard truthiness
+                na = pd.isna(v)
+                if not hasattr(na, "__len__") and na:
+                    return ""
+            except (TypeError, ValueError):
+                pass
+            v = str(v)
+            # Replacement rules, do not change order
+            v = v.replace("\\", "\\\\")
+            v = v.replace("|", "\\|")
+            v = v.replace("\r\n", " ")
+            v = v.replace("\n", " ")
+            v = v.replace("\r", " ")
+            return v
+
+        lines = []
+        fixed_columns = []
+        columns = df.columns
+        n = len(columns)
+        for index, column in enumerate(columns):
+            fixed_columns.append(esc(column))
+        fixed_columns = "|".join(fixed_columns)
+        lines.append("|" + fixed_columns + "|")
+        lines.append("|---" * n + "|")
+        for _, row in df.iterrows():
+            values = row.tolist()
+            raw = values[0] if values else None
+            for index, value in enumerate(values):
+                values[index] = esc(value)
+            if hyperlinks and directory is not None and isinstance(raw, str) and raw:
+                url = (Path(directory) / raw).as_posix()
+                values[0] = values[0].replace("[", "\\[").replace("]", "\\]")
+                values[0] = f"[{values[0]}](<{url}>)"
+            values = "|".join(values)
+            values = "|" + values + "|"
+            lines.append(values)
+        return "\n".join(lines)
+
+    @staticmethod
+    def _parse_exif_datetime(dt_value):
+        """Parse "YYYY:MM:DD HH:MM:SS" or "YYYY:MM:DD" to a date object, or None."""
+        s = str(dt_value)
+        try:
+            if " " in s:
+                return datetime.strptime(s, "%Y:%m:%d %H:%M:%S").date()
+            return datetime.strptime(s, "%Y:%m:%d").date()
+        except ValueError:
+            return None
+
+    def _format_gps_coord(self, dms_tuple, ref):
+        if isinstance(ref, bytes):
+            try:
+                ref = ref.decode("ascii")
+            except UnicodeDecodeError:
+                return None
+        if not isinstance(ref, str) or not ref.strip():
+            return None
+        if not isinstance(dms_tuple, (tuple, list)) or len(dms_tuple) != 3:
+            return None
+        degree = self._rational_to_float(dms_tuple[0])
+        minute = self._rational_to_float(dms_tuple[1])
+        second = self._rational_to_float(dms_tuple[2])
+        if degree is None or minute is None or second is None:
+            return None
+        converted = degree + minute / 60.0 + second / 3600.0
+        if ref.upper() in ("S", "W"):
+            converted = -converted
+        return f"{converted:.6f}"
+
+    # Sanitization Helpers
+    # XML forbids control characters that sometimes are used as padding, so scrub them out.
+    def _sanitize_for_excel(self, df):
+        copy = df.copy()
+        if copy.empty:
+            return copy
+        for col in copy.columns:
+            current_col = copy[col]
+            if current_col.dtype == object or pd.api.types.is_string_dtype(current_col):
+                copy[col] = current_col.apply(lambda v: XML_ILLEGAL_CHARS.sub("", v) if isinstance(v, str) else v)
+        return copy
+
+    # For Sheet Names
+    def verify_name(self, name, used):
+        illegal_chars = ("[", "]", ":", "*", "?", "/", "\\")  # Can't be in a sheet name
+        for c in illegal_chars:
+            name = name.replace(c, "_")  # Replace any instances with "_"
+        # safety net; find_directories already trims to 31
+        name = name[:SHEET_NAME_MAX_CHARS]  # Truncate to SHEET_NAME_MAX_CHARS (31) characters max
+        # Excel restrictions: apostrophes at start/end, reserved name "History"
+        if name.startswith("'") or name.endswith("'"):
+            name = name.strip("'")
+        if name.lower() == "history":
+            name = "History_"
+        if len(name) < 1:  # If no name, make default "Sheet"
+            name = "Sheet"
+        if name.lower() not in used:  # Check if used already, duplicate sheet names not allowed
+            used.add(name.lower())
+            return name
+        f = 2
+        while True:  # Name was used already
+            suffix = "_" + str(f)  # Infinitely try increasing _X numbers, from 2
+            candidate = name[: SHEET_NAME_MAX_CHARS - len(suffix)] + suffix  # Truncate original name
+            if candidate.lower() not in used:
+                used.add(candidate.lower())
+                return candidate
+            f += 1
+
+    @staticmethod
+    def _sanitize_for_filename(name):
+        """Sheet name → filename component. No extension logic, no reserved names."""
+        illegal = ("<", ">", ":", '"', "/", "\\", "|", "?", "*")
+        for c in illegal:
+            name = name.replace(c, "_")
+        return name
+
+    # For filenames
+    def clean_name(self, name):
+        name = name.strip().rstrip(".")
+        # Check if anything useful survives stripping
+        if not any(c.isalnum() for c in name):
+            name = "output"
+        illegal_chars = ("<", ">", ":", '"', "/", "\\", "|", "?", "*")
+        for c in illegal_chars:
+            name = name.replace(c, "_")
+        # Trim whitespace and trailing dots (Windows strips trailing dots silently)
+        # Fall back if the user typed only illegal chars or spaces
+        if len(name) < 1:
+            name = "output"
+        # Split extension once so reserved-name and length checks see the stem.
+        # Preserve the case of the extension as typed by the user.
+        suffix = Path(name).suffix.lower()
+        selected = self.filetype_var.get()
+        selected = self.filetype_to_ext[selected]
+        if selected == suffix:
+            stem = name[: -len(suffix)]
+            ext = name[-len(suffix) :]
+        elif suffix:
+            ext = selected
+            stem = name[: -len(suffix)]
+        else:  # No suffix
+            ext = selected
+            stem = name
+
+        # Windows reserved names — check the stem, not the full name
+        reserved = {
+            "CON",
+            "PRN",
+            "AUX",
+            "NUL",
+            "COM1",
+            "COM2",
+            "COM3",
+            "COM4",
+            "COM5",
+            "COM6",
+            "COM7",
+            "COM8",
+            "COM9",
+            "LPT1",
+            "LPT2",
+            "LPT3",
+            "LPT4",
+            "LPT5",
+            "LPT6",
+            "LPT7",
+            "LPT8",
+            "LPT9",
+        }
+        if stem.upper() in reserved:
+            stem = "_" + stem
+
+        # Truncate overly long stems — Windows paths cap at ~260 chars total,
+        # and the output directory path also consumes space.
+        MAX_STEM = 200
+        if len(stem) > MAX_STEM:
+            stem = stem[:MAX_STEM]
+
+        # Reassemble with the extension the user provided (or .xlsx if none)
+        return stem + ext
+
+    # Helpers for progress bar
+    def get_total_files(self, max_depth):
+        file_count = 0
+        for _, _, files in self.walk_to_depth(self.directory_path, max_depth):
+            if self.cancel_event.is_set():
+                return file_count
+            file_count += sum(1 for entry in files if entry.lower().endswith(PHOTO_TYPES))
+        return file_count
+
+    # Main-thread setter for total_files (queued via root.after from worker)
+    def _set_total_files(self, count):
+        self.time_started = time.perf_counter()
+        self.total_files = count
+        self.scanned_count.set(f"Scanned: 0 / {count}")
+        if count > 0:
+            self.percentage_done.set("0%")
+            self.progress_var.set(0)
 
     # Updates the progress bar
     def update_progress(self, processed, skipped, current_dir, timestamp=None):
@@ -284,6 +559,7 @@ class MetadataExtractor:
         start_date,
         end_date,
     ):
+        # Cleanup must run after this
         self._cleanup_pending = True
         self.execute_button.config(state="disabled")
         self.cancel_button.config(state="normal")
@@ -312,7 +588,7 @@ class MetadataExtractor:
             daemon=True,
         ).start()
 
-    # Runs the threaded versions of the scan(s)
+    # Runs the scan on a thread
     def _run_scan_threaded(
         self,
         recursive,
@@ -374,7 +650,7 @@ class MetadataExtractor:
             )
         except Exception as e:  # noqa: BLE001
             self.collected_warnings["Unexpected"].append(f"{e}\n{traceback.format_exc()}")
-        finally:
+        finally:  # Always clean up
             if not self._destroyed:
                 self.root.after(
                     0,
@@ -384,6 +660,7 @@ class MetadataExtractor:
                     total_skipped,
                 )
 
+    # Clean up and create sheet
     def _clean_up(self, final_output, processed, skipped):
         # Guard so a queued _clean_up can't fire twice (e.g. through nested dialogs)
         if not self._cleanup_pending or self._destroyed:
@@ -404,6 +681,7 @@ class MetadataExtractor:
                     self.current_directory.set("Cancelled")
                     self.percentage_done.set("Cancelled")
 
+    # Closing behavior
     def _on_close(self):
         try:
             self._save_settings()
@@ -414,152 +692,28 @@ class MetadataExtractor:
         self._destroyed = True
         self.root.destroy()
 
-    def _ask_yes_no_threadsafe(self, title, msg):
-        """Call from a worker thread. Blocks until the main thread answers."""
-        # Use a lock to ensure only one worker thread manages a dialog at a time
-        if threading.current_thread() is threading.main_thread():
-            return bool(messagebox.askyesno(title, msg))  # already on main, just call it
-        with self._dialog_lock:
-            self._dialog_answer = None
-            self._dialog_event.clear()
+    # To clean up any past executions
+    def reset(self):
+        self.used = set()
+        self.results.clear()
+        self.collected_warnings.clear()
+        self.current_sheet_name = "Sheet"
+        self.current_directory.set("")
+        self.total_files = 0
+        self.scanned_count.set("Scanned: 0 / …")
+        self.skipped_count.set("Skipped: 0")
+        self.percentage_done.set("0%")
+        self.progress_var.set(0)
+        self.eta.set("Estimating...")
+        self.elapsed_time.set("Time Elapsed: ...")
+        self.time_started = None
 
-            def _show():
-                try:
-                    self._dialog_answer = messagebox.askyesno(title, msg)
-                finally:
-                    self._dialog_event.set()
-
-            if not self._destroyed:
-                self.root.after(0, _show)  # enqueue, return immediately
-                self._dialog_event.wait(timeout=20.0)  # now block the worker for real
-            # Timeout or destroyed root = non-orphan
-            return bool(self._dialog_answer)
-
-    # Conversion Helpers
-    def _rational_to_float(self, value: Any) -> float | None:
-        if value is None:
-            return None
-        if isinstance(value, tuple):
-            if len(value) != 2:
-                return None
-            num, den = value
-            try:
-                return num / den if den else None
-            except (TypeError, ZeroDivisionError):
-                return None
-        try:
-            return float(value)
-        except (TypeError, ValueError, ZeroDivisionError):
-            return None
-
-    def _format_aperture(self, value):
-        v = self._rational_to_float(value)
-        if v is None or v <= 0:
-            return None
-        return f"f/{v:g}"  # 5.6 -> "f/5.6", 8.0 -> "f/8"
-
-    def _format_exposure_time(self, value):
-        v = self._rational_to_float(value)
-        if v is None or v <= 0:
-            return None
-        if v >= 1:
-            return f"{v:g}s"  # 1.0 -> "1s", 2.5 -> "2.5s", 30.0 -> "30s"
-        inv = 1.0 / v
-        rounded = round(inv)
-        if rounded > 1 and abs(inv - rounded) / inv < 0.01:
-            return f"1/{rounded}"  # 0.004 -> "1/250", 0.5 -> "1/2"
-        return f"{v:g}s"  # 0.3 -> "0.3s" (not "1/3")
-
-    def _format_focal_length(self, value):
-        v = self._rational_to_float(value)
-        if v is None or v <= 0:
-            return None
-        return f"{v:g}mm"  # 23.0 -> "23mm", 18.5 -> "18.5mm"
-
-    def _format_iso(self, value):
-        if value is None:
-            return None
-        if isinstance(value, (list, tuple)):
-            if not value:
-                return None
-            value = value[0]
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return None
-
-    def _dataframe_to_txt(self, df, directory=None, hyperlinks=False):
-        def esc(v):
-            if v is None:
-                return ""
-            try:
-                # pd.isna returns array for list-like cells; guard truthiness
-                na = pd.isna(v)
-                if not hasattr(na, "__len__") and na:
-                    return ""
-            except (TypeError, ValueError):
-                pass
-            v = str(v)
-            # Replacement rules, do not change order
-            v = v.replace("\\", "\\\\")
-            v = v.replace("|", "\\|")
-            v = v.replace("\r\n", " ")
-            v = v.replace("\n", " ")
-            v = v.replace("\r", " ")
-            return v
-
-        lines = []
-        fixed_columns = []
-        columns = df.columns
-        n = len(columns)
-        for index, column in enumerate(columns):
-            fixed_columns.append(esc(column))
-        fixed_columns = "|".join(fixed_columns)
-        lines.append("|" + fixed_columns + "|")
-        lines.append("|---" * n + "|")
-        for _, row in df.iterrows():
-            values = row.tolist()
-            raw = values[0] if values else None
-            for index, value in enumerate(values):
-                values[index] = esc(value)
-            if hyperlinks and directory is not None and isinstance(raw, str) and raw:
-                url = (Path(directory) / raw).as_posix()
-                values[0] = values[0].replace("[", "\\[").replace("]", "\\]")
-                values[0] = f"[{values[0]}](<{url}>)"
-            values = "|".join(values)
-            values = "|" + values + "|"
-            lines.append(values)
-        return "\n".join(lines)
-
-    def _parse_exif_datetime(self, dt_value):
-        """Parse "YYYY:MM:DD HH:MM:SS" or "YYYY:MM:DD" to a date object, or None."""
-        s = str(dt_value)
-        try:
-            if " " in s:
-                return datetime.strptime(s, "%Y:%m:%d %H:%M:%S").date()
-            return datetime.strptime(s, "%Y:%m:%d").date()
-        except ValueError:
-            return None
-
-    def _format_gps_coord(self, dms_tuple, ref):
-        if isinstance(ref, bytes):
-            try:
-                ref = ref.decode("ascii")
-            except UnicodeDecodeError:
-                return None
-        if not isinstance(ref, str) or not ref.strip():
-            return None
-        if not isinstance(dms_tuple, (tuple, list)) or len(dms_tuple) != 3:
-            return None
-        degree = self._rational_to_float(dms_tuple[0])
-        minute = self._rational_to_float(dms_tuple[1])
-        second = self._rational_to_float(dms_tuple[2])
-        if degree is None or minute is None or second is None:
-            return None
-        converted = degree + minute / 60.0 + second / 3600.0
-        if ref.upper() in ("S", "W"):
-            converted = -converted
-        return f"{converted:.6f}"
+    # Runs on "Cancel" button press
+    def cancel(self):
+        self.cancel_event.set()
+        self.cancel_button.config(state="disabled")
+        self.current_directory.set("Cancelling...")
+        self.percentage_done.set("Cancelling...")
 
     # Creates empty dict for data to fill
     def _empty_scan_data(self):
@@ -581,6 +735,7 @@ class MetadataExtractor:
             "GPS_Longitudes": [],
         }
 
+    # Saves settings to a JSON file at SETTINGS_PATH
     def _save_settings(self):
         try:
             SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -629,6 +784,7 @@ class MetadataExtractor:
                 "Settings could not be saved.", message=f"Your settings could not be saved at {SETTINGS_PATH}"
             )
 
+    # Loads settings from JSON at SETTINGS_PATH
     def _load_settings(self):
         try:
             key_to_checkbox_var = {
@@ -715,29 +871,6 @@ class MetadataExtractor:
         except (OSError, json.JSONDecodeError, AttributeError):
             return
 
-    # To clean up any past executions
-    def reset(self):
-        self.used = set()
-        self.results.clear()
-        self.collected_warnings.clear()
-        self.current_sheet_name = "Sheet"
-        self.current_directory.set("")
-        self.total_files = 0
-        self.scanned_count.set("Scanned: 0 / …")
-        self.skipped_count.set("Skipped: 0")
-        self.percentage_done.set("0%")
-        self.progress_var.set(0)
-        self.eta.set("Estimating...")
-        self.elapsed_time.set("Time Elapsed: ...")
-        self.time_started = None
-
-    # Runs on "Cancel" button press
-    def cancel(self):
-        self.cancel_event.set()
-        self.cancel_button.config(state="disabled")
-        self.current_directory.set("Cancelling...")
-        self.percentage_done.set("Cancelling...")
-
     # Core Functions
     # Gets called on set directory button press to set image directory
     def set_dir(self):
@@ -751,12 +884,7 @@ class MetadataExtractor:
         if selected:
             self.output_path = Path(selected)
 
-    @staticmethod
-    def _decode_exif_string(v):
-        if isinstance(v, bytes):
-            return v.decode("ascii", errors="replace")
-        return v
-
+    # Checks if given file is hidden
     def _check_hidden(self, filepath, directory):
         filepath = Path(directory) / filepath
         if filepath.name.startswith("."):
@@ -887,7 +1015,7 @@ class MetadataExtractor:
         else:
             return False
 
-    # Hyperlink feature
+    # Hyperlink addition
     def add_hyperlinks(self, excel_file):
         try:
             wb = openpyxl.load_workbook(excel_file)
@@ -996,9 +1124,6 @@ class MetadataExtractor:
             total_skipped += s
         return total_processed, total_skipped
 
-    def natural_key(self, s):
-        return [(0, t.lower()) if not t.isdigit() else (1, int(t)) for t in re.split(r"(\d+)", s)]
-
     # Helper to find directories one-by-one to max_depth
     def walk_to_depth(self, root_dir, max_depth):
         # Normalize the path and count baseline separators
@@ -1038,7 +1163,7 @@ class MetadataExtractor:
                 del dirs[:]  # or dirs.clear()
 
     # Initial function; runs on "Execute" button press
-    def check_recursive(self):
+    def initialize(self):
         modifier = 0  # For starting index of img_series
         filetype = self.filetype_var.get()  # CSV or Excel
         recursive = self.recursive_var.get()  # Get status of recursive_checkbox
@@ -1251,115 +1376,6 @@ class MetadataExtractor:
                         "Empty directory", message="No files were found. Please select a valid directory"
                     )
                     return
-
-    # XML forbids control characters that sometimes are used as padding, so scrub them out.
-    def _sanitize_for_excel(self, df):
-        copy = df.copy()
-        if copy.empty:
-            return copy
-        for col in copy.columns:
-            current_col = copy[col]
-            if current_col.dtype == object or pd.api.types.is_string_dtype(current_col):
-                copy[col] = current_col.apply(lambda v: XML_ILLEGAL_CHARS.sub("", v) if isinstance(v, str) else v)
-        return copy
-
-    # For Sheet Names
-    def verify_name(self, name, used):
-        illegal_chars = ("[", "]", ":", "*", "?", "/", "\\")  # Can't be in a sheet name
-        for c in illegal_chars:
-            name = name.replace(c, "_")  # Replace any instances with "_"
-        # safety net; find_directories already trims to 31
-        name = name[:SHEET_NAME_MAX_CHARS]  # Truncate to SHEET_NAME_MAX_CHARS (31) characters max
-        # Excel restrictions: apostrophes at start/end, reserved name "History"
-        if name.startswith("'") or name.endswith("'"):
-            name = name.strip("'")
-        if name.lower() == "history":
-            name = "History_"
-        if len(name) < 1:  # If no name, make default "Sheet"
-            name = "Sheet"
-        if name.lower() not in used:  # Check if used already, duplicate sheet names not allowed
-            used.add(name.lower())
-            return name
-        f = 2
-        while True:  # Name was used already
-            suffix = "_" + str(f)  # Infinitely try increasing _X numbers, from 2
-            candidate = name[: SHEET_NAME_MAX_CHARS - len(suffix)] + suffix  # Truncate original name
-            if candidate.lower() not in used:
-                used.add(candidate.lower())
-                return candidate
-            f += 1
-
-    def _sanitize_for_filename(self, name):
-        """Sheet name → filename component. No extension logic, no reserved names."""
-        illegal = ("<", ">", ":", '"', "/", "\\", "|", "?", "*")
-        for c in illegal:
-            name = name.replace(c, "_")
-        return name
-
-    # For filenames
-    def clean_name(self, name):
-        name = name.strip().rstrip(".")
-        # Check if anything useful survives stripping
-        if not any(c.isalnum() for c in name):
-            name = "output"
-        illegal_chars = ("<", ">", ":", '"', "/", "\\", "|", "?", "*")
-        for c in illegal_chars:
-            name = name.replace(c, "_")
-        # Trim whitespace and trailing dots (Windows strips trailing dots silently)
-        # Fall back if the user typed only illegal chars or spaces
-        if len(name) < 1:
-            name = "output"
-        # Split extension once so reserved-name and length checks see the stem.
-        # Preserve the case of the extension as typed by the user.
-        suffix = Path(name).suffix.lower()
-        selected = self.filetype_var.get()
-        selected = self.filetype_to_ext[selected]
-        if selected == suffix:
-            stem = name[: -len(suffix)]
-            ext = name[-len(suffix) :]
-        elif suffix:
-            ext = selected
-            stem = name[: -len(suffix)]
-        else:  # No suffix
-            ext = selected
-            stem = name
-
-        # Windows reserved names — check the stem, not the full name
-        reserved = {
-            "CON",
-            "PRN",
-            "AUX",
-            "NUL",
-            "COM1",
-            "COM2",
-            "COM3",
-            "COM4",
-            "COM5",
-            "COM6",
-            "COM7",
-            "COM8",
-            "COM9",
-            "LPT1",
-            "LPT2",
-            "LPT3",
-            "LPT4",
-            "LPT5",
-            "LPT6",
-            "LPT7",
-            "LPT8",
-            "LPT9",
-        }
-        if stem.upper() in reserved:
-            stem = "_" + stem
-
-        # Truncate overly long stems — Windows paths cap at ~260 chars total,
-        # and the output directory path also consumes space.
-        MAX_STEM = 200
-        if len(stem) > MAX_STEM:
-            stem = stem[:MAX_STEM]
-
-        # Reassemble with the extension the user provided (or .xlsx if none)
-        return stem + ext
 
     # Gets called as first scan function, assumes irregular pattern
     # Paths supplied by user or debug mode
@@ -1859,7 +1875,7 @@ class MetadataExtractor:
             # No files are present
             return
 
-    # Makes CSVs or Excel files
+    # Makes final output files
     def create_sheet(self, output_path, total_processed, total_skipped):  # File creation
         try:
             # Check for empty results before prompting so the user isn't asked to overwrite for nothing
@@ -2029,7 +2045,7 @@ class MetadataExtractor:
         self.filetype_frame = tk.Frame(self.frame)
         self.sort_methods_frame = tk.Frame(self.frame)
         self.sort_methods_label = tk.Label(self.sort_methods_frame, text="Sort Method (default filename)")
-        self.execute_button = tk.Button(self.frame, command=self.check_recursive, text="Execute")
+        self.execute_button = tk.Button(self.frame, command=self.initialize, text="Execute")
         self.cancel_button = tk.Button(self.frame, command=self.cancel, text="Cancel", state="disabled")
         self.set_directory_button = tk.Button(self.frame, command=self.set_dir, text="Set folder with images")
         self.set_output_button = tk.Button(self.frame, command=self.set_output, text="Set output folder")

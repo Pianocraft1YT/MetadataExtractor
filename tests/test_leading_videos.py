@@ -153,3 +153,12 @@ def test_debug_mode_keeps_leading_video(extractor, folder, orphan_prompt):
 
     df, _, _ = extractor.results[0]
     assert list(df["Img # Series"]) == ["1-4"]
+
+
+def test_non_orphan_trailing_group_modifier(extractor, folder, orphan_prompt):
+    """Modifier must apply to both ends of the tail-end group label."""
+    _build(folder, "vpppvppp")
+    orphan_prompt["answer"] = False
+    sort_scan(extractor, folder, modifier=4, write=False)
+    df, _, _ = extractor.results[0]
+    assert list(df["Img # Series"]) == ["5-8", "9-12"]

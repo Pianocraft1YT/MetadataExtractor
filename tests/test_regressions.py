@@ -85,9 +85,9 @@ def test_starting_index_zero_padded_accepted(extractor, tmp_path):
     extractor._start_scan = fake_start
     extractor.directory_path = tmp_path
     extractor.output_path = tmp_path
-    extractor.check_recursive()
+    extractor.initialize()
 
-    assert "modifier" in captured, "check_recursive returned before _start_scan — ValueError or rejection"
+    assert "modifier" in captured, "initialize returned before _start_scan — ValueError or rejection"
     assert captured["modifier"] == 0, f"'01' should map to modifier 0, got {captured['modifier']}"
 
 
@@ -104,7 +104,7 @@ def test_starting_index_placeholder_uses_zero_modifier(extractor, tmp_path):
     extractor._start_scan = fake_start
     extractor.directory_path = tmp_path
     extractor.output_path = tmp_path
-    extractor.check_recursive()
+    extractor.initialize()
 
     assert captured.get("modifier") == 0
 
@@ -133,9 +133,9 @@ def test_default_filename_when_placeholder_left(extractor, tmp_path):
     extractor._start_scan = fake_start
     extractor.directory_path = tmp_path
     extractor.output_path = tmp_path
-    extractor.check_recursive()
+    extractor.initialize()
 
-    assert "final_output" in captured, "check_recursive returned before _start_scan"
+    assert "final_output" in captured, "initialize returned before _start_scan"
     assert (
         captured["final_output"].name == "output.xlsx"
     ), f"expected 'output.xlsx', got '{captured['final_output'].name}' — De Morgan bug?"
