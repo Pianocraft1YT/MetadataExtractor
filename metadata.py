@@ -493,9 +493,9 @@ class MetadataExtractor:
         return stem + ext
 
     # Helpers for progress bar
-    def get_total_files(self, max_depth):
+    def get_total_files(self, max_depth, include_hiddens=False):
         file_count = 0
-        for _, _, files in self.walk_to_depth(self.directory_path, max_depth):
+        for _, _, files in self.walk_to_depth(self.directory_path, max_depth, include_hiddens):
             if self.cancel_event.is_set():
                 return file_count
             file_count += sum(1 for entry in files if entry.lower().endswith(PHOTO_TYPES))
@@ -558,6 +558,7 @@ class MetadataExtractor:
         date_range,
         start_date,
         end_date,
+        include_hiddens=False,
     ):
         # Cleanup must run after this
         self._cleanup_pending = True
@@ -584,6 +585,7 @@ class MetadataExtractor:
                 date_range,
                 start_date,
                 end_date,
+                include_hiddens,
             ),
             daemon=True,
         ).start()
@@ -609,6 +611,7 @@ class MetadataExtractor:
         date_range,
         start_date,
         end_date,
+        include_hiddens,
     ):
         total_scanned, total_skipped = 0, 0
 
@@ -622,7 +625,7 @@ class MetadataExtractor:
         try:
             if recursive and not self._destroyed:
                 self.root.after(0, self.current_directory.set, "Counting files...")
-                count = self.get_total_files(self.maxdepth)
+                count = self.get_total_files(self.maxdepth, include_hiddens)
                 if self.cancel_event.is_set():
                     return
                 self.root.after(0, self._set_total_files, count)
@@ -646,6 +649,7 @@ class MetadataExtractor:
                 date_range,
                 start_date,
                 end_date,
+                include_hiddens,
                 progress_callback=_on_progress,
             )
         except Exception as e:  # noqa: BLE001
@@ -777,6 +781,7 @@ class MetadataExtractor:
                 "Focal Length": self.focal_length_var.get(),
                 "ISO": self.iso_var.get(),
                 "GPS": self.gps_var.get(),
+                "Include Hiddens": self.hidden_var.get(),
             }
             SETTINGS_PATH.write_text(json.dumps(settings, indent=2), encoding="utf-8")
         except (OSError, ValueError, TypeError):
@@ -804,6 +809,7 @@ class MetadataExtractor:
                 "Focal Length": self.focal_length_var,
                 "ISO": self.iso_var,
                 "GPS": self.gps_var,
+                "Include Hiddens": self.hidden_var,
             }
             data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
             for key, value in data.items():
@@ -885,7 +891,9 @@ class MetadataExtractor:
             self.output_path = Path(selected)
 
     # Checks if given file is hidden
-    def _check_hidden(self, filepath, directory):
+    def _check_hidden(self, filepath, directory, include_hiddens=False):
+        if include_hiddens:
+            return False
         filepath = Path(directory) / filepath
         if filepath.name.startswith("."):
             return True
@@ -1054,6 +1062,7 @@ class MetadataExtractor:
         date_range,
         start_date,
         end_date,
+        include_hiddens=False,
         progress_callback=None,
     ):
         sheet_names = []
@@ -1061,7 +1070,7 @@ class MetadataExtractor:
         directories = []
         total_skipped = 0
         total_processed = 0
-        for dirpath, _, files in self.walk_to_depth(directory_path, self.maxdepth):
+        for dirpath, _, files in self.walk_to_depth(directory_path, self.maxdepth, include_hiddens):
             if self.cancel_event.is_set():
                 break
             if not any(f.lower().endswith(PHOTO_TYPES) for f in files):
@@ -1125,7 +1134,7 @@ class MetadataExtractor:
         return total_processed, total_skipped
 
     # Helper to find directories one-by-one to max_depth
-    def walk_to_depth(self, root_dir, max_depth):
+    def walk_to_depth(self, root_dir, max_depth, include_hiddens=False):
         # Normalize the path and count baseline separators
         root_dir = os.path.abspath(str(root_dir))
         baseline_depth = len(Path(root_dir).parts)
@@ -1143,7 +1152,7 @@ class MetadataExtractor:
             media_files[:] = [
                 f
                 for f in media_files
-                if not self._check_hidden(f, dirpath) and f.lower().endswith(PHOTO_TYPES + VIDEO_TYPES)
+                if not self._check_hidden(f, dirpath, include_hiddens) and f.lower().endswith(PHOTO_TYPES + VIDEO_TYPES)
             ]
             # Sorts files alphabetically, ignoring file extensions and capitalization, ignoring any non-photo or non-video files
             media_files.sort(
@@ -1171,6 +1180,7 @@ class MetadataExtractor:
         output_utc = self.utc_var.get()
         date_range = self.date_range_var.get()
         output_gps = self.gps_var.get()
+        include_hiddens = self.hidden_var.get()
         output_dimensions = False
         output_make = False
         output_model = False
@@ -1266,7 +1276,7 @@ class MetadataExtractor:
                         for e in entries
                         if e.is_file()
                         and e.name.lower().endswith(PHOTO_TYPES)
-                        and not self._check_hidden(e.name, self.directory_path)
+                        and not self._check_hidden(e.name, self.directory_path, include_hiddens)
                     )
             except OSError:
                 count = 0
@@ -1292,6 +1302,7 @@ class MetadataExtractor:
                     date_range,
                     start_date,
                     end_date,
+                    include_hiddens,
                 )
             else:
                 if self.total_files > 0:
@@ -1314,6 +1325,7 @@ class MetadataExtractor:
                         date_range,
                         start_date,
                         end_date,
+                        include_hiddens,
                     )
                 else:
                     messagebox.showerror(
@@ -1346,6 +1358,7 @@ class MetadataExtractor:
                         date_range,
                         start_date,
                         end_date,
+                        include_hiddens,
                     )
                 else:
                     return
@@ -1370,6 +1383,7 @@ class MetadataExtractor:
                         date_range,
                         start_date,
                         end_date,
+                        include_hiddens,
                     )
                 else:
                     messagebox.showerror(
@@ -2092,6 +2106,8 @@ class MetadataExtractor:
             self.frame, text="Coordinates may reveal sensitive location information", foreground="gray"
         )
         self._dialog_lock = threading.Lock()
+        self.hidden_var = tk.BooleanVar(value=False)
+        self.hidden_checkbox = tk.Checkbutton(self.frame, text="Include Hidden Files", variable=self.hidden_var)
         # Extra EXIF checkboxes
         self.extra_exif_frame = tk.Frame(self.root)
         self.extra_exif_var = tk.BooleanVar(value=False)
@@ -2203,6 +2219,7 @@ class MetadataExtractor:
         self.date_range_checkbox.pack()
         self.utc_checkbox.pack()
         self.gps_checkbox.pack()
+        self.hidden_checkbox.pack()
         self.filetype_frame.pack(side="top")
         self.sort_methods_frame.pack(side="top")
         self.sort_methods_label.pack()
