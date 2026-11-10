@@ -6,7 +6,7 @@
 # Please increment this counter as a warning
 # For the next person:
 #
-# hours_spent_original = 81
+# hours_spent_original = 82
 # hours_wasted_here = 0
 
 # Coded by Pianocraft1YT
@@ -840,6 +840,7 @@ class MetadataExtractor:
                 "ISO": self.iso_var.get(),
                 "GPS": self.gps_var.get(),
                 "Include Hiddens": self.hidden_var.get(),
+                "Sort Method": self.sort_methods_var.get(),
             }
             SETTINGS_PATH.write_text(json.dumps(settings, indent=2), encoding="utf-8")
         except (OSError, ValueError, TypeError):
@@ -909,6 +910,9 @@ class MetadataExtractor:
                                 self.maxdepth_entry.insert(0, "Recursion Depth (#)")
                                 self.maxdepth_entry.config(foreground="gray")
                                 self.maxdepth = 0
+                        elif key == "Sort Method":
+                            if value in self.sort_methods:
+                                self.sort_methods_var.set(value)
                         elif key in (key_to_checkbox_var) and isinstance(value, bool):
                             key_to_checkbox_var[key].set(value)
                         elif key in key_to_checkbox_var:  # Value not a boolean
@@ -1240,6 +1244,7 @@ class MetadataExtractor:
         output_iso = False
         start_date = None
         end_date = None
+        self.sort_method = self.sort_methods_var.get()
         if self.extra_exif_var.get():
             output_dimensions = self.dimensions_var.get()
             output_make = self.make_var.get()
@@ -1913,6 +1918,23 @@ class MetadataExtractor:
                 df_data["GPS Latitude"] = data["GPS_Latitudes"]
                 df_data["GPS Longitude"] = data["GPS_Longitudes"]
             df = pd.DataFrame(df_data)  # Create DataFrame
+            if self.sort_method in ("Date (Oldest)", "Date (Newest)"):
+                time_col = df["Time"].fillna("").astype(str).replace("", "00:00:00")
+                df["_sort_key"] = pd.to_datetime(
+                    df["Dates"].astype(str) + " " + time_col,
+                    format="%m/%d/%Y %H:%M:%S",
+                    errors="coerce",
+                )
+                df = (
+                    df.sort_values(
+                        "_sort_key",
+                        ascending=(self.sort_method == "Date (Oldest)"),
+                        na_position="last",
+                        kind="stable",
+                    )
+                    .drop(columns="_sort_key")
+                    .reset_index(drop=True)
+                )
             current_sheet_name = self.verify_name(self.current_sheet_name, self.used)
             self.results.append((df, current_sheet_name, directory_path))
         else:
@@ -2202,6 +2224,7 @@ class MetadataExtractor:
         self.filetypes = ["Excel", "CSV", "JSON", "Markdown"]
         # For sorting
         self.sort_methods = ["Filename", "Date (Oldest)", "Date (Newest)"]
+        self.sort_method = "Filename"
         # For recursion
         self.maxdepth = 0
         # For cancel event (set by cancel(), checked in loops, cleared in check_recursive)
