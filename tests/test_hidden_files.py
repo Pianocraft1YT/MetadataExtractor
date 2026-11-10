@@ -7,7 +7,7 @@ from tests.helpers import sort_scan
 
 
 def _filtered_listing(extractor, folder):
-    """What walk_to_depth would hand to sort_and_extract."""
+    """What walk_and_filter would hand to sort_and_extract."""
     return sorted(
         [
             f

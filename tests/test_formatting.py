@@ -98,9 +98,6 @@ def test_scan_image_extracts_and_formats_tier3(extractor, make_jpeg_with_tags, t
         output_focal_length=True,
         output_iso=True,
         output_gps=False,
-        date_range=False,
-        start_date=None,
-        end_date=None,
     )
     assert ok is True
     assert data["Apertures"] == ["f/5.6"]
@@ -131,9 +128,6 @@ def test_scan_image_tier3_disabled_stores_none(extractor, make_jpeg_with_tags, t
         output_focal_length=False,
         output_iso=False,
         output_gps=False,
-        date_range=False,
-        start_date=None,
-        end_date=None,
     )
     assert ok is True
     assert data["Apertures"] == [None]
@@ -159,9 +153,6 @@ def test_scan_image_missing_tier3_tags_stores_none(extractor, make_jpeg_with_tag
         output_focal_length=True,
         output_iso=True,
         output_gps=False,
-        date_range=False,
-        start_date=None,
-        end_date=None,
     )
     assert ok is True
     assert data["Apertures"] == [None]

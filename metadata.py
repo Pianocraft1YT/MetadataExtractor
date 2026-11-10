@@ -35,6 +35,8 @@ from openpyxl.styles import Font
 from PIL import Image
 from tk_date_entry import DateEntry
 
+from video_metadata import extract_video_metadata
+
 # EXIF Constants
 EXIF_DATETIME = 306
 EXIF_DATETIME_ORIGINAL = 36867
@@ -189,6 +191,60 @@ class MetadataExtractor:
     @staticmethod
     def natural_key(s):
         return [(0, t.lower()) if not t.isdigit() else (1, int(t)) for t in re.split(r"(\d+)", s)]
+
+    # Date filter helpers
+    def _filter_by_date(self, dirpath, media_files, start_date, end_date):
+        return_files = []
+        unsupported_warned = False
+        for file in media_files:
+            lower = file.lower()
+            dt = None
+            if lower.endswith(PHOTO_TYPES):
+                dt = self._get_photo_date(Path(dirpath) / file)
+            elif lower.endswith((".mp4", ".mov")):
+                dt = self._get_video_date(Path(dirpath) / file)
+            else:
+                if not unsupported_warned:
+                    unsupported_warned = True
+                    self.collected_warnings["No Video Date"].append(f"{dirpath} (unsupported video format)")
+            if dt is not None:
+                if start_date and dt < start_date:
+                    continue
+                if end_date and dt > end_date:
+                    continue
+            return_files.append(file)
+        return return_files
+
+    def _get_photo_date(self, path):
+        try:
+            with Image.open(path) as img:
+                exif_data = img.getexif()
+                general_ifd = exif_data.get_ifd(0x8769)
+            dt = (
+                exif_data.get(EXIF_DATETIME_ORIGINAL)
+                or general_ifd.get(EXIF_DATETIME_ORIGINAL)
+                or exif_data.get(EXIF_DATETIME_DIGITIZED)
+                or general_ifd.get(EXIF_DATETIME_DIGITIZED)
+                or exif_data.get(EXIF_DATETIME)
+            )
+            dt = self._decode_exif_string(dt)
+            dt = self._parse_exif_datetime(dt)
+            if not dt:
+                return None
+            return dt
+        except (OSError, ValueError):
+            return None
+
+    def _get_video_date(self, path):
+        try:
+            dt = extract_video_metadata(path)
+            if dt is None:
+                self.collected_warnings["No Video Date"].append(str(path))
+            else:
+                dt = dt.date()
+            return dt
+        except (OSError, ValueError):
+            return None
 
     # Create a messagebox.askyesno() that is thread-safe
     def _ask_yes_no_threadsafe(self, title, msg):
@@ -493,9 +549,11 @@ class MetadataExtractor:
         return stem + ext
 
     # Helpers for progress bar
-    def get_total_files(self, max_depth, include_hiddens=False):
+    def get_total_files(self, max_depth, include_hiddens=False, date_range=False, start_date=None, end_date=None):
         file_count = 0
-        for _, _, files in self.walk_to_depth(self.directory_path, max_depth, include_hiddens):
+        for _, _, files in self.walk_and_filter(
+            self.directory_path, max_depth, date_range, start_date, end_date, include_hiddens
+        ):
             if self.cancel_event.is_set():
                 return file_count
             file_count += sum(1 for entry in files if entry.lower().endswith(PHOTO_TYPES))
@@ -625,7 +683,7 @@ class MetadataExtractor:
         try:
             if recursive and not self._destroyed:
                 self.root.after(0, self.current_directory.set, "Counting files...")
-                count = self.get_total_files(self.maxdepth, include_hiddens)
+                count = self.get_total_files(self.maxdepth, include_hiddens, date_range, start_date, end_date)
                 if self.cancel_event.is_set():
                     return
                 self.root.after(0, self._set_total_files, count)
@@ -923,9 +981,6 @@ class MetadataExtractor:
         output_focal_length,
         output_iso,
         output_gps,
-        date_range,
-        start_date,
-        end_date,
     ):
         offset = None
         dimensions = None
@@ -939,7 +994,6 @@ class MetadataExtractor:
         iso = None
         gps_latitude = None
         gps_longitude = None
-        process_image = True
 
         def _exif_get(tag, ifd, exif_data):
             metadata = exif_data.get(tag)
@@ -992,34 +1046,25 @@ class MetadataExtractor:
                     long = gps_ifd.get(4)
                     gps_latitude = self._format_gps_coord(lat, lat_ref)
                     gps_longitude = self._format_gps_coord(long, long_ref)
-                if date_range:
-                    d = self._parse_exif_datetime(dt)
-                    if not d:
-                        return False
-                    if start_date and d < start_date or end_date and d > end_date:
-                        process_image = False
             except (OSError, SyntaxError, ValueError):
                 self.collected_warnings["Scan Error"].append(f"[{directory_path}]\\{media_files[i]}")
                 return False
             else:
-                if process_image:
-                    data["Images"].append(media_files[i])
-                    data["Dates"].append(dt)
-                    data["Offsets"].append(offset)
-                    data["Dimensions"].append(dimensions)
-                    data["Makes"].append(make)
-                    data["Models"].append(model)
-                    data["Softwares"].append(software)
-                    data["Lens_Models"].append(lens_model)
-                    data["Apertures"].append(aperture)
-                    data["Exposure_Times"].append(exposure_time)
-                    data["Focal_Lengths"].append(focal_length)
-                    data["ISOs"].append(iso)
-                    data["GPS_Latitudes"].append(gps_latitude)
-                    data["GPS_Longitudes"].append(gps_longitude)
-                    return True
-                else:
-                    return False
+                data["Images"].append(media_files[i])
+                data["Dates"].append(dt)
+                data["Offsets"].append(offset)
+                data["Dimensions"].append(dimensions)
+                data["Makes"].append(make)
+                data["Models"].append(model)
+                data["Softwares"].append(software)
+                data["Lens_Models"].append(lens_model)
+                data["Apertures"].append(aperture)
+                data["Exposure_Times"].append(exposure_time)
+                data["Focal_Lengths"].append(focal_length)
+                data["ISOs"].append(iso)
+                data["GPS_Latitudes"].append(gps_latitude)
+                data["GPS_Longitudes"].append(gps_longitude)
+                return True
         else:
             return False
 
@@ -1059,9 +1104,9 @@ class MetadataExtractor:
         output_focal_length,
         output_iso,
         output_gps,
-        date_range,
-        start_date,
-        end_date,
+        date_range=False,
+        start_date=None,
+        end_date=None,
         include_hiddens=False,
         progress_callback=None,
     ):
@@ -1070,7 +1115,9 @@ class MetadataExtractor:
         directories = []
         total_skipped = 0
         total_processed = 0
-        for dirpath, _, files in self.walk_to_depth(directory_path, self.maxdepth, include_hiddens):
+        for dirpath, _, files in self.walk_and_filter(
+            directory_path, self.maxdepth, date_range, start_date, end_date, include_hiddens
+        ):
             if self.cancel_event.is_set():
                 break
             if not any(f.lower().endswith(PHOTO_TYPES) for f in files):
@@ -1116,9 +1163,6 @@ class MetadataExtractor:
                     output_focal_length,
                     output_iso,
                     output_gps,
-                    date_range,
-                    start_date,
-                    end_date,
                     progress_callback=wrapped_cb,
                 )
             except OSError:
@@ -1134,7 +1178,9 @@ class MetadataExtractor:
         return total_processed, total_skipped
 
     # Helper to find directories one-by-one to max_depth
-    def walk_to_depth(self, root_dir, max_depth, include_hiddens=False):
+    def walk_and_filter(
+        self, root_dir, max_depth, date_range=False, start_date=None, end_date=None, include_hiddens=False
+    ):
         # Normalize the path and count baseline separators
         root_dir = os.path.abspath(str(root_dir))
         baseline_depth = len(Path(root_dir).parts)
@@ -1161,6 +1207,8 @@ class MetadataExtractor:
                     0 if x.lower().endswith(PHOTO_TYPES) else 1,
                 )
             )
+            if date_range:
+                media_files = self._filter_by_date(dirpath, media_files, start_date, end_date)
             yield dirpath, dirs, media_files
 
             # Calculate current depth relative to root_dir
@@ -1410,9 +1458,6 @@ class MetadataExtractor:
         output_focal_length,
         output_iso,
         output_gps,
-        date_range,
-        start_date,
-        end_date,
         progress_callback=None,
     ):
         processed = 0  # Processed files this turn; increments by photos_before_video, although scan_image only scans last photo of a series
@@ -1513,9 +1558,6 @@ class MetadataExtractor:
                                         output_focal_length,
                                         output_iso,
                                         output_gps,
-                                        date_range,
-                                        start_date,
-                                        end_date,
                                     )
                                     if not ok:
                                         i += 1
@@ -1603,9 +1645,6 @@ class MetadataExtractor:
                                     output_focal_length,
                                     output_iso,
                                     output_gps,
-                                    date_range,
-                                    start_date,
-                                    end_date,
                                 )  # Scan image as one-off
                                 if not ok:
                                     i += 1
@@ -1644,9 +1683,6 @@ class MetadataExtractor:
                                     output_focal_length,
                                     output_iso,
                                     output_gps,
-                                    date_range,
-                                    start_date,
-                                    end_date,
                                 )
                                 if not ok:
                                     skipped += photos_before_video
@@ -1676,9 +1712,6 @@ class MetadataExtractor:
                                             output_focal_length,
                                             output_iso,
                                             output_gps,
-                                            date_range,
-                                            start_date,
-                                            end_date,
                                         )
                                         if not ok:
                                             skipped += 1
@@ -1728,9 +1761,6 @@ class MetadataExtractor:
                             output_focal_length,
                             output_iso,
                             output_gps,
-                            date_range,
-                            start_date,
-                            end_date,
                         )
                         if not ok:
                             i += 1
@@ -2012,7 +2042,9 @@ class MetadataExtractor:
                     if error == "Scan Error":
                         output += "These files are corrupt or non-image files, and were excluded."
                     elif error == "No Metadata":
-                        output += "These files had no metadata to scan and were excluded."
+                        output += "These photos had no metadata to scan and were excluded."
+                    elif error == "No Video Date":
+                        output += "These videos had no readable creation timestamp and were not filtered."
                     elif error == "Directory Error":
                         output += "File/Directory couldn't be accessed."
                     elif error == "Leading Video":

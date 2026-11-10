@@ -16,9 +16,6 @@ _EXTRA_OFF = dict(
     output_focal_length=False,
     output_iso=False,
     output_gps=False,
-    date_range=False,
-    start_date=None,
-    end_date=None,
 )
 
 
@@ -40,9 +37,6 @@ def _scan(extractor, tmp_path, media_files, output_utc=False):
         output_focal_length=False,
         output_iso=False,
         output_gps=False,
-        date_range=False,
-        start_date=None,
-        end_date=None,
     )
     return ok, data
 

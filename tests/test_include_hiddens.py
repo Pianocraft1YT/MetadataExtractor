@@ -1,11 +1,11 @@
 """Tests for the include-hiddens toggle (v3.21.0).
 
 The feature: an "Include Hidden Files" checkbox that, when on, disables
-the dot-prefix and FILE_ATTRIBUTE_HIDDEN filters in walk_to_depth.
+the dot-prefix and FILE_ATTRIBUTE_HIDDEN filters in walk_and_filter.
 
 Layers covered:
 - _check_hidden direct (flag short-circuits)
-- walk_to_depth (flag plumbed through)
+- walk_and_filter (flag plumbed through)
 - get_total_files (flag plumbed through)
 - find_directories (flag plumbed through, end-to-end DataFrame check)
 - scan_image (defensive — doesn't filter, operates on media_files as-is)
@@ -36,7 +36,7 @@ def test_check_hidden_dot_prefix_flag_on(extractor, tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# walk_to_depth
+# walk_and_filter
 # ---------------------------------------------------------------------------
 
 
@@ -44,7 +44,7 @@ def test_walk_excludes_hidden_by_default(extractor, tmp_path):
     make_jpeg_with_exif(tmp_path / "visible.jpg", "2024:05:15 12:30:45")
     make_jpeg_with_exif(tmp_path / ".hidden.jpg", "2024:05:16 12:30:45")
 
-    results = list(extractor.walk_to_depth(str(tmp_path), 0))
+    results = list(extractor.walk_and_filter(str(tmp_path), 0))
     _, _, files = results[0]
     assert "visible.jpg" in files
     assert ".hidden.jpg" not in files
@@ -54,7 +54,7 @@ def test_walk_includes_hidden_when_flag_on(extractor, tmp_path):
     make_jpeg_with_exif(tmp_path / "visible.jpg", "2024:05:15 12:30:45")
     make_jpeg_with_exif(tmp_path / ".hidden.jpg", "2024:05:16 12:30:45")
 
-    results = list(extractor.walk_to_depth(str(tmp_path), 0, include_hiddens=True))
+    results = list(extractor.walk_and_filter(str(tmp_path), 0, include_hiddens=True))
     _, _, files = results[0]
     assert "visible.jpg" in files
     assert ".hidden.jpg" in files
@@ -142,9 +142,6 @@ def test_scan_image_processes_hidden_filename(extractor, tmp_path):
         output_focal_length=False,
         output_iso=False,
         output_gps=False,
-        date_range=False,
-        start_date=None,
-        end_date=None,
     )
     assert ok is True
     assert data["Images"] == [".hidden.jpg"]

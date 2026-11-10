@@ -26,16 +26,14 @@ _EXTRA_OFF = dict(
     output_focal_length=False,
     output_iso=False,
     output_gps=False,
-    date_range=False,
-    start_date=None,
-    end_date=None,
+    # date_range / start_date / end_date removed — sort_and_extract no longer accepts them
 )
 
 
 def media_files(folder, extractor=None):
     """Return the list sort_and_extract expects as its media_files argument.
 
-    Matches walk_to_depth: natural sort by stem, photos before videos at
+    Matches walk_and_filter: natural sort by stem, photos before videos at
     the same stem, hidden files filtered (if extractor is provided — it
     owns _check_hidden, which needs the platform-specific logic).
     """
