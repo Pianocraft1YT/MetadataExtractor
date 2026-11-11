@@ -6,7 +6,7 @@
 # Please increment this counter as a warning
 # For the next person:
 #
-# hours_spent_original = 82
+# hours_spent_original = 83
 # hours_wasted_here = 0
 
 # Coded by Pianocraft1YT
@@ -203,10 +203,9 @@ class MetadataExtractor:
                 dt = self._get_photo_date(Path(dirpath) / file)
             elif lower.endswith((".mp4", ".mov")):
                 dt = self._get_video_date(Path(dirpath) / file)
-            else:
-                if not unsupported_warned:
-                    unsupported_warned = True
-                    self.collected_warnings["No Video Date"].append(f"{dirpath} (unsupported video format)")
+            elif lower.endswith(VIDEO_TYPES) and not unsupported_warned:
+                unsupported_warned = True
+                self.collected_warnings["No Video Date"].append(f"{dirpath} (unsupported video format)")
             if dt is not None:
                 if start_date and dt < start_date:
                     continue
@@ -246,6 +245,15 @@ class MetadataExtractor:
         except (OSError, ValueError):
             return None
 
+    def _safe_after(self, callback, *args):
+        """Queue a callback on the main thread. Drops it silently if the root is gone."""
+        if self._destroyed:
+            return
+        try:
+            self.root.after(0, callback, *args)
+        except tk.TclError:
+            pass
+
     # Create a messagebox.askyesno() that is thread-safe
     def _ask_yes_no_threadsafe(self, title, msg):
         """Call from a worker thread. Blocks until the main thread answers."""
@@ -263,8 +271,8 @@ class MetadataExtractor:
                     self._dialog_event.set()
 
             if not self._destroyed:
-                self.root.after(0, _show)  # enqueue, return immediately
-                self._dialog_event.wait(timeout=20.0)  # now block the worker for real
+                self._safe_after(_show)  # enqueue, return immediately
+                self._dialog_event.wait(timeout=30.0)  # now block the worker for real
             # Timeout or destroyed root = non-orphan
             return bool(self._dialog_answer)
 
@@ -481,6 +489,7 @@ class MetadataExtractor:
         illegal = ("<", ">", ":", '"', "/", "\\", "|", "?", "*")
         for c in illegal:
             name = name.replace(c, "_")
+        name = name.removesuffix(".")
         return name
 
     # For filenames
@@ -489,6 +498,11 @@ class MetadataExtractor:
         # Check if anything useful survives stripping
         if not any(c.isalnum() for c in name):
             name = "output"
+        # A name that is nothing but an extension (".xlsx") has no stem.
+        # pathlib reports no suffix for dotfiles, so the parse below would
+        # put the extension in both stem and ext. Normalize it first.
+        if name.startswith(".") and name.count(".") == 1:
+            name = "output" + name
         illegal_chars = ("<", ">", ":", '"', "/", "\\", "|", "?", "*")
         for c in illegal_chars:
             name = name.replace(c, "_")
@@ -678,15 +692,15 @@ class MetadataExtractor:
             # scheduling delay doesn't distort the ETA average.
             t = time.perf_counter()
             if not self._destroyed:
-                self.root.after(0, lambda: self.update_progress(p, s, d, t))
+                self._safe_after(lambda: self.update_progress(p, s, d, t))
 
         try:
             if recursive and not self._destroyed:
-                self.root.after(0, self.current_directory.set, "Counting files...")
+                self._safe_after(self.current_directory.set, "Counting files...")
                 count = self.get_total_files(self.maxdepth, include_hiddens, date_range, start_date, end_date)
                 if self.cancel_event.is_set():
                     return
-                self.root.after(0, self._set_total_files, count)
+                self._safe_after(self._set_total_files, count)
                 if self.cancel_event.is_set():
                     return
             total_scanned, total_skipped = self.find_directories(
@@ -714,8 +728,7 @@ class MetadataExtractor:
             self.collected_warnings["Unexpected"].append(f"{e}\n{traceback.format_exc()}")
         finally:  # Always clean up
             if not self._destroyed:
-                self.root.after(
-                    0,
+                self._safe_after(
                     self._clean_up,
                     final_output,
                     total_scanned,
@@ -1323,14 +1336,16 @@ class MetadataExtractor:
             final_output = Path(self.output_path) / f"output{ext}"  # Default filename
         if not recursive:
             try:
-                with os.scandir(self.directory_path) as entries:
-                    count = sum(
-                        1
-                        for e in entries
-                        if e.is_file()
-                        and e.name.lower().endswith(PHOTO_TYPES)
-                        and not self._check_hidden(e.name, self.directory_path, include_hiddens)
-                    )
+                entries = os.listdir(self.directory_path)
+                if date_range:
+                    entries = self._filter_by_date(self.directory_path, entries, start_date, end_date)
+                count = sum(
+                    1
+                    for e in entries
+                    if (Path(self.directory_path) / e).is_file()
+                    and e.lower().endswith(PHOTO_TYPES)
+                    and not self._check_hidden(e, self.directory_path, include_hiddens)
+                )
             except OSError:
                 count = 0
             self._set_total_files(count)
@@ -2086,6 +2101,7 @@ class MetadataExtractor:
                     for filename in file:
                         output += f"\n{filename}\n"
                 try:
+                    log_path = None
                     log_path = output_path.parent / "warnings.log"
                     log_path.write_text(output, encoding="utf-8")
                     summary = f"{len(self.collected_warnings)} warning categories.\n\nFull details: {log_path.as_posix()}\n\nPlease verify any issues"
