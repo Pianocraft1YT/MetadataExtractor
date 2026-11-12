@@ -45,10 +45,7 @@ def test_photo_first_directory_end_to_end(extractor, tmp_path):
 # ---------------------------------------------------------------------------
 # Bug 2: starting-index validation
 # ---------------------------------------------------------------------------
-
-
-def _mock_widgets(extractor, series_value, name_value="Filename (default output.filetype)"):
-    """Mirrors the helper in test_starting_index.py."""
+def _mock_widgets(extractor, series_value, name_value="Filename (default output.filetype)", recursive=False):
     modifier_entry = MagicMock()
     modifier_entry.get.return_value = series_value
     extractor.modifier_entry = modifier_entry
@@ -58,7 +55,7 @@ def _mock_widgets(extractor, series_value, name_value="Filename (default output.
     extractor.name_entry = name_entry
 
     recursive_var = MagicMock()
-    recursive_var.get.return_value = False
+    recursive_var.get.return_value = recursive
     extractor.recursive_var = recursive_var
 
     keepopen_var = MagicMock()
@@ -68,6 +65,10 @@ def _mock_widgets(extractor, series_value, name_value="Filename (default output.
     maxdepth_entry = MagicMock()
     maxdepth_entry.get.return_value = "Recursion Depth (#)"
     extractor.maxdepth_entry = maxdepth_entry
+
+    # Tests in this file exercise the modifier entry, which only exists in
+    # Advanced mode. Force it so initialize() reads the mock.
+    extractor.user_mode_var.set("Advanced")
 
 
 def test_starting_index_zero_padded_accepted(extractor, tmp_path):

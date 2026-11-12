@@ -111,11 +111,19 @@ _tk.BooleanVar.side_effect = FakeVar
 _tk.StringVar.side_effect = FakeVar
 _tk.DoubleVar.side_effect = FakeVar
 _tk.Entry.side_effect = _FakeEntry
+_tk.Tk.side_effect = lambda: MagicMock()
 import metadata
 
 
 def _set_timezone(app, value):
     app.utc_var.set(value)
+
+
+class _FakeTclError(Exception):
+    pass
+
+
+_tk.TclError = _FakeTclError
 
 
 def _set_filetype(app, value):

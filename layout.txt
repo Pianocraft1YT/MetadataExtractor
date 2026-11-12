@@ -1,0 +1,22 @@
+Set Directory
+Set Output
+Recursive
+Add Hyperlinks
+Filename
+Filetype
+Keep Open
+Basic Advanced Flip
+Execute
+Cancel
+
+Advanced Flip:
+Debug Mode
+Starting index
+Sort Method
+Date Range
+Include Hiddens
+Time in UTC
+GPS
+Extra Metadata
+
+Progress Bar always at bottom

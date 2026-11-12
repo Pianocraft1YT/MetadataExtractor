@@ -6,7 +6,7 @@
 # Please increment this counter as a warning
 # For the next person:
 #
-# hours_spent_original = 83
+# hours_spent_original = 85
 # hours_wasted_here = 0
 
 # Coded by Pianocraft1YT
@@ -154,7 +154,7 @@ class MetadataExtractor:
     # Show recursive_input entry box when recursive is checked
     def recursive_input(self):
         if self.recursive_var.get():
-            self.maxdepth_entry.pack(before=self.hyperlink_checkbox)
+            self.maxdepth_entry.pack(after=self.recursive_checkbox)
         else:
             self.maxdepth_entry.pack_forget()
         self.root.update_idletasks()  # flush pending layout
@@ -162,10 +162,28 @@ class MetadataExtractor:
 
     # Show extra metadata checkboxes when extra_exif_checkbox is checked
     def extra_exif(self):
-        # The toggle only moves the frame itself in/out of root's layout.
         if self.extra_exif_var.get():
-            self.extra_exif_frame.pack(before=self.progress_frame)
+            # Pack Extra Checkboxes
+            self.extra_exif_frame.pack(after=self.extra_exif_checkbox)
+            self.dimensions_checkbox.pack()
+            self.make_checkbox.pack()
+            self.model_checkbox.pack()
+            self.software_checkbox.pack()
+            self.lens_model_checkbox.pack()
+            self.aperture_checkbox.pack()
+            self.exposure_checkbox.pack()
+            self.focal_length_checkbox.pack()
+            self.iso_checkbox.pack()
         else:
+            self.dimensions_checkbox.pack_forget()
+            self.make_checkbox.pack_forget()
+            self.model_checkbox.pack_forget()
+            self.software_checkbox.pack_forget()
+            self.lens_model_checkbox.pack_forget()
+            self.aperture_checkbox.pack_forget()
+            self.exposure_checkbox.pack_forget()
+            self.focal_length_checkbox.pack_forget()
+            self.iso_checkbox.pack_forget()
             self.extra_exif_frame.pack_forget()
         self.root.update_idletasks()
         self.root.geometry(f"{X_WIDTH}x{self.root.winfo_reqheight()}")
@@ -186,6 +204,37 @@ class MetadataExtractor:
             self.date_notice_label.pack_forget()
         self.root.update_idletasks()  # flush pending layout
         self.root.geometry(f"{X_WIDTH}x{self.root.winfo_reqheight()}")  # fixed width, auto height
+
+    def user_mode(self):
+        if self.user_mode_var.get() == "Advanced":
+            self.advanced_mode_frame.pack(after=self.basic_mode_frame)
+            self.debug_checkbox.pack()  # First in advanced_mode_frame
+
+            self.modifier_entry.pack(after=self.debug_checkbox)
+            self.sort_methods_frame.pack(side="top", after=self.modifier_entry)
+            self.sort_methods_label.pack()  # First in sort_methods_frame
+            if len(self.sort_method_objects) > 0:  # Already have objects to pack, don't need new ones
+                for sm in self.sort_method_objects:
+                    sm.pack(side="left")
+            else:
+                for sm in self.sort_methods:
+                    smr = tk.Radiobutton(self.sort_methods_frame, text=sm, variable=self.sort_methods_var, value=sm)
+                    smr.pack(side="left")
+                    self.sort_method_objects.append(smr)
+            self.date_range_checkbox.pack(after=self.sort_methods_frame)
+            self.hidden_checkbox.pack(after=self.date_range_checkbox)
+            self.utc_checkbox.pack(after=self.hidden_checkbox)
+            self.gps_checkbox.pack(after=self.utc_checkbox)
+            self.extra_exif_checkbox.pack(after=self.gps_checkbox)
+            self.extra_exif()
+            self.date_range()
+            self.gps_warning()
+            self.root.update_idletasks()  # flush pending layout
+            self.root.geometry(f"{X_WIDTH}x{self.root.winfo_reqheight()}")  # fixed width, auto height
+        else:
+            self.advanced_mode_frame.pack_forget()
+            self.root.update_idletasks()  # flush pending layout
+            self.root.geometry(f"{X_WIDTH}x{self.root.winfo_reqheight()}")  # fixed width, auto height
 
     # Sort helper
     @staticmethod
@@ -854,6 +903,7 @@ class MetadataExtractor:
                 "GPS": self.gps_var.get(),
                 "Include Hiddens": self.hidden_var.get(),
                 "Sort Method": self.sort_methods_var.get(),
+                "User Mode": self.user_mode_var.get(),
             }
             SETTINGS_PATH.write_text(json.dumps(settings, indent=2), encoding="utf-8")
         except (OSError, ValueError, TypeError):
@@ -926,11 +976,14 @@ class MetadataExtractor:
                         elif key == "Sort Method":
                             if value in self.sort_methods:
                                 self.sort_methods_var.set(value)
+                        elif key == "User Mode":
+                            if value in self.user_modes:
+                                self.user_mode_var.set(value)
                         elif key in (key_to_checkbox_var) and isinstance(value, bool):
                             key_to_checkbox_var[key].set(value)
                         elif key in key_to_checkbox_var:  # Value not a boolean
                             key_to_checkbox_var[key].set(False)
-                        # Explicit null in the file means "this field was cleared"
+                    # Explicit null in the file means "this field was cleared"
                     else:
                         if key == "Start Date":
                             self.start_date_entry.set_date(None)
@@ -1239,13 +1292,15 @@ class MetadataExtractor:
     # Initial function; runs on "Execute" button press
     def initialize(self):
         modifier = 0  # For starting index of img_series
+        user_mode = self.user_mode_var.get()
         filetype = self.filetype_var.get()  # CSV or Excel
         recursive = self.recursive_var.get()  # Get status of recursive_checkbox
-        debug = self.debug_var.get()
-        output_utc = self.utc_var.get()
-        date_range = self.date_range_var.get()
-        output_gps = self.gps_var.get()
-        include_hiddens = self.hidden_var.get()
+        debug = False
+        output_utc = False
+        date_range = False
+        output_gps = False
+        include_hiddens = False
+        self.sort_method = "Filename"
         output_dimensions = False
         output_make = False
         output_model = False
@@ -1257,17 +1312,47 @@ class MetadataExtractor:
         output_iso = False
         start_date = None
         end_date = None
-        self.sort_method = self.sort_methods_var.get()
-        if self.extra_exif_var.get():
-            output_dimensions = self.dimensions_var.get()
-            output_make = self.make_var.get()
-            output_model = self.model_var.get()
-            output_software = self.software_var.get()
-            output_lens_model = self.lens_model_var.get()
-            output_aperture = self.aperture_var.get()
-            output_exposure_time = self.exposure_time_var.get()
-            output_focal_length = self.focal_length_var.get()
-            output_iso = self.iso_var.get()
+        if user_mode == "Advanced":
+            debug = self.debug_var.get()
+            output_utc = self.utc_var.get()
+            date_range = self.date_range_var.get()
+            output_gps = self.gps_var.get()
+            include_hiddens = self.hidden_var.get()
+            self.sort_method = self.sort_methods_var.get()
+            val = self.modifier_entry.get().strip()
+            if val == "Starting index (Img # Series)" or val == "":
+                modifier = 0
+            elif val.isdigit() and int(val) > 0:
+                modifier = int(val) - 1
+            else:
+                messagebox.showerror(
+                    "Numbers only.", message="Starting index must be a whole number greater than zero."
+                )
+                return
+            if self.extra_exif_var.get():
+                output_dimensions = self.dimensions_var.get()
+                output_make = self.make_var.get()
+                output_model = self.model_var.get()
+                output_software = self.software_var.get()
+                output_lens_model = self.lens_model_var.get()
+                output_aperture = self.aperture_var.get()
+                output_exposure_time = self.exposure_time_var.get()
+                output_focal_length = self.focal_length_var.get()
+                output_iso = self.iso_var.get()
+            if date_range:
+                start_date = self.start_date_entry.get_date()
+                end_date = self.end_date_entry.get_date()
+                if not (start_date or end_date):
+                    messagebox.showinfo(
+                        "Date Range Unset",
+                        message="Date Range is checked, but no date(s) were input. Proceeding without.",
+                    )
+                    self.date_range_var.set(False)
+                    date_range = False
+                else:
+                    if start_date and end_date and start_date > end_date:
+                        messagebox.showerror("Invalid range", "Start date must be on or before end date.")
+                        return
         if debug:  # No need to set output_path every time on debug mode
             self.output_path = Path.home() / "Downloads"
         else:
@@ -1278,14 +1363,6 @@ class MetadataExtractor:
             messagebox.showerror(  # If no output/directory path was set, error to allow for changes
                 "Image directory not set.", message="Please set an image/video directory path."
             )
-            return
-        val = self.modifier_entry.get().strip()
-        if val == "Starting index (Img # Series)" or val == "":
-            modifier = 0
-        elif val.isdigit() and int(val) > 0:
-            modifier = int(val) - 1
-        else:
-            messagebox.showerror("Numbers only.", message="Starting index must be a whole number greater than zero.")
             return
         if recursive:  # Get maxdepth entry
             val = self.maxdepth_entry.get().strip()
@@ -1312,19 +1389,6 @@ class MetadataExtractor:
             )
             if not proceed:
                 return
-        if date_range:
-            start_date = self.start_date_entry.get_date()
-            end_date = self.end_date_entry.get_date()
-            if not (start_date or end_date):
-                messagebox.showinfo(
-                    "Date Range Unset", message="Date Range is checked, but no date(s) were input. Proceeding without."
-                )
-                self.date_range_var.set(False)
-                date_range = False
-            else:
-                if start_date and end_date and start_date > end_date:
-                    messagebox.showerror("Invalid range", "Start date must be on or before end date.")
-                    return
         # Fresh scan: explicitly clear the event, then reset UI state
         self.cancel_event.clear()
         self.reset()
@@ -1337,7 +1401,7 @@ class MetadataExtractor:
         if not recursive:
             try:
                 entries = os.listdir(self.directory_path)
-                if date_range:
+                if date_range and user_mode == "Advanced":
                     entries = self._filter_by_date(self.directory_path, entries, start_date, end_date)
                 count = sum(
                     1
@@ -2125,45 +2189,53 @@ class MetadataExtractor:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Metadata Extractor")
-        self.frame = tk.Frame(self.root)
-        self.filetype_frame = tk.Frame(self.frame)
-        self.sort_methods_frame = tk.Frame(self.frame)
+        self.basic_mode_frame = tk.Frame(self.root)
+        self.advanced_mode_frame = tk.Frame(self.root)
+        self.filetype_frame = tk.Frame(self.basic_mode_frame)
+        self.sort_methods_frame = tk.Frame(self.advanced_mode_frame)
         self.sort_methods_label = tk.Label(self.sort_methods_frame, text="Sort Method (default filename)")
-        self.execute_button = tk.Button(self.frame, command=self.initialize, text="Execute")
-        self.cancel_button = tk.Button(self.frame, command=self.cancel, text="Cancel", state="disabled")
-        self.set_directory_button = tk.Button(self.frame, command=self.set_dir, text="Set folder with images")
-        self.set_output_button = tk.Button(self.frame, command=self.set_output, text="Set output folder")
+        self.execute_button = tk.Button(self.basic_mode_frame, command=self.initialize, text="Execute")
+        self.cancel_button = tk.Button(self.basic_mode_frame, command=self.cancel, text="Cancel", state="disabled")
+        self.set_directory_button = tk.Button(
+            self.basic_mode_frame, command=self.set_dir, text="Set folder with images"
+        )
+        self.set_output_button = tk.Button(self.basic_mode_frame, command=self.set_output, text="Set output folder")
         self.keepopen_var = tk.BooleanVar(value=False)
-        self.keepopen_checkbox = tk.Checkbutton(self.frame, text="Keep Open", variable=self.keepopen_var)
+        self.keepopen_checkbox = tk.Checkbutton(self.basic_mode_frame, text="Keep Open", variable=self.keepopen_var)
         self.recursive_var = tk.BooleanVar(value=False)
         self.recursive_checkbox = tk.Checkbutton(
-            self.frame, text="Recursive Mode", variable=self.recursive_var, command=self.recursive_input
+            self.basic_mode_frame, text="Recursive Mode", variable=self.recursive_var, command=self.recursive_input
         )
         self.utc_var = tk.BooleanVar(value=False)
-        self.utc_checkbox = tk.Checkbutton(self.frame, text="Time in UTC", variable=self.utc_var)
+        self.utc_checkbox = tk.Checkbutton(self.advanced_mode_frame, text="Time in UTC", variable=self.utc_var)
         self.debug_var = tk.BooleanVar(value=False)
         self.debug_checkbox = tk.Checkbutton(
-            self.frame, text="Debug Mode", variable=self.debug_var, command=self.debug_warning
+            self.advanced_mode_frame, text="Debug Mode", variable=self.debug_var, command=self.debug_warning
         )
         self.filetype_var = tk.StringVar(value="Excel")
         self.sort_methods_var = tk.StringVar(value="Filename")
         self.hyperlink_var = tk.BooleanVar(value=True)
-        self.hyperlink_checkbox = tk.Checkbutton(self.frame, text="Add Hyperlinks", variable=self.hyperlink_var)
-        self.name_entry = tk.Entry(self.frame, width=30, foreground="gray")
+        self.hyperlink_checkbox = tk.Checkbutton(
+            self.basic_mode_frame, text="Add Hyperlinks", variable=self.hyperlink_var
+        )
+        self.name_entry = tk.Entry(self.basic_mode_frame, width=30, foreground="gray")
         self.name_entry.insert(0, "Filename (default output.filetype)")
-        self.modifier_entry = tk.Entry(self.frame, width=30, foreground="gray")
+        self.modifier_entry = tk.Entry(self.advanced_mode_frame, width=30, foreground="gray")
         self.modifier_entry.insert(0, "Starting index (Img # Series)")
-        self.maxdepth_entry = tk.Entry(self.frame, width=20, foreground="gray")
+        self.maxdepth_entry = tk.Entry(self.basic_mode_frame, width=20, foreground="gray")
         self.maxdepth_entry.insert(0, "Recursion Depth (#)")
         self.date_range_var = tk.BooleanVar(value=False)
         self.date_range_checkbox = tk.Checkbutton(
-            self.frame, text="Date Range (Local Time)", variable=self.date_range_var, command=self.date_range
+            self.advanced_mode_frame,
+            text="Date Range (Local Time)",
+            variable=self.date_range_var,
+            command=self.date_range,
         )
-        self.start_date_entry = DateEntry(self.frame, date_pattern="%Y/%m/%d", value=None)
-        self.end_date_entry = DateEntry(self.frame, date_pattern="%Y/%m/%d", value=None)
-        self.date_notice_label = tk.Label(self.frame, text="One date required; two dates accepted")
-        self.start_date_label = tk.Label(self.frame, text="Start Date")
-        self.end_date_label = tk.Label(self.frame, text="End Date")
+        self.start_date_entry = DateEntry(self.advanced_mode_frame, date_pattern="%Y/%m/%d", value=None)
+        self.end_date_entry = DateEntry(self.advanced_mode_frame, date_pattern="%Y/%m/%d", value=None)
+        self.date_notice_label = tk.Label(self.advanced_mode_frame, text="One date required; two dates accepted")
+        self.start_date_label = tk.Label(self.advanced_mode_frame, text="Start Date")
+        self.end_date_label = tk.Label(self.advanced_mode_frame, text="End Date")
         self.name_entry.bind("<FocusIn>", self.nameFocusIn)
         self.name_entry.bind("<FocusOut>", self.nameFocusOut)
         self.modifier_entry.bind("<FocusIn>", self.seriesFocusIn)
@@ -2171,18 +2243,26 @@ class MetadataExtractor:
         self.maxdepth_entry.bind("<FocusIn>", self.maxDepthFocusIn)
         self.maxdepth_entry.bind("<FocusOut>", self.maxDepthFocusOut)
         self.gps_var = tk.BooleanVar(value=False)
-        self.gps_checkbox = tk.Checkbutton(self.frame, text="GPS", variable=self.gps_var, command=self.gps_warning)
+        self.gps_checkbox = tk.Checkbutton(
+            self.advanced_mode_frame, text="GPS", variable=self.gps_var, command=self.gps_warning
+        )
         self.gps_warning_label = tk.Label(
-            self.frame, text="Coordinates may reveal sensitive location information", foreground="gray"
+            self.advanced_mode_frame, text="Coordinates may reveal sensitive location information", foreground="gray"
         )
         self._dialog_lock = threading.Lock()
         self.hidden_var = tk.BooleanVar(value=False)
-        self.hidden_checkbox = tk.Checkbutton(self.frame, text="Include Hidden Files", variable=self.hidden_var)
+        self.hidden_checkbox = tk.Checkbutton(
+            self.advanced_mode_frame, text="Include Hidden Files", variable=self.hidden_var
+        )
+        # User modes (basic or advanced)
+        self.user_modes_frame = tk.Frame(self.basic_mode_frame)
+        self.user_modes = ["Basic", "Advanced"]
+        self.user_mode_var = tk.StringVar(value="Basic")
         # Extra EXIF checkboxes
-        self.extra_exif_frame = tk.Frame(self.root)
+        self.extra_exif_frame = tk.Frame(self.advanced_mode_frame)
         self.extra_exif_var = tk.BooleanVar(value=False)
         self.extra_exif_checkbox = tk.Checkbutton(
-            self.frame, text="Extra Metadata", variable=self.extra_exif_var, command=self.extra_exif
+            self.advanced_mode_frame, text="Extra Metadata", variable=self.extra_exif_var, command=self.extra_exif
         )
         self.dimensions_var = tk.BooleanVar(value=False)
         self.dimensions_checkbox = tk.Checkbutton(
@@ -2213,17 +2293,6 @@ class MetadataExtractor:
         self.iso_var = tk.BooleanVar(value=False)
         self.iso_checkbox = tk.Checkbutton(self.extra_exif_frame, text="ISO", variable=self.iso_var)
 
-        # Pack Extra Checkboxes
-        self.dimensions_checkbox.pack()
-        self.make_checkbox.pack()
-        self.model_checkbox.pack()
-        self.software_checkbox.pack()
-        self.lens_model_checkbox.pack()
-        self.aperture_checkbox.pack()
-        self.exposure_checkbox.pack()
-        self.focal_length_checkbox.pack()
-        self.iso_checkbox.pack()
-
         # Set default sheet name
         self.current_sheet_name = "Sheet"
         # Collect warnings
@@ -2241,6 +2310,7 @@ class MetadataExtractor:
         # For sorting
         self.sort_methods = ["Filename", "Date (Oldest)", "Date (Newest)"]
         self.sort_method = "Filename"
+        self.sort_method_objects = []
         # For recursion
         self.maxdepth = 0
         # For cancel event (set by cancel(), checked in loops, cleared in check_recursive)
@@ -2273,50 +2343,40 @@ class MetadataExtractor:
         self.eta_label = tk.Label(self.progress_frame, textvariable=self.eta)
         self.total_files = 0
         self.elapsed_label = tk.Label(self.progress_frame, textvariable=self.elapsed_time)
-
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._load_settings()
 
     # After initialization
     def run(self):
         # Pack main widgets
-        self.frame.pack()
+        self.basic_mode_frame.pack()
         self.set_directory_button.pack()
-        self.set_output_button.pack()
-        self.name_entry.pack()
-        self.modifier_entry.pack()
-        self.recursive_checkbox.pack()
-        self.hyperlink_checkbox.pack()
-        self.date_range_checkbox.pack()
-        self.utc_checkbox.pack()
-        self.gps_checkbox.pack()
-        self.hidden_checkbox.pack()
-        self.filetype_frame.pack(side="top")
-        self.sort_methods_frame.pack(side="top")
-        self.sort_methods_label.pack()
-        for sm in self.sort_methods:
-            tk.Radiobutton(self.sort_methods_frame, text=sm, variable=self.sort_methods_var, value=sm).pack(side="left")
+        self.set_output_button.pack(after=self.set_directory_button)
+        self.recursive_checkbox.pack(after=self.set_output_button)
+        self.hyperlink_checkbox.pack(after=self.recursive_checkbox)
+        self.name_entry.pack(after=self.hyperlink_checkbox)
+        self.filetype_frame.pack(after=self.name_entry, side="top")
         for ft in self.filetypes:
             tk.Radiobutton(self.filetype_frame, text=ft, variable=self.filetype_var, value=ft).pack(side="left")
-        self.execute_button.pack()
-        self.cancel_button.pack()
-        self.keepopen_checkbox.pack()
-        self.debug_checkbox.pack()
-        self.extra_exif_checkbox.pack()
-
-        # Pack progress bar
+        self.keepopen_checkbox.pack(after=self.filetype_frame)
+        self.user_modes_frame.pack(side="top", after=self.keepopen_checkbox)
+        for um in self.user_modes:
+            tk.Radiobutton(
+                self.user_modes_frame, text=um, variable=self.user_mode_var, value=um, command=self.user_mode
+            ).pack(side="left")
+        self.execute_button.pack(after=self.user_modes_frame)
+        self.cancel_button.pack(after=self.execute_button)
         self.progress_frame.pack()
-        self.progress_bar.pack()
+        self.progress_bar.pack()  # First in progress_frame
         self.directory_label.pack()
         self.scanned_label.pack()
         self.percent_label.pack()
         self.skipped_label.pack()
         self.eta_label.pack()
         self.elapsed_label.pack()
+
         self.recursive_input()
-        self.extra_exif()
-        self.date_range()
-        self.gps_warning()
+        self.user_mode()
         self.root.update_idletasks()  # flush pending layout
         self.root.geometry(f"{X_WIDTH}x{self.root.winfo_reqheight()}")  # fixed width, auto height
         self.root.mainloop()

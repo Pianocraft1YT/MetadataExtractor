@@ -5,6 +5,7 @@ app.root is a MagicMock and root.after does not actually schedule
 anything. Tests here verify the call contract via MagicMock assertions
 rather than event-loop behavior.
 """
+
 from unittest.mock import patch
 
 import pytest

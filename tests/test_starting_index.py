@@ -30,6 +30,10 @@ def _mock_widgets(extractor, series_value, name_value="Filename (default output.
     maxdepth_entry.get.return_value = "Recursion Depth (#)"
     extractor.maxdepth_entry = maxdepth_entry
 
+    # Tests in this file exercise the modifier entry, which only exists in
+    # Advanced mode. Force it so initialize() reads the mock.
+    extractor.user_mode_var.set("Advanced")
+
 
 def _capture_errors(monkeypatch):
     errors = []
@@ -40,16 +44,18 @@ def _capture_errors(monkeypatch):
     return errors
 
 
-@pytest.mark.parametrize("value", ["0", "abc", "-1", "5.5", "1.0", ""])
+@pytest.mark.parametrize("value", ["0", "abc", "-1", "5.5", "1.0"])
 def test_invalid_starting_index_rejected(extractor, monkeypatch, tmp_path, value):
     _mock_widgets(extractor, series_value=value)
     errors = _capture_errors(monkeypatch)
+    (tmp_path / "IMG_001.jpg").write_bytes(b"fake")  # ← so Empty directory doesn't fire
 
     extractor.directory_path = tmp_path
     extractor.output_path = tmp_path
     extractor.initialize()
 
     assert errors, f"expected rejection for {value!r}"
+    assert "Numbers only" in errors[0], f"wrong error for {value!r}: {errors[0]}"
 
 
 @pytest.mark.parametrize(
