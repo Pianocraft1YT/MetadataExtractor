@@ -188,12 +188,9 @@ def isolate_settings(monkeypatch, tmp_path):
 
 @pytest.fixture(autouse=True)
 def bypass_threadsafe_dialog(monkeypatch):
-    """Bypass _ask_yes_no_threadsafe which blocks on threading.Event."""
 
     def fake_ask(self, title, msg):
         return bool(metadata.messagebox.askyesno(title, msg))
-
-    monkeypatch.setattr(metadata.MetadataExtractor, "_ask_yes_no_threadsafe", fake_ask)
 
 
 @pytest.fixture(autouse=True)

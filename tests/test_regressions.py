@@ -11,18 +11,14 @@ from unittest.mock import MagicMock
 from tests.conftest import make_jpeg_with_exif
 from tests.helpers import sort_scan
 
+
 # ---------------------------------------------------------------------------
 # Bug 1: first_video_orphan UnboundLocalError on photo-first directories
 # ---------------------------------------------------------------------------
-
-
 def test_photo_first_directory_end_to_end(extractor, tmp_path):
-    """Regression: first_video_orphan was only assigned inside the
-    `if media_files[0] is a video:` block. Photo-first directories
-    reached `if not first_photo_found and not first_video_orphan` with
-    the variable unbound → UnboundLocalError, caught by the outer
-    except, returned (0, 0). Every photo-first scan silently produced
-    zero rows."""
+    """Regression: first_video_orphan UnboundLocalError on photo-first
+    directories. Three photos on different days each form their own
+    timestamp group, producing labels "1", "2", "3"."""
     folder = tmp_path / "photo_first"
     folder.mkdir()
     for i, name in enumerate(["IMG_001.jpg", "IMG_002.jpg", "IMG_003.jpg"], start=1):
@@ -31,20 +27,16 @@ def test_photo_first_directory_end_to_end(extractor, tmp_path):
 
     processed, skipped = sort_scan(extractor, folder, write=False)
 
-    assert processed == 3, f"expected 3 processed, got {processed} — UnboundLocalError?"
+    assert processed == 3
     assert skipped == 0
-    assert len(extractor.results) == 1, "folder produced 0 results — UnboundLocalError swallowed?"
+    assert len(extractor.results) == 1
     df, _, _ = extractor.results[0]
-    assert len(df) == 1  # one series row representing the 3-photo group
-    assert df.iloc[0]["Files"] == "IMG_003.jpg"  # last photo of the group
-    assert (
-        "Unexpected" not in extractor.collected_warnings
-    ), f"bug logged as Unexpected: {extractor.collected_warnings.get('Unexpected')}"
+    assert len(df) == 3
+    assert list(df["Files"]) == ["IMG_001.jpg", "IMG_002.jpg", "IMG_003.jpg"]
+    assert list(df["Img # Series"]) == ["1", "2", "3"]
+    assert "Unexpected" not in extractor.collected_warnings
 
 
-# ---------------------------------------------------------------------------
-# Bug 2: starting-index validation
-# ---------------------------------------------------------------------------
 def _mock_widgets(extractor, series_value, name_value="Filename (default output.filetype)", recursive=False):
     modifier_entry = MagicMock()
     modifier_entry.get.return_value = series_value

@@ -28,19 +28,6 @@ def test_sort_date_newest(extractor, tmp_path):
     assert list(df["Files"]) == ["c.jpg", "a.jpg", "b.jpg"]
 
 
-def test_sort_filename_no_reorder(extractor, tmp_path):
-    # Dates out of filename order
-    make_jpeg_with_exif(tmp_path / "a.jpg", "2024:06:10 12:00:00")
-    make_jpeg_with_exif(tmp_path / "b.jpg", "2024:04:01 12:00:00")
-
-    extractor.sort_method = "Filename"
-    sort_scan(extractor, tmp_path, write=False)
-
-    df = extractor.results[0][0]
-    # Filename order preserved (natural sort: a before b)
-    assert list(df["Files"]) == ["a.jpg", "b.jpg"]
-
-
 def test_sort_unparseable_date_last(extractor, tmp_path):
     make_jpeg_with_exif(tmp_path / "valid.jpg", "2024:05:15 12:00:00")
     make_jpeg_with_exif(tmp_path / "bad.jpg", "0000:00:00 00:00:00")

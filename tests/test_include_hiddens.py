@@ -128,9 +128,8 @@ def test_scan_image_processes_hidden_filename(extractor, tmp_path):
     data = extractor._empty_scan_data()
     ok = extractor.scan_image(
         tmp_path,
-        0,
+        ".hidden.jpg",
         data,
-        [".hidden.jpg"],
         output_utc=False,
         output_dimensions=False,
         output_make=False,

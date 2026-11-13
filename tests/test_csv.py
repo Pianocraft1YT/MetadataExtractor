@@ -40,20 +40,6 @@ def test_csv_mode_includes_series_column(extractor_csv, photos_only, tmp_path):
 
 
 @pytest.mark.real_create_sheet
-def test_csv_mode_without_series_column(extractor_csv, tmp_path):
-    """6 photos before a video -> output_series disabled -> no series column."""
-    folder = tmp_path / "six_photos"
-    folder.mkdir()
-    for i in range(1, 7):
-        make_jpeg_with_exif(folder / f"{i:04d}.jpg", "2024:05:15 12:00:00")
-    (folder / "0007.mp4").write_bytes(b"fake")
-
-    output = tmp_path / "output.csv"
-    sort_scan(extractor_csv, folder, final_output=output)
-    df = pd.read_csv(tmp_path / "output_Sheet.csv")
-    assert "Img # Series" not in df.columns
-
-
 def test_clean_name_excel_mode_appends_xlsx(extractor):
     assert extractor.clean_name("myname") == "myname.xlsx"
 

@@ -57,9 +57,8 @@ def _scan_extras(extractor, tmp_path, media_files, **extras):
     data = extractor._empty_scan_data()
     ok = extractor.scan_image(
         tmp_path,
-        0,
+        media_files[0],
         data,
-        media_files,
         output_utc=False,
         output_dimensions=extras.get("dimensions", False),
         output_make=extras.get("make", False),
@@ -152,7 +151,6 @@ def test_create_dataframe_all_extras_enabled(extractor, tmp_path):
         ["1", "2"],
         data,
         tmp_path,
-        output_series=True,
         output_dimensions=True,
         output_make=True,
         output_model=True,
@@ -178,7 +176,6 @@ def test_create_dataframe_all_extras_disabled(extractor, tmp_path):
         ["1", "2"],
         data,
         tmp_path,
-        output_series=True,
         output_dimensions=False,
         output_make=False,
         output_model=False,
@@ -196,7 +193,6 @@ def test_create_dataframe_selective_columns(extractor, tmp_path):
         None,
         data,
         tmp_path,
-        output_series=False,
         output_dimensions=True,
         output_make=False,
         output_model=False,
@@ -209,7 +205,8 @@ def test_create_dataframe_selective_columns(extractor, tmp_path):
     assert "Camera Make" not in df.columns
     assert "Software" in df.columns
     assert "Lens Model" not in df.columns
-    assert "Img # Series" not in df.columns
+    # Img # Series is now always emitted, regardless of img_series being None
+    assert "Img # Series" in df.columns
 
 
 def test_create_dataframe_empty_data_skips_sheet(extractor, tmp_path):
@@ -219,7 +216,6 @@ def test_create_dataframe_empty_data_skips_sheet(extractor, tmp_path):
         [],
         data,
         tmp_path,
-        True,
         False,
         False,
         False,

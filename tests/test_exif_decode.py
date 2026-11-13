@@ -89,7 +89,7 @@ def test_scan_image_make_is_str(extractor, tmp_path):
     from tests.test_scan import _EXTRA_OFF
 
     data = extractor._empty_scan_data()
-    ok = extractor.scan_image(tmp_path, 0, data, ["owl.jpg"], **{**_EXTRA_OFF, "output_make": True})
+    ok = extractor.scan_image(tmp_path, "owl.jpg", data, **{**_EXTRA_OFF, "output_make": True})
     assert ok
     assert isinstance(data["Makes"][0], str)
     assert data["Makes"][0] == "barn owl"

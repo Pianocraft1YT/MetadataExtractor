@@ -2,6 +2,7 @@ Set Directory
 Set Output
 Recursive
 Add Hyperlinks
+Burst Cutoff
 Filename
 Filetype
 Keep Open

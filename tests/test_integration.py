@@ -25,5 +25,14 @@ def test_end_to_end_custom_starting_index(extractor, photos_and_videos, tmp_path
 
     assert output.exists()
     df = pd.read_excel(output, sheet_name="Sheet")
-    if "Img # Series" in df.columns:
-        assert all(str(s).startswith(("5", "9", "13")) for s in df["Img # Series"])
+    assert list(df["Img # Series"]) == [
+        "5-7",
+        "5-7",
+        "5-7",
+        "8-10",
+        "8-10",
+        "8-10",
+        "11-13",
+        "11-13",
+        "11-13",
+    ]

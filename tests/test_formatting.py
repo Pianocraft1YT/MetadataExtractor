@@ -84,9 +84,8 @@ def test_scan_image_extracts_and_formats_tier3(extractor, make_jpeg_with_tags, t
     data = extractor._empty_scan_data()
     ok = extractor.scan_image(
         tmp_path,
-        0,
+        "photo.jpg",
         data,
-        ["photo.jpg"],
         output_utc=False,
         output_dimensions=False,
         output_make=False,
@@ -114,9 +113,8 @@ def test_scan_image_tier3_disabled_stores_none(extractor, make_jpeg_with_tags, t
     data = extractor._empty_scan_data()
     ok = extractor.scan_image(
         tmp_path,
-        0,
+        "photo.jpg",
         data,
-        ["photo.jpg"],
         output_utc=False,
         output_dimensions=False,
         output_make=False,
@@ -139,9 +137,8 @@ def test_scan_image_missing_tier3_tags_stores_none(extractor, make_jpeg_with_tag
     data = extractor._empty_scan_data()
     ok = extractor.scan_image(
         tmp_path,
-        0,
+        "photo.jpg",
         data,
-        ["photo.jpg"],
         output_utc=False,
         output_dimensions=False,
         output_make=False,

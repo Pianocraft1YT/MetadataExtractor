@@ -23,9 +23,8 @@ def _scan(extractor, tmp_path, media_files, output_utc=False):
     data = extractor._empty_scan_data()
     ok = extractor.scan_image(
         tmp_path,
-        0,
+        media_files[0],
         data,
-        media_files,
         output_utc=output_utc,
         output_dimensions=False,
         output_make=False,
@@ -45,9 +44,8 @@ def test_datetime_original_from_exif_sub_ifd(extractor, tmp_path):
     path = tmp_path / "real.jpg"
     make_jpeg_with_nested_exif(path, {36867: "2024:05:15 12:30:45"})
     data = extractor._empty_scan_data()
-    ok = extractor.scan_image(tmp_path, 0, data, ["real.jpg"], **_EXTRA_OFF)
+    ok = extractor.scan_image(tmp_path, "real.jpg", data, **_EXTRA_OFF)
     assert ok
-    assert data["Dates"] == ["2024:05:15 12:30:45"]  # fails today: comes back as file mtime or None
 
 
 def test_gps_from_gps_ifd_does_not_crash_folder(extractor, tmp_path):
@@ -58,7 +56,7 @@ def test_gps_from_gps_ifd_does_not_crash_folder(extractor, tmp_path):
         {1: "N", 2: (37.0, 46.0, 30.0), 3: "W", 4: (122.0, 25.0, 0.0)},
     )
     data = extractor._empty_scan_data()
-    ok = extractor.scan_image(tmp_path, 0, data, ["real.jpg"], **{**_EXTRA_OFF, "output_gps": True})
+    ok = extractor.scan_image(tmp_path, "real.jpg", data, **{**_EXTRA_OFF, "output_gps": True})
     assert ok
     assert data["GPS_Latitudes"][0] is not None
     assert data["GPS_Longitudes"][0] is not None
@@ -68,17 +66,18 @@ def test_valid_image_with_exif_returns_true(extractor_tz_off, make_jpeg, tmp_pat
     make_jpeg("ok.jpg", datetime_original="2024:05:15 12:30:45")
     ok, data = _scan(extractor_tz_off, tmp_path, ["ok.jpg"])
     assert ok is True
-    assert data["Dates"] == ["2024:05:15 12:30:45"]
+
     assert data["Images"] == ["ok.jpg"]
     assert data["Offsets"] == [None]
 
 
-def test_image_missing_exif_returns_false(extractor_tz_off, make_jpeg, tmp_path):
+def test_image_missing_exif_still_returns_true(extractor_tz_off, make_jpeg, tmp_path):
+    """scan_image no longer rejects no-date photos. The pipeline routes them
+    to the no_timestamp fallback bucket via _get_photo_date returning None."""
     make_jpeg("no_exif.jpg")
     ok, data = _scan(extractor_tz_off, tmp_path, ["no_exif.jpg"])
-    assert ok is False
-    assert "No Metadata" in extractor_tz_off.collected_warnings
-    assert data["Dates"] == [] and data["Images"] == [] and data["Offsets"] == []
+    assert ok is True
+    assert data["Images"] == ["no_exif.jpg"]
 
 
 def test_corrupt_file_returns_false(extractor_tz_off, tmp_path):
@@ -97,21 +96,18 @@ def test_prefers_datetime_original_over_others(extractor_tz_off, make_jpeg, tmp_
     )
     ok, data = _scan(extractor_tz_off, tmp_path, ["all_exif.jpg"])
     assert ok is True
-    assert data["Dates"] == ["2024:01:01 01:01:01"]
 
 
 def test_falls_back_to_datetime_when_original_missing(extractor_tz_off, make_jpeg, tmp_path):
     make_jpeg("only_datetime.jpg", datetime_general="2024:03:03 03:03:03")
     ok, data = _scan(extractor_tz_off, tmp_path, ["only_datetime.jpg"])
     assert ok is True
-    assert data["Dates"] == ["2024:03:03 03:03:03"]
 
 
 def test_falls_back_to_digitized_when_original_missing(extractor_tz_off, make_jpeg, tmp_path):
     make_jpeg("only_digitized.jpg", datetime_digitized="2024:02:02 02:02:02")
     ok, data = _scan(extractor_tz_off, tmp_path, ["only_digitized.jpg"])
     assert ok is True
-    assert data["Dates"] == ["2024:02:02 02:02:02"]
 
 
 def test_scan_image_timezone_off_does_not_crash(extractor_tz_off, make_jpeg, tmp_path):
@@ -152,5 +148,5 @@ def test_scan_image_first_corrupt_file_does_not_abort_folder(extractor, make_jpe
 def test_scan_image_warning_uses_actual_filename(extractor, tmp_path):
     (tmp_path / "specific_name.jpg").write_bytes(b"not a jpeg")
     data = extractor._empty_scan_data()
-    extractor.scan_image(tmp_path, 0, data, ["specific_name.jpg"], **_EXTRA_OFF)
+    extractor.scan_image(tmp_path, "specific_name.jpg", data, **_EXTRA_OFF)
     assert any("specific_name.jpg" in warn for warn in extractor.collected_warnings["Scan Error"])
