@@ -43,7 +43,10 @@ def test_sort_and_extract_no_exif_gap_in_series(extractor, tmp_path):
     assert skipped == 0
 
 
-def test_3_photos_1_video_pattern(extractor, photos_and_videos):
+def test_3_photos_1_no_timestamp_video_pattern(extractor, photos_and_videos):
+    """Fake videos have no readable mvhd timestamp, so they route to the
+    no_timestamp bucket and never join a group. Labels count only the
+    photos that clustered."""
     sort_scan(extractor, photos_and_videos, write=False)
     df, _, _ = extractor.results[0]
     assert len(df) == 9

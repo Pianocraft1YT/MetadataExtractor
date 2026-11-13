@@ -187,13 +187,6 @@ def isolate_settings(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
-def bypass_threadsafe_dialog(monkeypatch):
-
-    def fake_ask(self, title, msg):
-        return bool(metadata.messagebox.askyesno(title, msg))
-
-
-@pytest.fixture(autouse=True)
 def patch_sys_exit(monkeypatch):
     def fake_exit(code=0):
         raise SystemExit(code)

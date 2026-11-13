@@ -37,9 +37,9 @@ def test_add_hyperlinks_sets_link_on_each_filename(extractor, tmp_path):
     wb = openpyxl.load_workbook(output)
     ws = wb["Sheet"]
     assert ws["A2"].hyperlink is not None
-    assert ws["A2"].hyperlink.target == (directory / "a.jpg").as_posix()
     assert ws["A3"].hyperlink is not None
-    assert ws["A3"].hyperlink.target == (directory / "b.jpg").as_posix()
+    assert ws["A2"].hyperlink.target == (directory / "a.jpg").as_uri()
+    assert ws["A3"].hyperlink.target == (directory / "b.jpg").as_uri()
 
 
 def test_add_hyperlinks_skips_empty_cells(extractor, tmp_path):
@@ -119,7 +119,7 @@ def test_create_sheet_adds_hyperlinks_when_enabled(extractor, photos_only, tmp_p
     wb = openpyxl.load_workbook(output)
     ws = wb["Sheet"]
     assert ws["A2"].hyperlink is not None
-    assert ws["A2"].hyperlink.target == (photos_only / "IMG_001.jpg").as_posix()
+    assert ws["A2"].hyperlink.target == (photos_only / "IMG_001.jpg").as_uri()
 
 
 @pytest.mark.real_create_sheet
@@ -154,10 +154,9 @@ def test_recursive_mode_links_each_sheet_to_its_own_directory(extractor, tmp_pat
     wb = openpyxl.load_workbook(output)
 
     ws_a = wb["Trip_A"]
-    assert ws_a["A2"].hyperlink.target == (parent / "Trip_A" / "IMG_001.jpg").as_posix()
-
+    assert ws_a["A2"].hyperlink.target == (parent / "Trip_A" / "IMG_001.jpg").as_uri()
     ws_b = wb["Trip_B"]
-    assert ws_b["A2"].hyperlink.target == (parent / "Trip_B" / "IMG_001.jpg").as_posix()
+    assert ws_b["A2"].hyperlink.target == (parent / "Trip_B" / "IMG_001.jpg").as_uri()
 
 
 def test_hyperlink_escapes_brackets(extractor, tmp_path):
