@@ -26,6 +26,7 @@ import time
 import tkinter as tk
 import traceback
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -105,6 +106,7 @@ X_WIDTH = 350
 
 
 @dataclass
+# Config options for scans, instead of passing through values
 class ScanConfig:
     final_output: Path
     modifier: int
@@ -130,47 +132,56 @@ class ScanConfig:
 class MetadataExtractor:
 
     # Cosmetic only, adds placeholder text in entry boxes
-    def nameFocusIn(self, event):
+    def nameFocusIn(self, event: tk.Event) -> None:
+        """Clears default text for name_entry on user focus in."""
         if self.name_entry.get() == "Filename (default output.filetype)":
             self.name_entry.delete(0, "end")
             self.name_entry.config(foreground="black")
 
-    def nameFocusOut(self, event):
+    def nameFocusOut(self, event: tk.Event) -> None:
+        """Inserts default text for name_entry on user focus out if blank."""
         if self.name_entry.get() == "":
             self.name_entry.insert(0, "Filename (default output.filetype)")
             self.name_entry.config(foreground="gray")
 
-    def seriesFocusIn(self, event):
+    def modifierFocusIn(self, event: tk.Event) -> None:
+        """Clears default text for modifier_entry on user focus in."""
         if self.modifier_entry.get() == "Starting index (Img # Series)":
             self.modifier_entry.delete(0, "end")
             self.modifier_entry.config(foreground="black")
 
-    def seriesFocusOut(self, event):
+    def modifierFocusOut(self, event: tk.Event) -> None:
+        """Inserts default text for modifier_entry on user focus out if blank."""
         if self.modifier_entry.get() == "":
             self.modifier_entry.insert(0, "Starting index (Img # Series)")
             self.modifier_entry.config(foreground="gray")
 
-    def maxDepthFocusIn(self, event):
+    def maxDepthFocusIn(self, event: tk.Event) -> None:
+        """Clears default text for maxdepth_entry on user focus in."""
         if self.maxdepth_entry.get() == "Recursion Depth (#)":
             self.maxdepth_entry.delete(0, "end")
             self.maxdepth_entry.config(foreground="black")
 
-    def maxDepthFocusOut(self, event):
+    def maxDepthFocusOut(self, event: tk.Event) -> None:
+        """Inserts default text for maxdepth_entry on user focus out if blank."""
         if self.maxdepth_entry.get() == "":
             self.maxdepth_entry.insert(0, "Recursion Depth (#)")
             self.maxdepth_entry.config(foreground="gray")
 
-    def burstCutoffFocusIn(self, event):
+    def burstCutoffFocusIn(self, event: tk.Event) -> None:
+        """Clears default text for burst_cutoff_entry on user focus in."""
         if self.burst_cutoff_entry.get() == "Photo grouping cutoff (default 2 seconds)":
             self.burst_cutoff_entry.delete(0, "end")
             self.burst_cutoff_entry.config(foreground="black")
 
-    def burstCutoffFocusOut(self, event):
+    def burstCutoffFocusOut(self, event: tk.Event) -> None:
+        """Inserts default text for burst_cutoff_entry on user focus out if blank."""
         if self.burst_cutoff_entry.get() == "":
             self.burst_cutoff_entry.insert(0, "Photo grouping cutoff (default 2 seconds)")
             self.burst_cutoff_entry.config(foreground="gray")
 
-    def gps_warning(self):
+    def gps_warning(self) -> None:
+        """Displays privacy warning when gps_checkbox is checked."""
         if self.gps_var.get():
             self.gps_warning_label.pack(after=self.gps_checkbox)
         else:
@@ -178,7 +189,8 @@ class MetadataExtractor:
         self.root.update_idletasks()  # flush pending layout
         self.root.geometry(f"{X_WIDTH}x{self.root.winfo_reqheight()}")
 
-    def debug_warning(self):
+    def debug_warning(self) -> None:
+        """Prompts user with askokcancel dialog when debug_checkbox is checked, and explains what debug mode does."""
         if self.debug_var.get():
             self.debug_var.set(
                 messagebox.askokcancel(
@@ -188,7 +200,8 @@ class MetadataExtractor:
             )
 
     # Show recursive_input entry box when recursive is checked
-    def recursive_input(self):
+    def recursive_input(self) -> None:
+        """Displays maxdepth_entry when recursive_checkbox is checked."""
         if self.recursive_var.get():
             self.maxdepth_entry.pack(after=self.recursive_checkbox)
         else:
@@ -197,7 +210,8 @@ class MetadataExtractor:
         self.root.geometry(f"{X_WIDTH}x{self.root.winfo_reqheight()}")  # fixed width, auto height
 
     # Show extra metadata checkboxes when extra_exif_checkbox is checked
-    def extra_exif(self):
+    def extra_exif(self) -> None:
+        """Displays exif_extra_frame and related checkboxes when extra_exif_checkbox is checked."""
         if self.extra_exif_var.get():
             # Pack Extra Checkboxes
             self.extra_exif_frame.pack(after=self.extra_exif_checkbox)
@@ -225,7 +239,8 @@ class MetadataExtractor:
         self.root.geometry(f"{X_WIDTH}x{self.root.winfo_reqheight()}")
 
     # Show starting date and ending date calendar widgets on checkbox click only
-    def date_range(self):
+    def date_range(self) -> None:
+        """Displays date_notice_label informing user of required info as well as starting and ending date_entry calendar."""
         if self.date_range_var.get():
             self.date_notice_label.pack(after=self.date_range_checkbox)
             self.include_undateable_checkbox.pack(after=self.date_notice_label)
@@ -243,11 +258,11 @@ class MetadataExtractor:
         self.root.update_idletasks()  # flush pending layout
         self.root.geometry(f"{X_WIDTH}x{self.root.winfo_reqheight()}")  # fixed width, auto height
 
-    def user_mode(self):
+    def user_mode(self) -> None:
+        """Displays advanced_mode_frame when advanced mode radio is selected."""
         if self.user_mode_var.get() == "Advanced":
             self.advanced_mode_frame.pack(after=self.basic_mode_frame)
             self.debug_checkbox.pack()  # First in advanced_mode_frame
-
             self.modifier_entry.pack(after=self.debug_checkbox)
             self.sort_methods_frame.pack(side="top", after=self.modifier_entry)
             self.sort_methods_label.pack()  # First in sort_methods_frame
@@ -276,11 +291,20 @@ class MetadataExtractor:
 
     # Sort helper
     @staticmethod
-    def natural_key(s):
-        return [(0, t.lower()) if not t.isdigit() else (1, int(t)) for t in re.split(r"(\d+)", s)]
+    def natural_key(text: str) -> list[tuple[int, int | str]]:
+        """Sort key for natural/alphanumeric order."""
+        return [(0, t.lower()) if not t.isdigit() else (1, int(t)) for t in re.split(r"(\d+)", text)]
 
     # Date filter helpers
-    def _filter_by_date(self, dirpath, media_files, start_date, end_date, include_undateable):
+    def _filter_by_date(
+        self,
+        dirpath: str,
+        media_files: list[str],
+        start_date: date | None,
+        end_date: date | None,
+        include_undateable: bool,
+    ) -> list[str]:
+        """Filters media_files by date if date_range_checkbox was checked."""
         return_files = []
         for file in media_files:
             lower = file.lower()
@@ -299,7 +323,8 @@ class MetadataExtractor:
                 return_files.append(file)
         return return_files
 
-    def _get_photo_date(self, path):
+    def _get_photo_date(self, path: Path) -> datetime | None:
+        """Opens given path as an Image to extract EXIF datetime."""
         try:
             with Image.open(path) as img:
                 exif_data = img.getexif()
@@ -317,14 +342,12 @@ class MetadataExtractor:
         except Exception:  # noqa: BLE001
             return None
 
-    def _get_video_date(self, path):
+    def _get_video_date(self, path: Path) -> datetime | None:
+        """Passes path to extract_video_metadata to get creation timestamp."""
         try:
             dt = extract_video_metadata(path)
             if dt is None:
                 return None
-            # mvhd stores UTC; photos store local wall-clock time in EXIF.
-            # Convert to system local time so both sides compare as "local".
-            # *If system time is not where video was captured, will be incorrect*
             if dt.tzinfo is not None:
                 return dt.replace(tzinfo=None)
             return dt
@@ -333,11 +356,12 @@ class MetadataExtractor:
 
     @staticmethod
     def _confirm_overwrite(path: Path) -> bool:
+        """Helper to confirm overwriting of files."""
         if not path.exists():
             return True
         return messagebox.askyesno("Overwrite?", f"{path}\nalready exists. Overwrite?")
 
-    def _safe_after(self, callback, *args):
+    def _safe_after(self, callback: Callable[..., object], *args: Any) -> None:
         """Queue a callback on the main thread. Drops it silently if the root is gone."""
         if self._destroyed:
             return
@@ -349,7 +373,8 @@ class MetadataExtractor:
     # Conversion Helpers
     @staticmethod
     # Check if value is a float or int
-    def is_number(value):
+    def is_number(value: Any) -> bool:
+        """Check if value is a numeric string, float or int."""
         try:
             float(value)
             return True
@@ -358,7 +383,8 @@ class MetadataExtractor:
 
     @staticmethod
     # Turn only seconds into normal time measurements
-    def _convert_seconds(seconds, mode="ETA"):
+    def _convert_seconds(seconds: float, mode: str = "ETA") -> str:
+        """Turn seconds into human-readable durations, based on mode: "ETA" or "Time Elapsed"."""
         output = []
         minutes = 0
         hours = 0
@@ -391,24 +417,28 @@ class MetadataExtractor:
         return output
 
     @staticmethod
-    def _decode_exif_string(v):
+    def _decode_exif_string(v: Any) -> Any:
+        """Decodes v if v is bytes."""
         if isinstance(v, bytes):
             return v.decode("ascii", errors="replace").rstrip("\x00")
         return v
 
     @staticmethod
-    def _exif_get(tag, ifd, exif_data):
+    def _exif_get(tag: int, ifd: Any, exif_data: Any) -> Any:
+        """Look up tag in top-level EXIF, falling back to the sub-IFD if absent."""
         metadata = exif_data.get(tag)
         if metadata is None and ifd is not None:
             metadata = ifd.get(tag)
         return metadata
 
     @staticmethod
-    def _exif_get_str(tag, ifd, exif_data):
+    def _exif_get_str(tag: int, ifd: Any, exif_data: Any) -> str | None:
+        """Decode EXIF tag into string, strip NUL padding."""
         return __class__._decode_exif_string(__class__._exif_get(tag, ifd, exif_data))
 
     @staticmethod
     def _rational_to_float(value: Any) -> float | None:
+        """Turns a rational (fraction) into a float"""
         if value is None:
             return None
         if isinstance(value, tuple):
@@ -424,13 +454,15 @@ class MetadataExtractor:
         except (TypeError, ValueError, ZeroDivisionError):
             return None
 
-    def _format_aperture(self, value):
+    def _format_aperture(self, value: Any) -> str | None:
+        """Format an FNumber rational to "f/5.6" style."""
         v = self._rational_to_float(value)
         if v is None or v <= 0:
             return None
         return f"f/{v:g}"  # 5.6 -> "f/5.6", 8.0 -> "f/8"
 
-    def _format_exposure_time(self, value):
+    def _format_exposure_time(self, value: Any) -> str | None:
+        """Format an EXIF ExposureTime rational as "1/250" or "2.5s" style."""
         v = self._rational_to_float(value)
         if v is None or v <= 0:
             return None
@@ -442,14 +474,16 @@ class MetadataExtractor:
             return f"1/{rounded}"  # 0.004 -> "1/250", 0.5 -> "1/2"
         return f"{v:g}s"  # 0.3 -> "0.3s" (not "1/3")
 
-    def _format_focal_length(self, value):
+    def _format_focal_length(self, value: Any) -> str | None:
+        """Format a focal length to "23mm" style."""
         v = self._rational_to_float(value)
         if v is None or v <= 0:
             return None
         return f"{v:g}mm"  # 23.0 -> "23mm", 18.5 -> "18.5mm"
 
     @staticmethod
-    def _format_iso(value):
+    def _format_iso(value: Any) -> int | None:
+        """Formats ISO tag as integer"""
         if value is None:
             return None
         if isinstance(value, (list, tuple)):
@@ -461,7 +495,9 @@ class MetadataExtractor:
         except (TypeError, ValueError):
             return None
 
-    def _dataframe_to_txt(self, df, directory=None, hyperlinks=False):
+    def _dataframe_to_txt(self, df: pd.DataFrame, directory: Any = None, add_hyperlinks: bool = False) -> str:
+        """Renders a DataFrame as a Markdown table, using directory to create hyperlinks."""
+
         def esc(v):
             if v is None:
                 return ""
@@ -495,7 +531,7 @@ class MetadataExtractor:
             raw = values[0] if values else None
             for index, value in enumerate(values):
                 values[index] = esc(value)
-            if hyperlinks and directory is not None and isinstance(raw, str) and raw:
+            if add_hyperlinks and directory is not None and isinstance(raw, str) and raw:
                 url = (Path(directory) / raw).as_uri()
                 values[0] = values[0].replace("[", "\\[").replace("]", "\\]")
                 values[0] = f"[{values[0]}](<{url}>)"
@@ -505,8 +541,8 @@ class MetadataExtractor:
         return "\n".join(lines)
 
     @staticmethod
-    def _parse_exif_datetime(dt_value):
-        """Parse "YYYY:MM:DD HH:MM:SS" or "YYYY:MM:DD" to a datetime object, or None."""
+    def _parse_exif_datetime(dt_value: Any) -> datetime | None:
+        """Parse "YYYY:MM:DD HH:MM:SS" or "YYYY:MM:DD" and finally "YYYY:MM:DD HH:MM:SS.ffffff" to a datetime object, or None."""
         s = str(dt_value)
         try:
             if " " in s:
@@ -518,7 +554,8 @@ class MetadataExtractor:
             except ValueError:
                 return None
 
-    def _format_gps_coord(self, dms_tuple, ref):
+    def _format_gps_coord(self, dms_tuple: Any, ref: Any) -> str | None:
+        """Turns a GPS degrees, minutes, seconds tuple to a string."""
         if isinstance(ref, bytes):
             try:
                 ref = ref.decode("ascii")
@@ -540,7 +577,8 @@ class MetadataExtractor:
 
     # Sanitization Helpers
     # XML forbids control characters that sometimes are used as padding, so scrub them out.
-    def _sanitize_for_excel(self, df):
+    def _sanitize_for_excel(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Cleans a dataframe of illegal characters."""
         copy = df.copy()
         if copy.empty:
             return copy
@@ -551,7 +589,7 @@ class MetadataExtractor:
         return copy
 
     # For Sheet Names
-    def verify_name(self, name, used):
+    def verify_name(self, name: str, used: set[str]) -> str:
         illegal_chars = ("[", "]", ":", "*", "?", "/", "\\")  # Can't be in a sheet name
         for c in illegal_chars:
             name = name.replace(c, "_")  # Replace any instances with "_"
@@ -577,8 +615,8 @@ class MetadataExtractor:
             f += 1
 
     @staticmethod
-    def _sanitize_for_filename(name, used):
-        """Sheet name → filename component. No extension logic, no reserved names."""
+    def _sanitize_for_filename(name, used: set[str]) -> str:
+        """Sanitize a sheet name into a filesystem-safe filename stem."""
         illegal = ("<", ">", ":", '"', "/", "\\", "|", "?", "*")
         for c in illegal:
             name = name.replace(c, "_")
@@ -625,7 +663,8 @@ class MetadataExtractor:
             f += 1
 
     # For filenames
-    def clean_name(self, name):
+    def clean_name(self, name: str) -> str:
+        """Sanitize a user-typed filename and force its extension to match filetype_var."""
         # Trim whitespace and trailing dots (Windows strips trailing dots silently)
         name = name.strip().rstrip(".")
         # Check if anything useful survives stripping
@@ -694,8 +733,15 @@ class MetadataExtractor:
 
     # Helpers for progress bar
     def get_total_files(
-        self, max_depth, include_hiddens, include_undateable, date_range=False, start_date=None, end_date=None
-    ):
+        self,
+        max_depth: int,
+        include_hiddens: bool,
+        include_undateable: bool,
+        date_range: bool = False,
+        start_date: date | None = None,
+        end_date: date | None = None,
+    ) -> int:
+        """Counts total number of photo files in directories."""
         file_count = 0
         for _, _, files in self.walk_and_filter(
             self.directory_path, max_depth, include_hiddens, date_range, start_date, end_date, include_undateable
@@ -706,7 +752,8 @@ class MetadataExtractor:
         return file_count
 
     # Main-thread setter for total_files (queued via root.after from worker)
-    def _set_total_files(self, count):
+    def _set_total_files(self, count: int) -> None:
+        """Reset progress state and start the ETA clock."""
         self.time_started = time.perf_counter()
         self.total_files = count
         self.scanned_count.set(f"Scanned: 0 / {count}")
@@ -715,7 +762,8 @@ class MetadataExtractor:
             self.progress_var.set(0)
 
     # Updates the progress bar
-    def update_progress(self, processed, skipped, current_dir, timestamp=None):
+    def update_progress(self, processed: int, skipped: int, current_dir: Path, timestamp: float | None = None) -> None:
+        """Recompute progress, ETA, and elapsed time from the worker's per-file callback."""
         if not self.cancel_event.is_set():
             if self.time_started:
                 files_done = processed + skipped
@@ -742,7 +790,8 @@ class MetadataExtractor:
             self.current_directory.set(str(current_dir)[-30:])  # Truncate to not be too long, last 30 characters
 
     # Starts the worker thread (called from main thread)
-    def _start_scan(self, cfg: ScanConfig):
+    def _start_scan(self, cfg: ScanConfig) -> None:
+        """Sets _cleanup_pending, flip button states, spawns scan worker."""
         # Cleanup must run after this
         self._cleanup_pending = True
         self.execute_button.config(state="disabled")
@@ -754,9 +803,11 @@ class MetadataExtractor:
         ).start()
 
     # Runs the scan on a thread
-    def _run_scan_threaded(self, cfg: ScanConfig):
+    def _run_scan_threaded(self, cfg: ScanConfig) -> None:
+        """Worker-thread: count files, scan, then queue cleanup on the main thread."""
 
-        def _on_progress(p, s, d):
+        def _on_progress(p: int, s: int, d: Path) -> None:
+            """Capture timestamp, then queue update_progress on the main thread."""
             # Runs on worker thread — capture timestamp NOW so main-thread
             # scheduling delay doesn't distort the ETA average.
             t = time.perf_counter()
@@ -1810,7 +1861,7 @@ class MetadataExtractor:
                         if not self._confirm_overwrite(md_path):
                             continue
                         md_path.write_text(
-                            self._dataframe_to_txt(sheet_df, directory, hyperlinks=self.hyperlink_var.get()),
+                            self._dataframe_to_txt(sheet_df, directory, add_hyperlinks=self.hyperlink_var.get()),
                             encoding="utf-8",
                         )
                         files_written += 1
@@ -1946,8 +1997,8 @@ class MetadataExtractor:
         self.end_date_label = tk.Label(self.advanced_mode_frame, text="End Date")
         self.name_entry.bind("<FocusIn>", self.nameFocusIn)
         self.name_entry.bind("<FocusOut>", self.nameFocusOut)
-        self.modifier_entry.bind("<FocusIn>", self.seriesFocusIn)
-        self.modifier_entry.bind("<FocusOut>", self.seriesFocusOut)
+        self.modifier_entry.bind("<FocusIn>", self.modifierFocusIn)
+        self.modifier_entry.bind("<FocusOut>", self.modifierFocusOut)
         self.maxdepth_entry.bind("<FocusIn>", self.maxDepthFocusIn)
         self.maxdepth_entry.bind("<FocusOut>", self.maxDepthFocusOut)
         self.burst_cutoff_entry.bind("<FocusIn>", self.burstCutoffFocusIn)

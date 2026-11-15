@@ -66,5 +66,6 @@ def test_windows_missing_file_fails_open(extractor, tmp_path):
 def test_windows_attributeerror_fails_open(extractor, tmp_path):
     class NoAttrs:
         pass
+
     with patch("os.stat", return_value=NoAttrs()):
         assert extractor._check_hidden("x.jpg", tmp_path, False) is False
