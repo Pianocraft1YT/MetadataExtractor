@@ -72,8 +72,8 @@ def test_starting_index_zero_padded_accepted(extractor, tmp_path):
 
     captured = {}
 
-    def fake_start(recursive, final_output, modifier, *args, **kwargs):
-        captured["modifier"] = modifier
+    def fake_start(cfg, *args, **kwargs):
+        captured["modifier"] = cfg.modifier
 
     extractor._start_scan = fake_start
     extractor.directory_path = tmp_path
@@ -91,8 +91,8 @@ def test_starting_index_placeholder_uses_zero_modifier(extractor, tmp_path):
 
     captured = {}
 
-    def fake_start(recursive, final_output, modifier, *args, **kwargs):
-        captured["modifier"] = modifier
+    def fake_start(cfg, *args, **kwargs):
+        captured["modifier"] = cfg.modifier
 
     extractor._start_scan = fake_start
     extractor.directory_path = tmp_path
@@ -120,8 +120,8 @@ def test_default_filename_when_placeholder_left(extractor, tmp_path):
 
     captured = {}
 
-    def fake_start(recursive, final_output, modifier, *args, **kwargs):
-        captured["final_output"] = final_output
+    def fake_start(cfg, *args, **kwargs):
+        captured["final_output"] = cfg.final_output
 
     extractor._start_scan = fake_start
     extractor.directory_path = tmp_path

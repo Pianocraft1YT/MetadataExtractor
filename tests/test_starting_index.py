@@ -68,8 +68,8 @@ def test_valid_starting_index_accepted(extractor, monkeypatch, tmp_path, value, 
 
     captured = {}
 
-    def fake_start(recursive, final_output, modifier, *args, **kwargs):
-        captured["modifier"] = modifier
+    def fake_start(cfg, *args, **kwargs):
+        captured["modifier"] = cfg.modifier
 
     extractor._start_scan = fake_start
 

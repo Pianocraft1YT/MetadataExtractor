@@ -96,7 +96,9 @@ def test_rational_to_float_wrong_tuple_length(extractor):
 def test_sanitize_for_filename(raw, expected):
     from metadata import MetadataExtractor
 
-    assert MetadataExtractor._sanitize_for_filename(raw) == expected
+    # Signature is (name, used) — pass a fresh set per call so dedupe state
+    # doesn't leak between parametrized cases.
+    assert MetadataExtractor._sanitize_for_filename(raw, set()) == expected
 
 
 # ---------------------------------------------------------------------------

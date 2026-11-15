@@ -12,7 +12,8 @@ def _filtered_listing(extractor, folder):
         [
             f
             for f in os.listdir(folder)
-            if f.lower().endswith((".jpg", ".jpeg", ".png", ".mp4", ".mov")) and not extractor._check_hidden(f, folder)
+            if f.lower().endswith((".jpg", ".jpeg", ".png", ".mp4", ".mov"))
+            and not extractor._check_hidden(f, folder, False)
         ],
         key=lambda x: os.path.splitext(x)[0].lower(),
     )

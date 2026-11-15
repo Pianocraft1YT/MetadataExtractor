@@ -90,6 +90,10 @@ def test_overwrite_declined(isolated, tmp_path, simple_df, monkeypatch):
 
 
 def test_empty_results_shows_no_data(isolated, tmp_path, monkeypatch):
+    """Empty results with total_processed > 0 → "No data" branch.
+
+    (total_processed == 0 would hit the "Empty directory" branch instead.)
+    """
     isolated.results.clear()
     output = tmp_path / "out.xlsx"
 
@@ -100,7 +104,7 @@ def test_empty_results_shows_no_data(isolated, tmp_path, monkeypatch):
         lambda title, message, **k: errors.append((title, message)),
     )
 
-    isolated.create_sheet(output, 0, 0)
+    isolated.create_sheet(output, 5, 0)
 
     assert not output.exists()
     assert any("No data" in t for t, _ in errors)

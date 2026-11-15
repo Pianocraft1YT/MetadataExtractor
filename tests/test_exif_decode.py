@@ -2,7 +2,8 @@
 
 EXIF string tags (Make, Model, Software, LensModel) are ASCII by spec, but
 some cameras and some Pillow versions hand them back as bytes. The decoder
-converts to str; non-bytes values pass through untouched.
+converts to str and strips trailing null padding; non-bytes values pass
+through untouched.
 """
 
 from PIL import Image
@@ -61,9 +62,10 @@ def test_multi_byte_utf8_replaced_per_byte(extractor):
     assert extractor._decode_exif_string("café".encode("utf-8")) == "caf\ufffd\ufffd"
 
 
-def test_nulls_preserved_through_decode(extractor):
-    # Decoder doesn't strip nulls — that's _sanitize_for_excel's job.
-    assert extractor._decode_exif_string(b"Canon\x00\x00") == "Canon\x00\x00"
+def test_nulls_stripped_by_decode(extractor):
+    # The decoder strips trailing null padding. _sanitize_for_excel also
+    # strips nulls at the Excel boundary, so the two layers agree.
+    assert extractor._decode_exif_string(b"Canon\x00\x00") == "Canon"
 
 
 def test_barn_owl_software_value(extractor):

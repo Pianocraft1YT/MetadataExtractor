@@ -22,7 +22,8 @@ _EXTRA_OFF = dict(
 def media_files(folder, extractor=None):
     files = [f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))]
     if extractor is not None:
-        files = [f for f in files if not extractor._check_hidden(f, folder)]
+        # _check_hidden now requires the include_hiddens flag
+        files = [f for f in files if not extractor._check_hidden(f, folder, False)]
     return sorted(
         files,
         key=lambda x: (
@@ -51,7 +52,18 @@ def sort_scan(extractor, folder, modifier=0, debug=False, final_output=None, wri
     return processed, skipped
 
 
-def find_scan(extractor, parent, modifier=0, debug=False, final_output=None, write=True, cutoff=2.0, **overrides):
+def find_scan(
+    extractor,
+    parent,
+    modifier=0,
+    debug=False,
+    final_output=None,
+    write=True,
+    cutoff=2.0,
+    include_hiddens=False,
+    include_undateable=True,
+    **overrides,
+):
     # `debug` is kept for backward compatibility with existing callers, but
     # find_directories() no longer takes it.
     if final_output is None:
@@ -61,6 +73,8 @@ def find_scan(extractor, parent, modifier=0, debug=False, final_output=None, wri
         modifier,
         cutoff,
         **{**_EXTRA_OFF, **overrides},
+        include_hiddens=include_hiddens,
+        include_undateable=include_undateable,
     )
     if write:
         extractor.create_sheet(final_output, processed, skipped)

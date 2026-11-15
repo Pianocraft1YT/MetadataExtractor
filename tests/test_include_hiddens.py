@@ -26,7 +26,7 @@ import metadata
 def test_check_hidden_dot_prefix_default(extractor, tmp_path):
     """Default behavior unchanged: dot-prefix files are hidden."""
     (tmp_path / ".hidden.jpg").write_bytes(b"fake")
-    assert extractor._check_hidden(".hidden.jpg", tmp_path) is True
+    assert extractor._check_hidden(".hidden.jpg", tmp_path, False) is True
 
 
 def test_check_hidden_dot_prefix_flag_on(extractor, tmp_path):
@@ -44,7 +44,7 @@ def test_walk_excludes_hidden_by_default(extractor, tmp_path):
     make_jpeg_with_exif(tmp_path / "visible.jpg", "2024:05:15 12:30:45")
     make_jpeg_with_exif(tmp_path / ".hidden.jpg", "2024:05:16 12:30:45")
 
-    results = list(extractor.walk_and_filter(str(tmp_path), 0))
+    results = list(extractor.walk_and_filter(str(tmp_path), 0, False))
     _, _, files = results[0]
     assert "visible.jpg" in files
     assert ".hidden.jpg" not in files
@@ -70,7 +70,7 @@ def test_get_total_files_default_excludes_hidden(extractor, tmp_path):
     make_jpeg_with_exif(tmp_path / ".hidden.jpg", "2024:05:16 12:30:45")
 
     extractor.directory_path = tmp_path
-    assert extractor.get_total_files(0) == 1
+    assert extractor.get_total_files(0, False, True) == 1
 
 
 def test_get_total_files_includes_hidden_when_flag_on(extractor, tmp_path):
@@ -78,7 +78,7 @@ def test_get_total_files_includes_hidden_when_flag_on(extractor, tmp_path):
     make_jpeg_with_exif(tmp_path / ".hidden.jpg", "2024:05:16 12:30:45")
 
     extractor.directory_path = tmp_path
-    assert extractor.get_total_files(0, include_hiddens=True) == 2
+    assert extractor.get_total_files(0, True, True) == 2
 
 
 # ---------------------------------------------------------------------------
