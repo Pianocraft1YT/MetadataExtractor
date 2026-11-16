@@ -26,7 +26,7 @@ import time
 import tkinter as tk
 import traceback
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -497,6 +497,7 @@ class MetadataExtractor:
 
     def _dataframe_to_txt(self, df: pd.DataFrame, directory: Any = None, hyperlinks: bool = False) -> str:
         """Renders a DataFrame as a Markdown table, using directory to create hyperlinks if hyperlinks is True."""
+
         def esc(v):
             if v is None:
                 return ""
@@ -614,7 +615,7 @@ class MetadataExtractor:
             f += 1
 
     @staticmethod
-    def _sanitize_for_filename(name, used: set[str]) -> str:
+    def _sanitize_for_filename(name: str, used: set[str]) -> str:
         """Sanitize a sheet name into a filesystem-safe filename stem."""
         illegal = ("<", ">", ":", '"', "/", "\\", "|", "?", "*")
         for c in illegal:
@@ -742,6 +743,8 @@ class MetadataExtractor:
     ) -> int:
         """Counts total number of photo files in directories."""
         file_count = 0
+        if self.directory_path is None:
+            return 0
         for _, _, files in self.walk_and_filter(
             self.directory_path, max_depth, include_hiddens, date_range, start_date, end_date, include_undateable
         ):
@@ -829,6 +832,7 @@ class MetadataExtractor:
                 self._safe_after(self._set_total_files, count)
                 if self.cancel_event.is_set():
                     return
+            assert self.directory_path is not None
             self.find_directories(
                 self.directory_path,
                 cfg.modifier,
@@ -1110,22 +1114,25 @@ class MetadataExtractor:
 
     # Core Functions
     # Gets called on set directory button press to set image directory
-    def set_dir(self):
+    def set_dir(self) -> None:
+        """Opens a filedialog to set the root directory of a scan."""
         selected = filedialog.askdirectory(title="Select a Directory")
         if selected:
             self.directory_path = Path(selected)
 
     # Gets called on set output button press
-    def set_output(self):
+    def set_output(self) -> None:
+        """Opens a filedialog to set the output directory of a scan."""
         selected = filedialog.askdirectory(title="Select a Output Directory")
         if selected:
             self.output_path = Path(selected)
 
     # Checks if given file is hidden
-    def _check_hidden(self, filepath, directory, include_hiddens):
+    def _check_hidden(self, filename: str, directory: str, include_hiddens: bool) -> bool:
+        """Checks if a file is hidden if include_hiddens is False, based on leading period "." and file attributes."""
         if include_hiddens:
             return False
-        filepath = Path(directory) / filepath
+        filepath = Path(directory) / filename
         if filepath.name.startswith("."):
             return True
         if os.name != "nt":
@@ -1139,21 +1146,22 @@ class MetadataExtractor:
     # Image metadata extractor helper function
     def scan_image(
         self,
-        directory_path,
-        filename,
-        data,
-        output_utc,
-        output_dimensions,
-        output_make,
-        output_model,
-        output_software,
-        output_lens_model,
-        output_aperture,
-        output_exposure_time,
-        output_focal_length,
-        output_iso,
-        output_gps,
-    ):
+        directory_path: str,
+        filename: str,
+        data: dict,
+        output_utc: bool,
+        output_dimensions: bool,
+        output_make: bool,
+        output_model: bool,
+        output_software: bool,
+        output_lens_model: bool,
+        output_aperture: bool,
+        output_exposure_time: bool,
+        output_focal_length: bool,
+        output_iso: bool,
+        output_gps: bool,
+    ) -> bool:
+        """Extracts EXIF metadata from an image file and appends each to a key in the "data" dict. Returns True on success."""
         offset = None
         dimensions = None
         make = None
@@ -1219,7 +1227,8 @@ class MetadataExtractor:
             return True
 
     # Hyperlink addition
-    def add_hyperlinks(self, excel_file):
+    def add_hyperlinks(self, excel_file: str) -> None:
+        """Adds hyperlinks to Excel files in the first collumn of each sheet."""
         try:
             wb = openpyxl.load_workbook(excel_file)
             for _, sheet_name, directory in self.results:
@@ -1240,27 +1249,28 @@ class MetadataExtractor:
     # Finds subdirectories for recursive mode
     def find_directories(
         self,
-        directory_path,
-        modifier,
-        cutoff,
-        output_utc,
-        output_dimensions,
-        output_make,
-        output_model,
-        output_software,
-        output_lens_model,
-        output_aperture,
-        output_exposure_time,
-        output_focal_length,
-        output_iso,
-        output_gps,
-        include_hiddens,
-        include_undateable,
-        date_range=False,
-        start_date=None,
-        end_date=None,
-        progress_callback=None,
-    ):
+        directory_path: Path,
+        modifier: int,
+        cutoff: float,
+        output_utc: bool,
+        output_dimensions: bool,
+        output_make: bool,
+        output_model: bool,
+        output_software: bool,
+        output_lens_model: bool,
+        output_aperture: bool,
+        output_exposure_time: bool,
+        output_focal_length: bool,
+        output_iso: bool,
+        output_gps: bool,
+        include_hiddens: bool,
+        include_undateable: bool,
+        date_range: bool = False,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        progress_callback: Callable[[int, int, Path], None] | None = None,
+    ) -> tuple[int, int]:
+        """Lists subdirectories in recursive mode (single-folder has no subdirectories), runs sort_and_extract on both modes. Builds progress_callback and sheet_name."""
         sheet_names = []
         files_lists = []
         directories = []
@@ -1324,20 +1334,21 @@ class MetadataExtractor:
     # Helper to find directories one-by-one to max_depth
     def walk_and_filter(
         self,
-        root_dir,
-        max_depth,
-        include_hiddens,
-        date_range=False,
-        start_date=None,
-        end_date=None,
-        include_undateable=True,
-    ):
+        root_dir: Path,
+        max_depth: int,
+        include_hiddens: bool,
+        date_range: bool = False,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        include_undateable: bool = True,
+    ) -> Iterator[tuple[str, list[str], list[str]]]:
+        """Yields subdirectories one-by-one with os.walk to max_depth, while filtering based on include_hiddens, sorting using natural_key"""
         # Normalize the path and count baseline separators
-        root_dir = os.path.abspath(str(root_dir))
-        baseline_depth = len(Path(root_dir).parts)
+        root_str = os.path.abspath(root_dir)
+        baseline_depth = len(Path(root_str).parts)
 
         for dirpath, dirs, media_files in os.walk(
-            root_dir, topdown=True, followlinks=False
+            root_str, topdown=True, followlinks=False
         ):  # Symlinked directories ignored
             dirs[:] = [
                 d
@@ -1372,7 +1383,8 @@ class MetadataExtractor:
                 del dirs[:]  # or dirs.clear()
 
     # Initial function; runs on "Execute" button press
-    def initialize(self):
+    def initialize(self) -> None:
+        """Sets scan flags, builds configuration and starts scan."""
         modifier = 0  # For starting index of img_series
         user_mode = self.user_mode_var.get()
         filetype = self.filetype_var.get()  # CSV or Excel
@@ -1524,27 +1536,27 @@ class MetadataExtractor:
                 return
             self._start_scan(cfg)
 
-    # Gets called as first scan function, assumes irregular pattern
-    # Paths supplied by user or debug mode
+    # Extracts EXIF metadata and groups photos/videos by timestamp
     def sort_and_extract(
         self,
-        directory_path,
-        modifier,
-        media_files,
-        cutoff,
-        output_utc,
-        output_dimensions,
-        output_make,
-        output_model,
-        output_software,
-        output_lens_model,
-        output_aperture,
-        output_exposure_time,
-        output_focal_length,
-        output_iso,
-        output_gps,
-        progress_callback=None,
-    ):
+        directory_path: str,
+        modifier: int,
+        media_files: list[str],
+        cutoff: float,
+        output_utc: bool,
+        output_dimensions: bool,
+        output_make: bool,
+        output_model: bool,
+        output_software: bool,
+        output_lens_model: bool,
+        output_aperture: bool,
+        output_exposure_time: bool,
+        output_focal_length: bool,
+        output_iso: bool,
+        output_gps: bool,
+        progress_callback: Callable[[int, int, Path], None] | None = None,
+    ) -> tuple[int, int]:
+        """Creates pd.DataFrame from extracted EXIF metadata and groups by timestamp."""
         processed = 0  # Processed files this turn; increments by photos_before_video, although scan_image only scans last photo of a series
         skipped = 0  # Skipped files this turn
         data = self._empty_scan_data()  # Data dictionary
@@ -1614,7 +1626,7 @@ class MetadataExtractor:
                         else:
                             skipped += 1
                         if progress_callback:
-                            progress_callback(processed, skipped, directory_path)
+                            progress_callback(processed, skipped, Path(directory_path))
                 index = group_end + 1
             for file in no_timestamp:
                 if self.cancel_event.is_set():
@@ -1643,7 +1655,7 @@ class MetadataExtractor:
                     else:
                         skipped += 1
                     if progress_callback:
-                        progress_callback(processed, skipped, directory_path)
+                        progress_callback(processed, skipped, Path(directory_path))
         except (FileNotFoundError, PermissionError):
             self.collected_warnings["Directory Error"].append(f"{directory_path}")
             skipped_count = sum(1 for f in media_files if f.lower().endswith(PHOTO_TYPES))
@@ -1677,23 +1689,32 @@ class MetadataExtractor:
         return processed, skipped  # For tallying total processed and skipped
 
     @staticmethod
-    def group_by_timestamp(entries, cutoff):
+    def group_by_timestamp(entries: list[tuple[datetime, str]], cutoff: float) -> list[list[tuple[datetime, str]]]:
+        """Groups entries by timestamp, within cutoff seconds of each other."""
         if cutoff < 0:
             raise ValueError
         if len(entries) == 0:
             return []
         entries = sorted(entries, key=lambda e: e[0])
         groups = [[entries[0]]]
-        cutoff = timedelta(seconds=cutoff)
+        timedelta_cutoff = timedelta(seconds=cutoff)
         for prev, current in itertools.pairwise(entries):
-            if current[0] - prev[0] <= cutoff:
+            if current[0] - prev[0] <= timedelta_cutoff:
                 groups[-1].append(current)
             else:
                 groups.append([current])
         return groups
 
     # Handles time and date formatting, along with UTC offsets
-    def fix_time(self, output_utc, list_of_dates, list_of_offsets, list_of_images, directory):
+    def fix_time(
+        self,
+        output_utc: bool,
+        list_of_dates: list[str],
+        list_of_offsets: list[str | None],
+        list_of_images: list[str],
+        directory: str,
+    ) -> tuple[list[str], list[str]]:
+        """Splits list_of_dates into dates and times, formatted in MM/DD/YYYY, HH:MM:SS, offset by list_of_offsets if output_utc is True."""
         # Input format: "YYYY:MM:DD HH:MM:SS"
         fixed_time = []
         fixed_date = []
@@ -1742,20 +1763,21 @@ class MetadataExtractor:
     # Creates dataframes for create_sheet to use
     def create_dataframe(
         self,
-        img_series,
-        data,
-        directory_path,
-        output_dimensions,
-        output_make,
-        output_model,
-        output_software,
-        output_lens_model,
-        output_aperture,
-        output_exposure_time,
-        output_focal_length,
-        output_iso,
-        output_gps,
-    ):
+        img_series: list[str],
+        data: dict,
+        directory_path: str,
+        output_dimensions: bool,
+        output_make: bool,
+        output_model: bool,
+        output_software: bool,
+        output_lens_model: bool,
+        output_aperture: bool,
+        output_exposure_time: bool,
+        output_focal_length: bool,
+        output_iso: bool,
+        output_gps: bool,
+    ) -> None:
+        """Creates a pd.DataFrame from EXIF metadata for each key in "data", sorts by Date/Time if set, appends to self.results with current_sheet_name."""
         if data["Images"]:  # Make sure images are present.
             df_data = {
                 "Files": data["Images"],
@@ -1809,7 +1831,8 @@ class MetadataExtractor:
             return
 
     # Makes final output files
-    def create_sheet(self, output_path, total_processed, total_skipped):  # File creation
+    def create_sheet(self, output_path: Path, total_processed: int, total_skipped: int) -> None:
+        """Creates Excel, CSV, JSON, and Markdown File(s) using self.results DataFrame(s). Displays total images processed and skipped, as well as writes a warning log if needed."""
         try:
             # Check for empty results before prompting so the user isn't asked to overwrite for nothing
             if not self.results:
@@ -1943,7 +1966,8 @@ class MetadataExtractor:
                 self._on_close()
 
     # Initialization function when constructed
-    def __init__(self):
+    def __init__(self) -> None:
+        """Initializes all Tkinter objects, core variables, and loads previous settings, if applicable."""
         self.root = tk.Tk()
         self.root.title("Metadata Extractor")
         self.basic_mode_frame = tk.Frame(self.root)
@@ -2113,7 +2137,8 @@ class MetadataExtractor:
         self._load_settings()
 
     # After initialization
-    def run(self):
+    def run(self) -> None:
+        """Displays main window and widgets."""
         # Pack main widgets
         self.basic_mode_frame.pack()
         self.set_directory_button.pack()

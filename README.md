@@ -12,6 +12,7 @@ The script can detect that pattern and output one row per photo+video series, us
 Folders containing only photos are also supported and output one row per image.
 
 Executable found here: https://github.com/Pianocraft1YT/MetadataExtractor/releases
+
 Release History/Roadmap found here: https://github.com/Pianocraft1YT/MetadataExtractor/blob/main/ReleaseNotes.md
 ## Features
 

@@ -2,10 +2,13 @@
 MP4_EPOCH_OFFSET = 2_082_844_800
 
 from datetime import UTC, datetime
+from pathlib import Path
+from typing import BinaryIO
 
 
 # Finds box "target" in mp4/mov files
-def _find_box(file, target, start, end):
+def _find_box(file: BinaryIO, target: str, start: int, end: int) -> tuple[int, int] | None:
+    """Finds "target" box in video file, returns where payload starts."""
     offset = start
     while offset + 8 <= end:
         file.seek(offset)
@@ -39,9 +42,9 @@ def _find_box(file, target, start, end):
 
 
 # Extracts only date + time from video metadata, if present in file's mvhd box and parseable. Output is a datetime object. It's string form is "YYYY-MM-DD HH:MM:SS+00:00" (always UTC)
-def extract_video_metadata(video_path):
+def extract_video_metadata(video_path: Path) -> datetime | None:
+    """Extracts creation Date and Time from video mvhd "box" in UTC."""
     try:
-        video_path = video_path.as_posix()
         # rb means read bytes of file
         with open(video_path, "rb") as f:
             f.seek(0, 2)
