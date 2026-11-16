@@ -6,7 +6,7 @@
 # Please increment this counter as a warning
 # For the next person:
 #
-# hours_spent_original = 92
+# hours_spent_original = 93
 # hours_wasted_here = 0
 
 # Coded by Pianocraft1YT
@@ -495,9 +495,8 @@ class MetadataExtractor:
         except (TypeError, ValueError):
             return None
 
-    def _dataframe_to_txt(self, df: pd.DataFrame, directory: Any = None, add_hyperlinks: bool = False) -> str:
-        """Renders a DataFrame as a Markdown table, using directory to create hyperlinks."""
-
+    def _dataframe_to_txt(self, df: pd.DataFrame, directory: Any = None, hyperlinks: bool = False) -> str:
+        """Renders a DataFrame as a Markdown table, using directory to create hyperlinks if hyperlinks is True."""
         def esc(v):
             if v is None:
                 return ""
@@ -531,7 +530,7 @@ class MetadataExtractor:
             raw = values[0] if values else None
             for index, value in enumerate(values):
                 values[index] = esc(value)
-            if add_hyperlinks and directory is not None and isinstance(raw, str) and raw:
+            if hyperlinks and directory is not None and isinstance(raw, str) and raw:
                 url = (Path(directory) / raw).as_uri()
                 values[0] = values[0].replace("[", "\\[").replace("]", "\\]")
                 values[0] = f"[{values[0]}](<{url}>)"
@@ -864,7 +863,8 @@ class MetadataExtractor:
                 )
 
     # Clean up and create sheet
-    def _clean_up(self, final_output, processed, skipped):
+    def _clean_up(self, final_output: Path, processed: int, skipped: int) -> None:
+        """Calls create_sheet and flips button states."""
         # Guard so a queued _clean_up can't fire twice (e.g. through nested dialogs)
         if not self._cleanup_pending or self._destroyed:
             return
@@ -885,14 +885,16 @@ class MetadataExtractor:
                     self.percentage_done.set("Cancelled")
 
     # Closing behavior
-    def _on_close(self):
+    def _on_close(self) -> None:
+        """Saves settings and closes program."""
         self._save_settings()
         self.cancel_event.set()
         self._destroyed = True
         self.root.destroy()
 
     # To clean up any past executions
-    def reset(self):
+    def reset(self) -> None:
+        """Cleans up past executions and resets variables."""
         self.used = set()
         self.results.clear()
         self.collected_warnings.clear()
@@ -911,14 +913,16 @@ class MetadataExtractor:
         self._cleanup_pending = False
 
     # Runs on "Cancel" button press
-    def cancel(self):
+    def cancel(self) -> None:
+        """Sets cancel_event and changes progress bar information."""
         self.cancel_event.set()
         self.cancel_button.config(state="disabled")
         self.current_directory.set("Cancelling...")
         self.percentage_done.set("Cancelling...")
 
     # Creates empty dict for data to fill
-    def _empty_scan_data(self):
+    def _empty_scan_data(self) -> dict:
+        """Creates empty "data" dataframe for scans."""
         return {
             "Dates": [],
             "Images": [],
@@ -938,7 +942,8 @@ class MetadataExtractor:
         }
 
     # Saves settings to a JSON file at SETTINGS_PATH
-    def _save_settings(self):
+    def _save_settings(self) -> None:
+        """Attempts to save all settings in JSON format at SETTINGS_PATH."""
         try:
             SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
             # Don't add debug_var to settings persistence
@@ -997,7 +1002,8 @@ class MetadataExtractor:
             messagebox.showerror("Setting Save Error", message=f"Your settings could not be saved at {SETTINGS_PATH}")
 
     # Loads settings from JSON at SETTINGS_PATH
-    def _load_settings(self):
+    def _load_settings(self) -> None:
+        """Attempts to load settings from SETTINGS_PATH."""
         try:
             key_to_checkbox_var = {
                 "Date Range": self.date_range_var,
@@ -1861,7 +1867,7 @@ class MetadataExtractor:
                         if not self._confirm_overwrite(md_path):
                             continue
                         md_path.write_text(
-                            self._dataframe_to_txt(sheet_df, directory, add_hyperlinks=self.hyperlink_var.get()),
+                            self._dataframe_to_txt(sheet_df, directory, hyperlinks=self.hyperlink_var.get()),
                             encoding="utf-8",
                         )
                         files_written += 1
