@@ -2,9 +2,9 @@
 A quaint table for release information.
 Created from new tags/releases and old tags/releases from past repo.
 
-# Full tag history — 61 tags
+# Full tag history — 70 tags
 
-| Version | Date | Summary |
+| Version | Date (Y/M/D) | Summary |
 |---|---|---|
 | v2.2.0 | 2026-02-11 | Cross-platform (Windows + Debian AMD64). Range Spreadsheet v1.0.0 bundled. |
 | v2.3.0 | 2026-02-18 | Sorting files, better efficiency, common video types |
@@ -16,9 +16,8 @@ Created from new tags/releases and old tags/releases from past repo.
 | v2.4.2 | 2026-02-20 | Fixed folders with only images, no videos |
 | v2.4.3 | 2026-02-20 | Series support, sorting fix, only-image folder fix |
 | v2.4.5 | 2026-07-28 | Bugfixes: video-first edge cases, `photos_before_video_present` rename |
-| v2.1.2 | 2026-07-28 | Mislabeled tag from the v2.4.5 session |
-| v2.5 | 2026-09-01 | Bump *(empty tag message)* |
-| v2.5.1 | 2026-09-01 | Hotfix: forgot a return statement *(GitHub release body re-tells the v2.5 story)* |
+| v2.5 | 2026-09-01 | Bump executalbe |
+| v2.5.1 | 2026-09-01 | Hotfix: forgot a return statement |
 | v2.5.2 | 2026-09-19 | Fix irregular pattern crash when >5 photos precede first video |
 | v2.6 | 2026-09-19 | Recursive scan mode (one level deep) and photo pairing fix |
 | v2.6.1 | 2026-09-19 | Sheet name sanitization and deduplication |
@@ -26,7 +25,7 @@ Created from new tags/releases and old tags/releases from past repo.
 | v2.6.3 | 2026-09-20 | Overwrite checking and keep-open toggle |
 | v2.7 | 2026-09-20 | Starting index offset for Image # Series |
 | **v3.0** | 2026-09-20 | **Big release:** recursive scanning, custom filename, series offset, overwrite, keep-open, sheet dedup |
-| v3.0.1 | 2026-09-20 | Bump: executable + `.pyw` update *(GitHub release re-uses v3.0 notes)* |
+| v3.0.1 | 2026-09-20 | Bump: executable + `.pyw` update |
 | v3.0.2 | 2026-10-14 | `scan_image` EXIF priority chain, error handling, named constants |
 | v3.0.4 | 2026-10-14 | Pytest suite (73 tests), series numbering fix, `.py`/`.pyw` unify |
 | v3.1.0 | ~2026-10-19 | Bump: latest executable + info addition |
@@ -39,11 +38,11 @@ Created from new tags/releases and old tags/releases from past repo.
 | v3.3.1 | 2026-10-19 | Refactor: `verify_name` takes `used` set as parameter |
 | v3.3.2 | 2026-10-21 | Timezone checkbox + lint cleanup |
 | v3.4.0 | 2026-10-21 | UTC conversion via EXIF `OffsetTimeOriginal` |
-| v3.5.0 | 2026-10-22 | Bump *(empty tag message)* |
+| v3.5.0 | 2026-10-22 | Bump executable |
 | v3.5.1 | 2026-10-23 | CSV path bugs, extension handling, Python 3.11 compat |
 | v3.6.0 | 2026-10-23 | Clickable file hyperlinks in Excel output |
 | v3.7.0 | 2026-10-25 | Full recursive scanning with configurable depth |
-| v3.8.0 | 2026-10-26 | Live progress bar with threaded scanning |
+| **v3.8.0** | 2026-10-26 | **Live progress bar with threaded scanning** |
 | v3.8.1 | 2026-10-26 | Progress bar completion, skipped-file accounting |
 | v3.9.0 | 2026-10-27 | Video-first orphan handling, progress bar polish |
 | v3.9.1 | 2026-10-27 | `files_and_dirs` → `media_files`, Debug Mode |
@@ -67,3 +66,12 @@ Created from new tags/releases and old tags/releases from past repo.
 | v3.20.2 | 2026-11-06 | Scan/signature cleanup and 15-item bug sweep. Three self-introduced regressions caught pre-tag (`first_video_orphan` UnboundLocalError, starting-index `int()` ValueError, De Morgan default-filename). Dropped `recursive`/`final_output`/`defer_create_sheet` params. |
 | v3.20.3 | 2026-11-08 | Leading-video trailer fix: non-orphan videos open groups, `[v,p,p,p,v,p,p,p]` → `"1-4"`, `"5-8"`. New `"Leading Video"` / `"Only Video(s)"` warnings. Seven-item sweep: settings silent failure, `_format_iso` rational, `date_range` local drift, key dedup, `_clean_up` destroyed-root, hyperlink bracket escape, `natural_key` tagged tuples. |
 | v3.20.4 | 2026-11-08 | Second sweep: `_sanitize_for_filename` splits sheet-name cleaning from filename cleaning (dots preserved). Max Depth bool/float, blank File Name/Modifier, null Max Depth, null booleans, dialog race. Tail-end modifier on both ends, partial group → one-offs, double-scan regression fixed. Dead-code removal ×3. |
+| v3.20.5 | 2026-11-08 | Static helpers refactor, method organization and renaming |
+| v3.21.0 | 2026-11-09 | Hidden files toggle |
+| v3.22.0 | 2026-11-10 | Date filter walk_to_depth implementation, video metadata extraction, filtering videos by date |
+| v3.23.0 | 2026-11-10 | Sort Methods - Date (Oldest), Date (Newest), Filename (default) |
+| v3.23.1 | 2026-11-11 | Six bugs: clean_name("x.xlsx") doubling extensions, unfiltered scans opening every image twice, non-video files flagged as "No Video Date", trailing dots in CSV/Markdown filenames, a log_path NameError in an OSError handler, and a 20s dialog timeout that a bathroom break could beat. |
+| v3.24.0 | 2026-11-11 | Basic and Advanced Mode (UI Split) |
+| **v4.0.0** | 2026-11-12 | **Time-based grouping**, "Filename" sort -> "Timestamp" sort. Efficiency improved from O(n²) to O(n log n), old pattern detection removed |
+| v4.0.1 | 2026-11-13 | Six bug fixes: .mkv/.avi/.webm/.wmv folders scan correctly, leading videos keep their series labels, CSV/Markdown dialogs report the right outcome, hyperlinks use proper file:/// URIs, debug mode stops overwriting your output folder, and settings persist on close. |
+| v4.0.2 | 2026-11-14 | Twelve crash fixes from the ScanConfig refactor, plus find_directories returning None, CSV/Markdown non-recursive scans silently no-op'ing, silent video warnings, settings not saving on close, one bad EXIF file discarding the whole folder, and a reverted timezone fix. Many new tests. |
