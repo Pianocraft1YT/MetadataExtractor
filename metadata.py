@@ -21,6 +21,7 @@ import math
 import os
 import re
 import stat
+import struct
 import threading
 import time
 import tkinter as tk
@@ -45,7 +46,9 @@ from video_metadata import extract_video_metadata
 EXIF_DATETIME = 306
 EXIF_DATETIME_ORIGINAL = 36867
 EXIF_DATETIME_DIGITIZED = 36868
+EXIF_OFFSET_TIME = 36880
 EXIF_OFFSET_TIME_ORIGINAL = 36881
+EXIF_OFFSET_TIME_DIGITIZED = 36882
 EXIF_CAMERA_MAKE = 271
 EXIF_CAMERA_MODEL = 272
 EXIF_SOFTWARE = 305
@@ -65,6 +68,7 @@ SETTINGS_PATH = Path.home() / ".metadata-extractor" / "settings.json"
 # Only .mp4 and .mov are scanned for metadata currently
 VIDEO_TYPES = (".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv")
 # Common and uncommon image formats to check
+# TODO: Lists .heic/.heif (without pillow_heif.register_heif_opener()) and 27 camera RAW extensions (.cr3, .raf, .rw2, .x3f, etc.) with no RAW EXIF reader/decoder.
 PHOTO_TYPES = (
     ".jpg",
     ".jpeg",
@@ -310,7 +314,7 @@ class MetadataExtractor:
             lower = file.lower()
             dt = None
             if lower.endswith(PHOTO_TYPES):
-                dt = self._get_photo_date(Path(dirpath) / file)
+                dt, _, _ = self._get_photo_date_and_offset(Path(dirpath) / file)
             elif lower.endswith((".mp4", ".mov")):
                 dt = self._get_video_date(Path(dirpath) / file)
             if dt is not None:
@@ -323,24 +327,40 @@ class MetadataExtractor:
                 return_files.append(file)
         return return_files
 
-    def _get_photo_date(self, path: Path) -> datetime | None:
+    def _select_photo_datetime(
+        self, exif_data: Any, general_ifd: Any
+    ) -> tuple[datetime | None, bool, int | None]:
+        """Select first valid EXIF datetime and return (datetime, has_time, paired_offset_tag)."""
+        candidates = (
+            (exif_data.get(EXIF_DATETIME_ORIGINAL), EXIF_OFFSET_TIME_ORIGINAL),
+            (general_ifd.get(EXIF_DATETIME_ORIGINAL), EXIF_OFFSET_TIME_ORIGINAL),
+            (exif_data.get(EXIF_DATETIME_DIGITIZED), EXIF_OFFSET_TIME_DIGITIZED),
+            (general_ifd.get(EXIF_DATETIME_DIGITIZED), EXIF_OFFSET_TIME_DIGITIZED),
+            (exif_data.get(EXIF_DATETIME), EXIF_OFFSET_TIME),
+        )
+        for raw, offset_tag in candidates:
+            if raw is None:
+                continue
+            parsed, has_time = self._parse_exif_datetime(self._decode_exif_string(raw))
+            if parsed is not None:
+                return parsed, has_time, offset_tag
+        return None, False, None
+
+    def _get_photo_date_and_offset(self, path: Path) -> tuple[datetime | None, bool, str | None]:
         """Opens given path as an Image to extract EXIF datetime."""
         try:
             with Image.open(path) as img:
                 exif_data = img.getexif()
                 general_ifd = exif_data.get_ifd(0x8769)
-            dt = (
-                exif_data.get(EXIF_DATETIME_ORIGINAL)
-                or general_ifd.get(EXIF_DATETIME_ORIGINAL)
-                or exif_data.get(EXIF_DATETIME_DIGITIZED)
-                or general_ifd.get(EXIF_DATETIME_DIGITIZED)
-                or exif_data.get(EXIF_DATETIME)
-            )
-            dt = self._decode_exif_string(dt)
-            dt = self._parse_exif_datetime(dt)
-            return dt
+            parsed, has_time, offset_tag = self._select_photo_datetime(exif_data, general_ifd)
+            if offset_tag is None:
+                return parsed, has_time, None
+            raw_offset = self._exif_get_str(offset_tag, general_ifd, exif_data)
+            if isinstance(raw_offset, str):
+                return parsed, has_time, raw_offset.strip() or None
+            return parsed, has_time, None
         except Exception:  # noqa: BLE001
-            return None
+            return None, False, None
 
     def _get_video_date(self, path: Path) -> datetime | None:
         """Passes path to extract_video_metadata to get creation timestamp."""
@@ -351,7 +371,7 @@ class MetadataExtractor:
             if dt.tzinfo is not None:
                 return dt.replace(tzinfo=None)
             return dt
-        except (OSError, ValueError):
+        except (OSError, ValueError, struct.error, OverflowError, KeyError):
             return None
 
     @staticmethod
@@ -421,6 +441,8 @@ class MetadataExtractor:
         """Decodes v if v is bytes."""
         if isinstance(v, bytes):
             return v.decode("ascii", errors="replace").rstrip("\x00")
+        if isinstance(v, str):
+            return v.rstrip("\x00")
         return v
 
     @staticmethod
@@ -457,14 +479,14 @@ class MetadataExtractor:
     def _format_aperture(self, value: Any) -> str | None:
         """Format an FNumber rational to "f/5.6" style."""
         v = self._rational_to_float(value)
-        if v is None or v <= 0:
+        if v is None or v <= 0 or not math.isfinite(v):
             return None
         return f"f/{v:g}"  # 5.6 -> "f/5.6", 8.0 -> "f/8"
 
     def _format_exposure_time(self, value: Any) -> str | None:
         """Format an EXIF ExposureTime rational as "1/250" or "2.5s" style."""
         v = self._rational_to_float(value)
-        if v is None or v <= 0:
+        if v is None or v <= 0 or not math.isfinite(v):
             return None
         if v >= 1:
             return f"{v:g}s"  # 1.0 -> "1s", 2.5 -> "2.5s", 30.0 -> "30s"
@@ -472,28 +494,28 @@ class MetadataExtractor:
         rounded = round(inv)
         if rounded > 1 and abs(inv - rounded) / inv < 0.01:
             return f"1/{rounded}"  # 0.004 -> "1/250", 0.5 -> "1/2"
-        return f"{v:g}s"  # 0.3 -> "0.3s" (not "1/3")
+        return f"{round(v,2):g}s"  # 0.3 -> "0.3s" (not "1/3")
 
     def _format_focal_length(self, value: Any) -> str | None:
         """Format a focal length to "23mm" style."""
         v = self._rational_to_float(value)
-        if v is None or v <= 0:
+        if v is None or v <= 0 or not math.isfinite(v):
             return None
         return f"{v:g}mm"  # 23.0 -> "23mm", 18.5 -> "18.5mm"
 
     @staticmethod
-    def _format_iso(value: Any) -> int | None:
+    def _format_iso(value: Any) -> int | str:
         """Formats ISO tag as integer"""
         if value is None:
-            return None
+            return ""
         if isinstance(value, (list, tuple)):
             if not value:
-                return None
+                return ""
             value = value[0]
         try:
             return int(value)
         except (TypeError, ValueError):
-            return None
+            return ""
 
     def _dataframe_to_txt(self, df: pd.DataFrame, directory: Any = None, hyperlinks: bool = False) -> str:
         """Renders a DataFrame as a Markdown table, using directory to create hyperlinks if hyperlinks is True."""
@@ -541,18 +563,56 @@ class MetadataExtractor:
         return "\n".join(lines)
 
     @staticmethod
-    def _parse_exif_datetime(dt_value: Any) -> datetime | None:
+    def _parse_utc_offset(offset: Any) -> timedelta | None:
+        """Parse EXIF/ISO UTC offsets ('Z', '±HH:MM', '±HHMM', '±HH') into a signed timedelta, or None."""
+        if not isinstance(offset, str):
+            return None
+        s = offset.strip()
+        if not s:
+            return None
+        if s.upper() == "Z":
+            return timedelta(0)
+        if s[0] not in ("+", "-"):
+            return None
+        sign = s[0]
+        rest = s[1:]
+        if ":" in rest:
+            parts = rest.split(":")
+            if len(parts) != 2:
+                return None
+            h_str, m_str = parts
+            if len(h_str) not in (1, 2) or len(m_str) != 2:
+                return None
+        elif rest.isascii() and rest.isdigit():
+            if len(rest) in (1, 2):
+                h_str, m_str = rest, "00"
+            elif len(rest) == 4:
+                h_str, m_str = rest[:2], rest[2:]
+            else:
+                return None
+        else:
+            return None
+        if not (h_str.isascii() and h_str.isdigit() and m_str.isascii() and m_str.isdigit()):
+            return None
+        hours, minutes = int(h_str), int(m_str)
+        if hours > 23 or minutes > 59:
+            return None
+        td = timedelta(hours=hours, minutes=minutes)
+        return -td if sign == "-" else td
+    
+    @staticmethod
+    def _parse_exif_datetime(dt_value: Any) -> tuple[datetime | None, bool]:
         """Parse "YYYY:MM:DD HH:MM:SS" or "YYYY:MM:DD" and finally "YYYY:MM:DD HH:MM:SS.ffffff" to a datetime object, or None."""
-        s = str(dt_value)
+        s = str(dt_value).strip()
         try:
             if " " in s:
-                return datetime.strptime(s, "%Y:%m:%d %H:%M:%S")
-            return datetime.strptime(s, "%Y:%m:%d")
+                return datetime.strptime(s, "%Y:%m:%d %H:%M:%S"), True
+            return datetime.strptime(s, "%Y:%m:%d"), False
         except ValueError:
             try:
-                return datetime.strptime(s, "%Y:%m:%d %H:%M:%S.%f")
+                return datetime.strptime(s, "%Y:%m:%d %H:%M:%S.%f"), True
             except ValueError:
-                return None
+                return None, False
 
     def _format_gps_coord(self, dms_tuple: Any, ref: Any) -> str | None:
         """Turns a GPS degrees, minutes, seconds tuple to a string."""
@@ -561,7 +621,10 @@ class MetadataExtractor:
                 ref = ref.decode("ascii")
             except UnicodeDecodeError:
                 return None
-        if not isinstance(ref, str) or not ref.strip():
+        if not isinstance(ref, str):
+            return None
+        ref = ref.rstrip("\x00").strip().upper()
+        if ref not in ("N", "S", "E", "W"):
             return None
         if not isinstance(dms_tuple, (tuple, list)) or len(dms_tuple) != 3:
             return None
@@ -570,8 +633,10 @@ class MetadataExtractor:
         second = self._rational_to_float(dms_tuple[2])
         if degree is None or minute is None or second is None:
             return None
+        if not all(math.isfinite(x) for x in (degree, minute, second)):
+            return None
         converted = degree + minute / 60.0 + second / 3600.0
-        if ref.upper() in ("S", "W"):
+        if ref in ("S", "W"):
             converted = -converted
         return f"{converted:.6f}"
 
@@ -1135,13 +1200,15 @@ class MetadataExtractor:
         filepath = Path(directory) / filename
         if filepath.name.startswith("."):
             return True
-        if os.name != "nt":
-            return False
         try:
-            file_attrs = os.stat(filepath).st_file_attributes
-            return bool(file_attrs & stat.FILE_ATTRIBUTE_HIDDEN)
-        except (FileNotFoundError, AttributeError):
+            st = os.stat(filepath)
+        except OSError:
             return False
+        if os.name == "nt":
+            file_attrs = getattr(st, "st_file_attributes", 0)
+            return bool(file_attrs & getattr(stat, "FILE_ATTRIBUTE_HIDDEN", 0))
+        st_flags = getattr(st, "st_flags", 0)
+        return bool(st_flags & getattr(stat, "UF_HIDDEN", 0))
 
     # Image metadata extractor helper function
     def scan_image(
@@ -1183,7 +1250,11 @@ class MetadataExtractor:
                 general_ifd = exif_data.get_ifd(0x8769)
                 gps_ifd = exif_data.get_ifd(0x8825)
             if output_utc:
-                offset = self._decode_exif_string(self._exif_get(EXIF_OFFSET_TIME_ORIGINAL, general_ifd, exif_data))
+                _, _, offset_tag = self._select_photo_datetime(exif_data, general_ifd)
+                if offset_tag is not None:
+                    raw_offset = self._exif_get_str(offset_tag, general_ifd, exif_data)
+                    if isinstance(raw_offset, str):
+                        offset = raw_offset.strip() or None
             if output_make:
                 make = self._exif_get_str(EXIF_CAMERA_MAKE, None, exif_data)
             if output_model:
@@ -1207,8 +1278,8 @@ class MetadataExtractor:
                 long = gps_ifd.get(4)
                 gps_latitude = self._format_gps_coord(lat, lat_ref)
                 gps_longitude = self._format_gps_coord(long, long_ref)
-        except Exception:  # noqa: BLE001
-            self.collected_warnings["Scan Error"].append(path.as_posix())
+        except Exception as e:  # noqa: BLE001
+            self.collected_warnings["Scan Error"].append(f"{path.as_posix()}: {e}")
             return False
         else:
             data["Images"].append(filename)
@@ -1354,7 +1425,7 @@ class MetadataExtractor:
                 d
                 for d in dirs
                 if d.lower() not in {"system volume information", "$recycle.bin"}
-                and (include_hiddens or not d.startswith("."))
+                and not self._check_hidden(d, dirpath, include_hiddens)
             ]
             dirs.sort(key=lambda x: self.natural_key(os.path.splitext(x)[0]))
             # Symlinked files included for media_files, not directories
@@ -1565,25 +1636,35 @@ class MetadataExtractor:
         timestamped_to_file = {}
         no_timestamp = []
         index = 1 + modifier
+        date_only_dates: dict[str, str] = {}
         try:
             for file in media_files:
                 ts = None
+                has_time = True
+                offset_str = None
                 if file.lower().endswith(VIDEO_TYPES):
                     ts = self._get_video_date(Path(directory_path) / file)
                     if ts is None:
                         path = (Path(directory_path) / file).as_posix()
                         if file.lower().endswith((".mp4", ".mov")):
                             self.collected_warnings["No Video Date"].append(path)
+                            has_time = False
                         else:
                             self.collected_warnings["Unsupported Video Format"].append(path)
+                            has_time = False
                 elif file.lower().endswith(PHOTO_TYPES):
-                    ts = self._get_photo_date(Path(directory_path) / file)
-                    if ts is None:
-                        self.collected_warnings["No Metadata"].append((Path(directory_path) / file).as_posix())
-                if ts is None:
+                    ts, has_time, offset_str = self._get_photo_date_and_offset(Path(directory_path) / file)
+                if ts is None or not has_time:
+                    if ts is not None and not has_time:
+                        date_only_dates[file] = ts.strftime("%Y:%m:%d")
                     no_timestamp.append(file)
                 else:
-                    timestamped.append((ts, file))
+                    group_ts = ts
+                    if output_utc and offset_str is not None:
+                        offset_td = self._parse_utc_offset(offset_str)
+                        if offset_td is not None:
+                            group_ts = ts - offset_td  # local - (+offset) = UTC; local - (-offset) = UTC
+                    timestamped.append((group_ts, file))
                     timestamped_to_file[file] = ts
             groups = self.group_by_timestamp(timestamped, cutoff)
             for group in groups:
@@ -1592,12 +1673,8 @@ class MetadataExtractor:
                 # Video-only groups are orphans — don't consume a series slot
                 if not any(f.lower().endswith(PHOTO_TYPES) for _, f in group):
                     continue
-                group_start = index
-                group_end = index + len(group) - 1
-                if group_start == group_end:
-                    label = str(group_start)
-                else:
-                    label = f"{group_start}-{group_end}"
+                group_photos_ok = 0
+                group_slots = 0
                 for ts, file in group:
                     if self.cancel_event.is_set():
                         break
@@ -1621,12 +1698,22 @@ class MetadataExtractor:
                         if ok:
                             ts_dt = timestamped_to_file[file]
                             data["Dates"].append(ts_dt.strftime("%Y:%m:%d %H:%M:%S"))
-                            img_series.append(label)
+                            group_photos_ok += 1
+                            group_slots += 1
                             processed += 1
                         else:
                             skipped += 1
                         if progress_callback:
                             progress_callback(processed, skipped, Path(directory_path))
+                    else:
+                        # Video in a mixed group still occupies its series slot
+                        group_slots += 1
+                if group_photos_ok == 0:
+                    continue
+                group_start = index
+                group_end = index + group_slots - 1
+                label = str(group_start) if group_start == group_end else f"{group_start}-{group_end}"
+                img_series.extend([label] * group_photos_ok)
                 index = group_end + 1
             for file in no_timestamp:
                 if self.cancel_event.is_set():
@@ -1650,18 +1737,18 @@ class MetadataExtractor:
                     )
                     if ok:
                         img_series.append("")
-                        data["Dates"].append("")
+                        if file in date_only_dates:
+                            data["Dates"].append(date_only_dates.get(file, ""))
+                        else:
+                            data["Dates"].append("")
+                            self.collected_warnings["No Metadata"].append((Path(directory_path) / file).as_posix())
                         processed += 1
                     else:
                         skipped += 1
                     if progress_callback:
                         progress_callback(processed, skipped, Path(directory_path))
-        except (FileNotFoundError, PermissionError):
+        except (FileNotFoundError, PermissionError, OSError):
             self.collected_warnings["Directory Error"].append(f"{directory_path}")
-            skipped_count = sum(1 for f in media_files if f.lower().endswith(PHOTO_TYPES))
-            return 0, skipped_count
-        except OSError:
-            self.collected_warnings["Scan Error"].append(f"[{directory_path}]")
             skipped_count = sum(1 for f in media_files if f.lower().endswith(PHOTO_TYPES))
             return 0, skipped_count
         except Exception as e:  # noqa: BLE001
@@ -1692,7 +1779,7 @@ class MetadataExtractor:
     def group_by_timestamp(entries: list[tuple[datetime, str]], cutoff: float) -> list[list[tuple[datetime, str]]]:
         """Groups entries by timestamp, within cutoff seconds of each other."""
         if cutoff < 0:
-            raise ValueError
+            raise ValueError("Invalid cutoff < 0")
         if len(entries) == 0:
             return []
         entries = sorted(entries, key=lambda e: e[0])
@@ -1735,23 +1822,9 @@ class MetadataExtractor:
                 continue
             if output_utc:
                 offset = list_of_offsets[offset_index]
-                if offset:
-                    try:
-                        offset = offset.split(":")  # Format is +-XX:00 so turn into +-XX
-                        hours = offset[0]
-                        minutes = int(offset[1])
-                        sign = hours[0:1]
-                        hours = int(hours[1:])
-                        if sign == "-":
-                            dt += timedelta(hours=hours, minutes=minutes)
-                        else:
-                            dt -= timedelta(hours=hours, minutes=minutes)
-                    except (AttributeError, IndexError, ValueError, TypeError):
-                        self.collected_warnings["Bad Timestamp"].append(
-                            f"{os.path.join(directory, list_of_images[offset_index])}"
-                        )
-                        # Fall through: emit the unadjusted dt so the row still
-                        # matches the %m/%d/%Y %H:%M:%S format create_dataframe parses.
+                offset_td = self._parse_utc_offset(offset)
+                if offset_td is not None:
+                    dt -= offset_td
                 else:
                     self.collected_warnings["Bad Timestamp"].append(
                         f"{os.path.join(directory, list_of_images[offset_index])}"
@@ -1836,7 +1909,7 @@ class MetadataExtractor:
         try:
             # Check for empty results before prompting so the user isn't asked to overwrite for nothing
             if not self.results:
-                if total_processed == 0:
+                if total_processed == 0 and total_skipped == 0:
                     messagebox.showerror(
                         "Empty directory", "No photos or videos were found. Please select a valid directory."
                     )
@@ -1923,22 +1996,22 @@ class MetadataExtractor:
                 # Writes error messages from the dictionary collected_warnings
                 for error, file in self.collected_warnings.items():
                     output += f"{error}\n"
-                    if error == "Scan Error":
-                        output += "These files are corrupt or non-image files, and were excluded."
-                    elif error == "No Metadata":
+                    if error == "No Metadata":
                         output += "These photos had no readable timestamp to scan and were placed at the bottom of the output."
+                    elif error == "Scan Error":
+                        output += "These photos could not be opened or parsed and were skipped."
                     elif error == "No Video Date":
                         output += "These videos had no readable timestamp and could not contribute to grouping."
                     elif error == "Unsupported Video Format":
                         output += "These videos' filetype(s) are not currently supported, and could not contribute."
                     elif error == "Only Video(s)":
-                        output += "These directories only had videos present."
+                        output += "These directories only had videos present, or only videos after date filtering."
                     elif error == "Directory Error":
                         output += "File/Directory couldn't be accessed."
                     elif error == "Hyperlink Error":
                         output += "The following sheets do not have hyperlinks."
                     elif error == "Bad Timestamp":
-                        output += "The following files did not have embedded UTC offsets."
+                        output += "The following files did not have embedded UTC offsets. If they had valid date/time data, it is in local time."
                     elif error == "Unexpected":
                         output += (
                             "Unexpected Errors - please report at https://github.com/Pianocraft1YT/MetadataExtractor/"
@@ -1974,7 +2047,7 @@ class MetadataExtractor:
         self.advanced_mode_frame = tk.Frame(self.root)
         self.filetype_frame = tk.Frame(self.basic_mode_frame)
         self.sort_methods_frame = tk.Frame(self.advanced_mode_frame)
-        self.sort_methods_label = tk.Label(self.sort_methods_frame, text="Sort Method (default filename)")
+        self.sort_methods_label = tk.Label(self.sort_methods_frame, text="Sort Method (default timestamp)")
         self.execute_button = tk.Button(self.basic_mode_frame, command=self.initialize, text="Execute")
         self.cancel_button = tk.Button(self.basic_mode_frame, command=self.cancel, text="Cancel", state="disabled")
         self.set_directory_button = tk.Button(
