@@ -112,6 +112,8 @@ X_WIDTH = 350
 @dataclass
 # Config options for scans, instead of passing through values
 class ScanConfig:
+    # filetype = str | None
+    # directory_path = Path | None
     final_output: Path
     modifier: int
     cutoff: float
@@ -327,9 +329,7 @@ class MetadataExtractor:
                 return_files.append(file)
         return return_files
 
-    def _select_photo_datetime(
-        self, exif_data: Any, general_ifd: Any
-    ) -> tuple[datetime | None, bool, int | None]:
+    def _select_photo_datetime(self, exif_data: Any, general_ifd: Any) -> tuple[datetime | None, bool, int | None]:
         """Select first valid EXIF datetime and return (datetime, has_time, paired_offset_tag)."""
         candidates = (
             (exif_data.get(EXIF_DATETIME_ORIGINAL), EXIF_OFFSET_TIME_ORIGINAL),
@@ -385,8 +385,17 @@ class MetadataExtractor:
         """Queue a callback on the main thread. Drops it silently if the root is gone."""
         if self._destroyed:
             return
+
+        def _run() -> None:
+            if self._destroyed:
+                return
+            try:
+                callback(*args)
+            except tk.TclError:
+                pass
+
         try:
-            self.root.after(0, callback, *args)
+            self.root.after(0, _run)
         except tk.TclError:
             pass
 
@@ -599,7 +608,7 @@ class MetadataExtractor:
             return None
         td = timedelta(hours=hours, minutes=minutes)
         return -td if sign == "-" else td
-    
+
     @staticmethod
     def _parse_exif_datetime(dt_value: Any) -> tuple[datetime | None, bool]:
         """Parse "YYYY:MM:DD HH:MM:SS" or "YYYY:MM:DD" and finally "YYYY:MM:DD HH:MM:SS.ffffff" to a datetime object, or None."""
@@ -643,14 +652,26 @@ class MetadataExtractor:
     # Sanitization Helpers
     # XML forbids control characters that sometimes are used as padding, so scrub them out.
     def _sanitize_for_excel(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Cleans a dataframe of illegal characters."""
+        """Cleans a dataframe of illegal characters and neutralizes Excel formula prefixes."""
         copy = df.copy()
         if copy.empty:
             return copy
+
+        def _clean(v: Any, allow_negative_number: bool = False) -> Any:
+            if not isinstance(v, str):
+                return v
+            v = XML_ILLEGAL_CHARS.sub("", v)
+            if v.startswith(("=", "+", "-", "@", "\t", "\r")):
+                if allow_negative_number and v.startswith("-") and self.is_number(v):
+                    return v
+                return "'" + v
+            return v
+
         for col in copy.columns:
             current_col = copy[col]
             if current_col.dtype == object or pd.api.types.is_string_dtype(current_col):
-                copy[col] = current_col.apply(lambda v: XML_ILLEGAL_CHARS.sub("", v) if isinstance(v, str) else v)
+                is_gps = col in ("GPS Latitude", "GPS Longitude")
+                copy[col] = current_col.apply(lambda v, gps=is_gps: _clean(v, gps))
         return copy
 
     # For Sheet Names
@@ -717,7 +738,7 @@ class MetadataExtractor:
             name = "_"
         if name.lower() not in used:  # Check if used already, duplicate filenames not allowed
             used.add(name.lower())
-            return name  # Return if unused
+            return name[:255]  # Return if unused
         f = 2
         while True:  # Name was used already
             suffix = "_" + str(f)  # Infinitely try increasing _X numbers, from 2
@@ -739,26 +760,26 @@ class MetadataExtractor:
         # A name that is nothing but an extension (".xlsx") has no stem.
         # pathlib reports no suffix for dotfiles, so the parse below would
         # put the extension in both stem and ext. Normalize it first.
-        if name.startswith(".") and name.count(".") == 1:
+        if name.startswith(".") and name.lower() in self.extensions and name.count(".") == 1:
             name = "output" + name
         illegal_chars = ("<", ">", ":", '"', "/", "\\", "|", "?", "*")
         for c in illegal_chars:
             name = name.replace(c, "_")
         # Split extension once so reserved-name and length checks see the stem.
-        # Preserve the case of the extension as typed by the user.
         suffix = Path(name).suffix.lower()
         selected = self.filetype_var.get()
         selected = self.filetype_to_ext[selected]
         if selected == suffix:
             stem = name[: -len(suffix)]
             ext = name[-len(suffix) :]
-        elif suffix:
+        elif suffix in self.extensions:
             ext = selected
             stem = name[: -len(suffix)]
-        else:  # No suffix
+        else:  # No valid filetype suffix
             ext = selected
             stem = name
-
+        if not any(c.isalnum() for c in stem):
+            stem = "output"
         # Windows reserved names — check the stem, not the full name
         reserved = {
             "CON",
@@ -819,9 +840,9 @@ class MetadataExtractor:
         return file_count
 
     # Main-thread setter for total_files (queued via root.after from worker)
-    def _set_total_files(self, count: int) -> None:
+    def _set_total_files(self, count: int, started_at: float | None = None) -> None:
         """Reset progress state and start the ETA clock."""
-        self.time_started = time.perf_counter()
+        self.time_started = started_at if started_at is not None else time.perf_counter()
         self.total_files = count
         self.scanned_count.set(f"Scanned: 0 / {count}")
         if count > 0:
@@ -832,12 +853,12 @@ class MetadataExtractor:
     def update_progress(self, processed: int, skipped: int, current_dir: Path, timestamp: float | None = None) -> None:
         """Recompute progress, ETA, and elapsed time from the worker's per-file callback."""
         if not self.cancel_event.is_set():
-            if self.time_started:
+            if self.time_started is not None:
                 files_done = processed + skipped
-                if timestamp:
-                    time_passed = timestamp - self.time_started  # Given in seconds, float
+                if timestamp is not None:
+                    time_passed = max(0.0, timestamp - self.time_started)  # Given in seconds, float
                 else:
-                    time_passed = 0
+                    time_passed = 0.0
                 remaining = self.total_files - files_done
                 if time_passed > 0 and files_done >= 10 and remaining > 0:
                     seconds_per_files = time_passed / files_done
@@ -894,7 +915,8 @@ class MetadataExtractor:
                 )
                 if self.cancel_event.is_set():
                     return
-                self._safe_after(self._set_total_files, count)
+                scan_started = time.perf_counter()
+                self._safe_after(self._set_total_files, count, scan_started)
                 if self.cancel_event.is_set():
                     return
             assert self.directory_path is not None
@@ -956,10 +978,15 @@ class MetadataExtractor:
     # Closing behavior
     def _on_close(self) -> None:
         """Saves settings and closes program."""
-        self._save_settings()
-        self.cancel_event.set()
+        if self._destroyed:
+            return
         self._destroyed = True
-        self.root.destroy()
+        self.cancel_event.set()
+        self._save_settings()
+        try:
+            self.root.destroy()
+        except tk.TclError:
+            pass
 
     # To clean up any past executions
     def reset(self) -> None:
@@ -1008,6 +1035,7 @@ class MetadataExtractor:
             "ISOs": [],
             "GPS_Latitudes": [],
             "GPS_Longitudes": [],
+            "Sort_Timestamps": [],
         }
 
     # Saves settings to a JSON file at SETTINGS_PATH
@@ -1067,8 +1095,13 @@ class MetadataExtractor:
                 "Include Undateable": self.include_undateable_var.get(),
             }
             SETTINGS_PATH.write_text(json.dumps(settings, indent=2), encoding="utf-8")
-        except (OSError, ValueError, TypeError):
-            messagebox.showerror("Setting Save Error", message=f"Your settings could not be saved at {SETTINGS_PATH}")
+        except (OSError, ValueError, TypeError, AttributeError, tk.TclError):
+            try:
+                messagebox.showerror(
+                    "Setting Save Error", message=f"Your settings could not be saved at {SETTINGS_PATH}"
+                )
+            except tk.TclError:
+                pass
 
     # Loads settings from JSON at SETTINGS_PATH
     def _load_settings(self) -> None:
@@ -1302,15 +1335,14 @@ class MetadataExtractor:
         """Adds hyperlinks to Excel files in the first collumn of each sheet."""
         try:
             wb = openpyxl.load_workbook(excel_file)
-            for _, sheet_name, directory in self.results:
+            for sheet_df, sheet_name, directory in self.results:
                 if not directory:
                     continue
                 try:
                     ws = wb[sheet_name]
-                    for cell in ws["A"][1:]:
-                        if cell.value:
-                            cell.hyperlink = (Path(directory) / cell.value).as_uri()
-                            cell.font = Font(color="0563C1", underline="single")
+                    for filename, cell in zip(sheet_df["Files"], ws["A"][1:]):
+                        cell.hyperlink = (Path(directory) / filename).as_uri()
+                        cell.font = Font(color="0563C1", underline="single")
                 except Exception as e:  # noqa: BLE001
                     self.collected_warnings["Hyperlink Error"].append(sheet_name + f"\nError: {e}")
             wb.save(excel_file)
@@ -1364,8 +1396,6 @@ class MetadataExtractor:
                 continue
             sheet_name = "_".join(rel.parts)
             files_lists.append(files)
-            if len(sheet_name) > SHEET_NAME_MAX_CHARS:
-                sheet_name = sheet_name[-SHEET_NAME_MAX_CHARS:]
             sheet_names.append(sheet_name)
             directories.append(dirpath.as_posix())
         for directory, media_files, sheet_name in zip(directories, files_lists, sheet_names):
@@ -1380,7 +1410,7 @@ class MetadataExtractor:
                 )
             else:
                 wrapped_cb = None
-            p, s = self.sort_and_extract(
+            p, s = self.extract(
                 directory,
                 modifier,
                 media_files,
@@ -1421,13 +1451,17 @@ class MetadataExtractor:
         for dirpath, dirs, media_files in os.walk(
             root_str, topdown=True, followlinks=False
         ):  # Symlinked directories ignored
+            # Calculate current depth relative to root_dir
+            current_depth = len(Path(dirpath).parts) - baseline_depth
+            if current_depth >= max_depth:
+                del dirs[:]
             dirs[:] = [
                 d
                 for d in dirs
                 if d.lower() not in {"system volume information", "$recycle.bin"}
                 and not self._check_hidden(d, dirpath, include_hiddens)
             ]
-            dirs.sort(key=lambda x: self.natural_key(os.path.splitext(x)[0]))
+            dirs.sort(key=lambda x: self.natural_key(x))
             # Symlinked files included for media_files, not directories
             media_files = [
                 f
@@ -1444,14 +1478,6 @@ class MetadataExtractor:
             if date_range:
                 media_files = self._filter_by_date(dirpath, media_files, start_date, end_date, include_undateable)
             yield dirpath, dirs, media_files
-
-            # Calculate current depth relative to root_dir
-            current_depth = len(Path(dirpath).parts) - baseline_depth
-
-            # If we have reached the max depth, clear 'dirs' in-place
-            # so os.walk won't dig any deeper
-            if current_depth >= max_depth:
-                del dirs[:]  # or dirs.clear()
 
     # Initial function; runs on "Execute" button press
     def initialize(self) -> None:
@@ -1608,7 +1634,7 @@ class MetadataExtractor:
             self._start_scan(cfg)
 
     # Extracts EXIF metadata and groups photos/videos by timestamp
-    def sort_and_extract(
+    def extract(
         self,
         directory_path: str,
         modifier: int,
@@ -1636,6 +1662,7 @@ class MetadataExtractor:
         timestamped_to_file = {}
         no_timestamp = []
         index = 1 + modifier
+        date_only_dts: dict[str, datetime] = {}
         date_only_dates: dict[str, str] = {}
         try:
             for file in media_files:
@@ -1657,6 +1684,7 @@ class MetadataExtractor:
                 if ts is None or not has_time:
                     if ts is not None and not has_time:
                         date_only_dates[file] = ts.strftime("%Y:%m:%d")
+                        date_only_dts[file] = ts
                     no_timestamp.append(file)
                 else:
                     group_ts = ts
@@ -1665,7 +1693,7 @@ class MetadataExtractor:
                         if offset_td is not None:
                             group_ts = ts - offset_td  # local - (+offset) = UTC; local - (-offset) = UTC
                     timestamped.append((group_ts, file))
-                    timestamped_to_file[file] = ts
+                    timestamped_to_file[file] = ts, group_ts
             groups = self.group_by_timestamp(timestamped, cutoff)
             for group in groups:
                 if self.cancel_event.is_set():
@@ -1673,6 +1701,7 @@ class MetadataExtractor:
                 # Video-only groups are orphans — don't consume a series slot
                 if not any(f.lower().endswith(PHOTO_TYPES) for _, f in group):
                     continue
+                temp_data_holder = self._empty_scan_data()
                 group_photos_ok = 0
                 group_slots = 0
                 for ts, file in group:
@@ -1682,7 +1711,7 @@ class MetadataExtractor:
                         ok = self.scan_image(
                             directory_path,
                             file,
-                            data,
+                            temp_data_holder,
                             output_utc,
                             output_dimensions,
                             output_make,
@@ -1696,24 +1725,27 @@ class MetadataExtractor:
                             output_gps,
                         )
                         if ok:
-                            ts_dt = timestamped_to_file[file]
-                            data["Dates"].append(ts_dt.strftime("%Y:%m:%d %H:%M:%S"))
+                            ts_dt = timestamped_to_file[file][0].strftime("%Y:%m:%d %H:%M:%S")
+                            temp_data_holder["Dates"].append(ts_dt)
+                            temp_data_holder["Sort_Timestamps"].append(timestamped_to_file[file][1])
                             group_photos_ok += 1
                             group_slots += 1
-                            processed += 1
                         else:
                             skipped += 1
                         if progress_callback:
-                            progress_callback(processed, skipped, Path(directory_path))
+                            progress_callback(processed + group_photos_ok, skipped, Path(directory_path))
                     else:
                         # Video in a mixed group still occupies its series slot
                         group_slots += 1
                 if group_photos_ok == 0:
                     continue
+                for key, value in temp_data_holder.items():
+                    data[key].extend(value)
                 group_start = index
                 group_end = index + group_slots - 1
                 label = str(group_start) if group_start == group_end else f"{group_start}-{group_end}"
                 img_series.extend([label] * group_photos_ok)
+                processed += group_photos_ok
                 index = group_end + 1
             for file in no_timestamp:
                 if self.cancel_event.is_set():
@@ -1739,22 +1771,19 @@ class MetadataExtractor:
                         img_series.append("")
                         if file in date_only_dates:
                             data["Dates"].append(date_only_dates.get(file, ""))
+                            data["Sort_Timestamps"].append(date_only_dts.get(file))
                         else:
                             data["Dates"].append("")
+                            data["Sort_Timestamps"].append(None)
                             self.collected_warnings["No Metadata"].append((Path(directory_path) / file).as_posix())
                         processed += 1
                     else:
                         skipped += 1
                     if progress_callback:
                         progress_callback(processed, skipped, Path(directory_path))
-        except (FileNotFoundError, PermissionError, OSError):
-            self.collected_warnings["Directory Error"].append(f"{directory_path}")
-            skipped_count = sum(1 for f in media_files if f.lower().endswith(PHOTO_TYPES))
-            return 0, skipped_count
         except Exception as e:  # noqa: BLE001
             self.collected_warnings["Unexpected"].append(f"[{directory_path}]: {e}\n{traceback.format_exc()}")
-            skipped_count = sum(1 for f in media_files if f.lower().endswith(PHOTO_TYPES))
-            return 0, skipped_count
+            skipped = sum(1 for f in media_files if f.lower().endswith(PHOTO_TYPES)) - processed
         data["Dates"], data["Times"] = self.fix_time(
             output_utc, data["Dates"], data["Offsets"], data["Images"], directory_path
         )
@@ -1881,22 +1910,40 @@ class MetadataExtractor:
                 df_data["GPS Longitude"] = data["GPS_Longitudes"]
             df = pd.DataFrame(df_data)  # Create DataFrame
             if self.sort_method in ("Date (Oldest)", "Date (Newest)"):
-                time_col = df["Time"].astype(str).replace("", "00:00:00")
-                df["_sort_key"] = pd.to_datetime(
-                    df["Dates"].astype(str) + " " + time_col,
-                    format="%m/%d/%Y %H:%M:%S",
-                    errors="coerce",
-                )
-                df = (
-                    df.sort_values(
-                        "_sort_key",
-                        ascending=(self.sort_method == "Date (Oldest)"),
-                        na_position="last",
-                        kind="stable",
+                raw_ts = data.get("Sort_Timestamps")
+                sort_dts: list[datetime | None] = []
+                for idx in range(len(df)):
+                    dt_val = raw_ts[idx] if raw_ts and idx < len(raw_ts) else None
+                    if not isinstance(dt_val, datetime):
+                        date_str = str(df["Dates"].iloc[idx]).strip()
+                        time_str = str(df["Time"].iloc[idx]).strip() or "00:00:00"
+                        try:
+                            dt_val = datetime.strptime(f"{date_str} {time_str}", "%m/%d/%Y %H:%M:%S")
+                        except ValueError:
+                            dt_val = None
+                    sort_dts.append(dt_val)
+
+                if self.sort_method == "Date (Oldest)":
+                    order = sorted(
+                        range(len(df)),
+                        key=lambda i: (0, sort_dts[i], i) if sort_dts[i] is not None else (1, datetime.max, i),
                     )
-                    .drop(columns="_sort_key")
-                    .reset_index(drop=True)
-                )
+                else:
+                    series_col = df["Img # Series"].astype(str).tolist()
+                    group_max: dict[str, datetime] = {}
+                    for series, dt_val in zip(series_col, sort_dts):
+                        if (series and dt_val is not None) and (series not in group_max or dt_val > group_max[series]):
+                            group_max[series] = dt_val
+
+                    def _newest_key(i: int) -> tuple[int, timedelta, datetime, int]:
+                        dt_val = sort_dts[i]
+                        if dt_val is None:
+                            return (1, timedelta.max, datetime.max, i)
+                        grp_dt = group_max[series_col[i]] if series_col[i] else dt_val
+                        return (0, datetime.max - grp_dt, dt_val, i)
+
+                    order = sorted(range(len(df)), key=_newest_key)
+                df = df.iloc[order].reset_index(drop=True)
             current_sheet_name = self.verify_name(self.current_sheet_name, self.used)
             self.results.append((df, current_sheet_name, directory_path))
         else:
@@ -1915,82 +1962,86 @@ class MetadataExtractor:
                     )
                 else:
                     messagebox.showerror("No data", "No valid photos with metadata were found.")
-                if not self.keepopen_var.get():
-                    self._on_close()
-                return
-            filetype = self.filetype_var.get()
-            proceed = not (filetype in ("Excel", "JSON") and output_path.exists()) or messagebox.askyesno(
-                "Overwrite?", message=output_path.as_posix() + " \nalready exists. Overwrite?"
-            )
-            if proceed:
-                files_written = 0
-                # Data was found
-                if filetype == "Excel":
-                    with pd.ExcelWriter(output_path) as writer:  # Opens ExcelWriter and closes automatically
+            else:
+                filetype = self.filetype_var.get()
+                proceed = not (filetype in ("Excel", "JSON") and output_path.exists()) or messagebox.askyesno(
+                    "Overwrite?", message=output_path.as_posix() + " \nalready exists. Overwrite?"
+                )
+                if proceed:
+                    files_written = 0
+                    # Data was found
+                    if filetype == "Excel":
+                        with pd.ExcelWriter(output_path) as writer:  # Opens ExcelWriter and closes automatically
+                            for sheet_df, sheet_name, _ in self.results:
+                                self._sanitize_for_excel(sheet_df).to_excel(writer, sheet_name=sheet_name, index=False)
+                        if self.hyperlink_var.get():
+                            self.add_hyperlinks(output_path.as_posix())
+                        files_written += 1
+                    elif filetype == "CSV":
+                        used_filenames: set[str] = set()
                         for sheet_df, sheet_name, _ in self.results:
-                            self._sanitize_for_excel(sheet_df).to_excel(writer, sheet_name=sheet_name, index=False)
-                    if self.hyperlink_var.get():
-                        self.add_hyperlinks(output_path.as_posix())
-                    files_written += 1
-                elif filetype == "CSV":
-                    used_filenames: set[str] = set()
-                    for sheet_df, sheet_name, _ in self.results:
-                        if self.cancel_event.is_set():
-                            break
-                        csv_path = Path(
-                            output_path.with_suffix("").as_posix()
-                            + f"_{self._sanitize_for_filename(sheet_name, used_filenames)}.csv"
-                        )
-                        if not self._confirm_overwrite(csv_path):
-                            continue
-                        sheet_df.to_csv(csv_path, index=False)
+                            if self.cancel_event.is_set():
+                                break
+                            if len(self.results) == 1:
+                                csv_path = output_path
+                            else:
+                                csv_path = Path(
+                                    output_path.with_suffix("").as_posix()
+                                    + f"_{self._sanitize_for_filename(sheet_name, used_filenames)}.csv"
+                                )
+                            if not self._confirm_overwrite(csv_path):
+                                continue
+                            sheet_df.to_csv(csv_path, index=False)
+                            files_written += 1
+                    elif filetype == "JSON":  # Local export time
+                        json_data = {"exported_at": datetime.now().isoformat(), "sheets": {}}
+                        for sheet_df, sheet_name, _ in self.results:
+                            json_data["sheets"][sheet_name] = json.loads(sheet_df.to_json(orient="records"))
+                        output_path.write_text(json.dumps(json_data, indent=2, ensure_ascii=False), encoding="utf-8")
                         files_written += 1
-                elif filetype == "JSON":  # Local export time
-                    json_data = {"exported_at": datetime.now().isoformat(), "sheets": {}}
-                    for sheet_df, sheet_name, _ in self.results:
-                        json_data["sheets"][sheet_name] = json.loads(sheet_df.to_json(orient="records"))
-                    output_path.write_text(json.dumps(json_data, indent=2, ensure_ascii=False), encoding="utf-8")
-                    files_written += 1
-                elif filetype == "Markdown":
-                    used_filenames: set[str] = set()
-                    for sheet_df, sheet_name, directory in self.results:
+                    elif filetype == "Markdown":
+                        used_filenames: set[str] = set()
+                        for sheet_df, sheet_name, directory in self.results:
+                            if self.cancel_event.is_set():
+                                break
+                            if len(self.results) == 1:
+                                md_path = output_path
+                            else:
+                                md_path = Path(
+                                    output_path.with_suffix("").as_posix()
+                                    + f"_{self._sanitize_for_filename(sheet_name, used_filenames)}.md"
+                                )
+                            if not self._confirm_overwrite(md_path):
+                                continue
+                            md_path.write_text(
+                                self._dataframe_to_txt(sheet_df, directory, hyperlinks=self.hyperlink_var.get()),
+                                encoding="utf-8",
+                            )
+                            files_written += 1
+                    if files_written > 0:
+                        msg = f"\nFiles written: {files_written}"
                         if self.cancel_event.is_set():
-                            break
-                        md_path = Path(
-                            output_path.with_suffix("").as_posix()
-                            + f"_{self._sanitize_for_filename(sheet_name, used_filenames)}.md"
+                            msg += " (cancelled)"
+                        messagebox.showinfo(
+                            "Success!",
+                            message="Images: "
+                            + str(total_processed)
+                            + "\nImages skipped: "
+                            + str(total_skipped)
+                            + msg
+                            + "\nLocated at: "
+                            + (
+                                output_path.parent.as_posix()
+                                if filetype == "CSV" or filetype == "Markdown"
+                                else output_path.as_posix()
+                            ),
                         )
-                        if not self._confirm_overwrite(md_path):
-                            continue
-                        md_path.write_text(
-                            self._dataframe_to_txt(sheet_df, directory, hyperlinks=self.hyperlink_var.get()),
-                            encoding="utf-8",
-                        )
-                        files_written += 1
-                if files_written > 0:
-                    msg = f"\nFiles written: {files_written}"
-                    if self.cancel_event.is_set():
-                        msg += " (cancelled)"
-                    messagebox.showinfo(
-                        "Success!",
-                        message="Images: "
-                        + str(total_processed)
-                        + "\nImages skipped: "
-                        + str(total_skipped)
-                        + msg
-                        + "\nLocated at: "
-                        + (
-                            output_path.parent.as_posix()
-                            if filetype == "CSV" or filetype == "Markdown"
-                            else output_path.as_posix()
-                        ),
-                    )
-                    self.progress_var.set(100)
-                    self.percentage_done.set("100%")
-                else:
-                    messagebox.showinfo("No output.", message="No files were written.")
-            else:  # Proceed is False; output errors then close
-                messagebox.showinfo("Cancelled", message="File not overwritten. Cancelled successfully.")
+                        self.progress_var.set(100)
+                        self.percentage_done.set("100%")
+                    else:
+                        messagebox.showinfo("No output.", message="No files were written.")
+                else:  # Proceed is False; output errors then close
+                    messagebox.showinfo("Cancelled", message="File not overwritten. Cancelled successfully.")
             if self.collected_warnings:
                 output = ""
                 # Writes error messages from the dictionary collected_warnings
@@ -2170,6 +2221,7 @@ class MetadataExtractor:
         self.results = []
         # For output filetypes
         self.filetypes = ["Excel", "CSV", "JSON", "Markdown"]
+        self.extensions = [".xlsx", ".csv", ".json", ".md"]
         # For sorting
         self.sort_methods = ["Timestamp", "Date (Oldest)", "Date (Newest)"]
         self.sort_method = "Timestamp"

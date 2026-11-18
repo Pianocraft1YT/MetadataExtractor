@@ -40,7 +40,7 @@ def media_files(folder, extractor=None):
 def sort_scan(extractor, folder, modifier=0, debug=False, final_output=None, write=True, cutoff=2.0, **overrides):
     if final_output is None:
         final_output = Path("out.xlsx")
-    processed, skipped = extractor.sort_and_extract(
+    processed, skipped = extractor.extract(
         folder,
         modifier,
         media_files(folder, extractor),
