@@ -106,11 +106,14 @@ def test_sanitize_for_filename(raw, expected):
 # ---------------------------------------------------------------------------
 
 
-def test_clean_name_dotfile_with_name_normalized_to_output(extractor):
-    """A name starting with a dot and containing only one dot (e.g.
-    '.hidden') is treated as extension-only by clean_name and rewritten
-    to 'output' + selected ext."""
-    assert extractor.clean_name(".hidden") == "output.xlsx"
+def test_clean_name_dotfile_keeps_name_and_appends_ext(extractor):
+    """Non-extension dotfiles keep their stem instead of being replaced with 'output'."""
+    assert extractor.clean_name(".hidden") == ".hidden.xlsx"
+
+
+def test_clean_name_bare_extension_normalized_to_output(extractor):
+    assert extractor.clean_name(".xlsx") == "output.xlsx"
+    assert extractor.clean_name("..xlsx") == "output.xlsx"
 
 
 def test_clean_name_dotfile_multi_dot_keeps_stem(extractor):

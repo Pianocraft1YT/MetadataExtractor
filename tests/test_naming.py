@@ -102,10 +102,15 @@ def test_clean_name_keeps_existing_md(md):
     assert md.clean_name("report.md") == "report.md"
 
 
-@pytest.mark.parametrize("wrong_ext", ["report.txt", "report.csv", "report.xlsx", "report.json"])
-def test_clean_name_replaces_wrong_extension_with_md(md, wrong_ext):
+@pytest.mark.parametrize("wrong_ext", ["report.csv", "report.xlsx", "report.json"])
+def test_clean_name_replaces_known_wrong_extension_with_md(md, wrong_ext):
     assert md.clean_name(wrong_ext).endswith(".md")
     assert wrong_ext.split(".")[-1] not in md.clean_name(wrong_ext)
+
+
+def test_clean_name_preserves_unknown_suffix_before_appending_ext(md):
+    assert md.clean_name("report.txt") == "report.txt.md"
+    assert md.clean_name("my.scan.output") == "my.scan.output.md"
 
 
 def test_clean_name_illegal_chars_replaced_md(md):

@@ -170,6 +170,5 @@ def test_csv_keeps_null_pads_raw(isolated, tmp_path):
 
     isolated.create_sheet(output, 1, 0)
 
-    csv_path = tmp_path / "out_Sheet.csv"
-    content = csv_path.read_text(encoding="utf-8")
+    content = output.read_text(encoding="utf-8")
     assert "\x00" in content

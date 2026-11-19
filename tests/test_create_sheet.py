@@ -5,7 +5,6 @@ create_sheet no longer takes `recursive` — the empty-results guard fires
 for every format now.
 """
 
-import sys
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -92,7 +91,7 @@ def test_overwrite_declined(isolated, tmp_path, simple_df, monkeypatch):
 def test_empty_results_shows_no_data(isolated, tmp_path, monkeypatch):
     """Empty results with total_processed > 0 → "No data" branch.
 
-    (total_processed == 0 would hit the "Empty directory" branch instead.)
+    (total_processed == 0 and total_skipped == 0 hits "Empty directory" instead.)
     """
     isolated.results.clear()
     output = tmp_path / "out.xlsx"
@@ -128,9 +127,8 @@ def test_markdown_writes_new_file(isolated_md, tmp_path, simple_df):
 
     isolated_md.create_sheet(output, 2, 0)
 
-    md_file = tmp_path / "out_Sheet.md"
-    assert md_file.exists(), "Markdown file was not written"
-    content = md_file.read_text(encoding="utf-8")
+    assert output.exists(), "Markdown file was not written"
+    content = output.read_text(encoding="utf-8")
     assert content.startswith("|Files|Dates|Time|")
     assert "|a.jpg|01/01/2024|12:00:00|" in content
 
@@ -142,7 +140,7 @@ def test_markdown_writes_hyperlinks_when_enabled(isolated_md, tmp_path, simple_d
 
     isolated_md.create_sheet(output, 2, 0)
 
-    content = (tmp_path / "out_Sheet.md").read_text(encoding="utf-8")
+    content = output.read_text(encoding="utf-8")
     assert "[a.jpg](<" in content
 
 
@@ -159,11 +157,10 @@ def test_markdown_writes_one_per_sheet(isolated_md, tmp_path):
 
 
 def test_markdown_overwrite_confirmed(isolated_md, tmp_path, simple_df, monkeypatch):
-    existing = tmp_path / "out_Sheet.md"
+    existing = tmp_path / "out.md"
     existing.write_text("OLD", encoding="utf-8")
 
     isolated_md.results.append((simple_df, "Sheet", tmp_path))
-    output = tmp_path / "out.md"
 
     errors = []
     monkeypatch.setattr(
@@ -173,21 +170,20 @@ def test_markdown_overwrite_confirmed(isolated_md, tmp_path, simple_df, monkeypa
     )
     monkeypatch.setattr(metadata.messagebox, "askyesno", lambda *a, **k: True)
 
-    isolated_md.create_sheet(output, 2, 0)
+    isolated_md.create_sheet(existing, 2, 0)
 
     assert "Unexpected" not in str(errors), f"unexpected error raised: {errors}"
     assert existing.read_text(encoding="utf-8").startswith("|Files|")
 
 
 def test_markdown_overwrite_declined(isolated_md, tmp_path, simple_df, monkeypatch):
-    existing = tmp_path / "out_Sheet.md"
+    existing = tmp_path / "out.md"
     existing.write_text("OLD", encoding="utf-8")
 
     isolated_md.results.append((simple_df, "Sheet", tmp_path))
-    output = tmp_path / "out.md"
 
     monkeypatch.setattr(metadata.messagebox, "askyesno", lambda *a, **k: False)
 
-    isolated_md.create_sheet(output, 2, 0)
+    isolated_md.create_sheet(existing, 2, 0)
 
     assert existing.read_text(encoding="utf-8") == "OLD"

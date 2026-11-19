@@ -1,7 +1,5 @@
 """Tests for Tier 3 (rational) EXIF formatting."""
 
-import pytest
-
 
 def test_format_aperture_standard(extractor):
     assert extractor._format_aperture(5.6) == "f/5.6"
@@ -63,7 +61,7 @@ def test_format_iso_tuple_takes_first(extractor):
 
 
 def test_format_iso_none(extractor):
-    assert extractor._format_iso(None) is None
+    assert extractor._format_iso(None) == ""
 
 
 def test_format_iso_string_coerced(extractor):
@@ -132,7 +130,7 @@ def test_scan_image_tier3_disabled_stores_none(extractor, make_jpeg_with_tags, t
     assert data["Exposure_Times"] == [None]
 
 
-def test_scan_image_missing_tier3_tags_stores_none(extractor, make_jpeg_with_tags, tmp_path):
+def test_scan_image_missing_tier3_tags_stores_empty_iso(extractor, make_jpeg_with_tags, tmp_path):
     make_jpeg_with_tags("photo.jpg", {36867: "2024:05:15 12:30:45"})
     data = extractor._empty_scan_data()
     ok = extractor.scan_image(
@@ -155,4 +153,4 @@ def test_scan_image_missing_tier3_tags_stores_none(extractor, make_jpeg_with_tag
     assert data["Apertures"] == [None]
     assert data["Exposure_Times"] == [None]
     assert data["Focal_Lengths"] == [None]
-    assert data["ISOs"] == [None]
+    assert data["ISOs"] == [""]

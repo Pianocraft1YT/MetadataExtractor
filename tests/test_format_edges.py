@@ -26,7 +26,7 @@ def test_aperture_invalid_returns_none(extractor, value):
 @pytest.mark.parametrize(
     "value,expected",
     [
-        (0.999, "0.999s"),  # rounded == 1, not > 1 → decimal
+        (0.999, "1s"),  # round(0.999, 2) == 1.0 → "1s"
         (1.0, "1s"),
         (1.001, "1.001s"),
         (1.5, "1.5s"),
@@ -82,8 +82,8 @@ def test_iso_accepts_various_shapes(extractor, value, expected):
 
 
 @pytest.mark.parametrize("value", [None, (), "not-a-number"])
-def test_iso_invalid_returns_none(extractor, value):
-    assert extractor._format_iso(value) is None
+def test_iso_invalid_returns_empty(extractor, value):
+    assert extractor._format_iso(value) == ""
 
 
 @pytest.mark.parametrize(

@@ -29,6 +29,7 @@ def _make_cfg(tmp_path):
         end_date=None,
         include_hiddens=False,
         include_undateable=True,
+        directory_path=tmp_path,
     )
 
 
@@ -109,6 +110,7 @@ def test_cancel_sets_event_and_disables_button(extractor):
 
 def test_scan_thread_swallows_unexpected_exception(extractor, tmp_path):
     extractor._cleanup_pending = True
+    extractor.directory_path = tmp_path
     extractor.get_total_files = MagicMock(side_effect=RuntimeError("boom"))
     extractor._clean_up = MagicMock()
     extractor._safe_after = MagicMock()

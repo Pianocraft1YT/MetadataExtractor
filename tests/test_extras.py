@@ -46,6 +46,7 @@ def test_empty_scan_data_has_all_expected_keys(extractor):
         "ISOs",
         "GPS_Latitudes",
         "GPS_Longitudes",
+        "Sort_Timestamps",
     }
     assert set(data.keys()) == expected
     for value in data.values():

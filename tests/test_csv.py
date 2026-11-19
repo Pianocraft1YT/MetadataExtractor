@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from tests.conftest import make_jpeg_with_exif
-from tests.helpers import sort_scan
+from tests.helpers import find_scan, sort_scan
 
 
 @pytest.mark.real_create_sheet
@@ -18,23 +18,35 @@ def test_excel_mode_writes_xlsx(extractor, photos_only, tmp_path):
 
 
 @pytest.mark.real_create_sheet
-def test_csv_mode_writes_csv_per_sheet(extractor_csv, photos_only, tmp_path):
+def test_csv_mode_writes_csv_for_single_sheet(extractor_csv, photos_only, tmp_path):
     output = tmp_path / "output.csv"
     sort_scan(extractor_csv, photos_only, final_output=output)
-    assert not output.exists()
-    csv_path = tmp_path / "output_Sheet.csv"
-    assert csv_path.exists()
-    df = pd.read_csv(csv_path)
+    assert output.exists()
+    df = pd.read_csv(output)
     assert len(df) == 3
     assert "Files" in df.columns
     assert "Img # Series" in df.columns
 
 
 @pytest.mark.real_create_sheet
+def test_csv_mode_writes_csv_per_sheet_when_multiple(extractor_csv, tmp_path):
+    parent = tmp_path / "parent"
+    for sub in ("Trip_A", "Trip_B"):
+        folder = parent / sub
+        folder.mkdir(parents=True)
+        make_jpeg_with_exif(folder / "IMG_001.jpg", "2024:05:15 12:30:45")
+    extractor_csv.maxdepth = 1
+    output = tmp_path / "output.csv"
+    find_scan(extractor_csv, parent, final_output=output)
+    assert (tmp_path / "output_Trip_A.csv").exists()
+    assert (tmp_path / "output_Trip_B.csv").exists()
+
+
+@pytest.mark.real_create_sheet
 def test_csv_mode_includes_series_column(extractor_csv, photos_only, tmp_path):
     output = tmp_path / "output.csv"
     sort_scan(extractor_csv, photos_only, final_output=output)
-    df = pd.read_csv(tmp_path / "output_Sheet.csv")
+    df = pd.read_csv(output)
     assert list(df.columns) == ["Files", "Dates", "Time", "Img # Series"]
     assert list(df["Img # Series"]) == [1, 2, 3]
 
