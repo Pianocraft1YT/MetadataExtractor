@@ -1,24 +1,24 @@
 """Tests for MetadataExtractor._check_hidden.
 
-Two branches:
+Branches:
 - Dot-prefix short-circuit: runs on any platform, returns True before
-  os.name is consulted. Tested cross-platform.
+  os.stat is consulted. Tested cross-platform.
+- Non-Windows UF_HIDDEN: calls os.stat and checks st_flags & stat.UF_HIDDEN
+  (0 / missing attribute on Linux → False).
 - Windows st_file_attributes: requires os.name == "nt" AND os.stat to
-  return an object with .st_file_attributes. The WindowsPath branch of
-  pathlib.Path() raises NotImplementedError on Linux when os.name is
-  patched, so these tests are skipped outside Windows.
+  return an object with .st_file_attributes.
 """
 
 import os
+import stat
 import sys
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 
 def test_dotfile_short_circuits_before_os_name_check(extractor, tmp_path):
-    """Dot-prefix check runs before os.name is consulted, so it works on
+    """Dot-prefix check runs before os.stat is consulted, so it works on
     any platform. Verify by asserting os.stat is never reached."""
     with patch("metadata.os.stat") as mock_stat:
         assert extractor._check_hidden(".ghost.jpg", tmp_path, False) is True
@@ -33,13 +33,27 @@ def test_include_hiddens_short_circuits_all_checks(extractor, tmp_path):
 
 
 def test_visible_file_returns_false_on_non_windows(extractor, tmp_path):
-    """Non-dotfile, include_hiddens=False, os.name != 'nt' → False,
-    without touching os.stat."""
+    """Non-dotfile, include_hiddens=False, os.name != 'nt' without UF_HIDDEN → False."""
     if os.name == "nt":
         pytest.skip("posix branch")
-    with patch("metadata.os.stat") as mock_stat:
+
+    class NoFlags:
+        pass
+
+    with patch("metadata.os.stat", return_value=NoFlags()):
         assert extractor._check_hidden("x.jpg", tmp_path, False) is False
-        mock_stat.assert_not_called()
+
+
+def test_non_windows_uf_hidden_detected(extractor, tmp_path):
+    """macOS/BSD UF_HIDDEN flag in st_flags is detected on non-Windows."""
+    if os.name == "nt":
+        pytest.skip("posix branch")
+
+    class HiddenFlags:
+        st_flags = getattr(stat, "UF_HIDDEN", 0x8000)
+
+    with patch("metadata.os.stat", return_value=HiddenFlags()):
+        assert extractor._check_hidden("x.jpg", tmp_path, False) is True
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only st_file_attributes branch")

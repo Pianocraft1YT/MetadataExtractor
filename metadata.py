@@ -6,7 +6,7 @@
 # Please increment this counter as a warning
 # For the next person:
 #
-# hours_spent_original = 97
+# hours_spent_original = 99
 # hours_wasted_here = 0
 
 # Coded by Pianocraft1YT
@@ -317,18 +317,25 @@ class MetadataExtractor:
                 return return_files
             lower = file.lower()
             dt = None
+            keep = True
+            path = Path(dirpath) / file
             if lower.endswith(PHOTO_TYPES):
-                dt, _, _ = self._get_photo_date_and_offset(Path(dirpath) / file)
+                dt, _, _ = self._get_photo_date_and_offset(path)
             elif lower.endswith((".mp4", ".mov")):
-                dt = self._get_video_date(Path(dirpath) / file)
+                dt = self._get_video_date(path)
             if dt is not None:
                 dt = dt.date()
-                if start_date and dt < start_date:
-                    continue
-                if end_date and dt > end_date:
-                    continue
-            if dt is not None or include_undateable:
+                if start_date and dt < start_date or end_date and dt > end_date:
+                    keep = False
+            elif dt is None and not include_undateable:
+                keep = False
+            if keep:
                 return_files.append(file)
+            else:
+                if self._photo_cache is not None:
+                    self._photo_cache.pop(path, None)
+                if self._video_cache is not None:
+                    self._video_cache.pop(path, None)
         return return_files
 
     def _select_photo_datetime(self, exif_data: Any, general_ifd: Any) -> tuple[datetime | None, bool, int | None]:
@@ -348,31 +355,121 @@ class MetadataExtractor:
                 return parsed, has_time, offset_tag
         return None, False, None
 
+    def _read_photo_entry(
+        self, path: Path, flags: tuple[bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool] | None
+    ) -> tuple[datetime | None, bool, str | None, dict[str, Any] | None, str | None]:
+        if flags is not None:
+            output_utc = flags[0]
+            output_dimensions = flags[1]
+            output_make = flags[2]
+            output_model = flags[3]
+            output_software = flags[4]
+            output_lens_model = flags[5]
+            output_aperture = flags[6]
+            output_exposure_time = flags[7]
+            output_focal_length = flags[8]
+            output_iso = flags[9]
+            output_gps = flags[10]
+        else:
+            output_utc = output_dimensions = output_make = output_model = False
+            output_software = output_lens_model = output_aperture = False
+            output_exposure_time = output_focal_length = output_iso = output_gps = False
+        offset = None
+        dimensions = None
+        make = None
+        model = None
+        software = None
+        lens_model = None
+        aperture = None
+        exposure_time = None
+        focal_length = None
+        iso = None
+        gps_latitude = None
+        gps_longitude = None
+        try:
+            with Image.open(path) as img:
+                if output_dimensions and flags is not None:
+                    dimensions = f"{img.size[0]}x{img.size[1]}"
+                exif_data = img.getexif()
+                general_ifd = exif_data.get_ifd(0x8769)
+                gps_ifd = exif_data.get_ifd(0x8825) if flags is not None and output_gps else None
+            parsed, has_time, offset_tag = self._select_photo_datetime(exif_data, general_ifd)
+            if offset_tag is not None and (flags is None or output_utc):
+                raw_offset = self._exif_get_str(offset_tag, general_ifd, exif_data)
+                if isinstance(raw_offset, str):
+                    offset = raw_offset.strip() or None
+            if flags is not None:
+                if output_make:
+                    make = self._exif_get_str(EXIF_CAMERA_MAKE, None, exif_data)
+                if output_model:
+                    model = self._exif_get_str(EXIF_CAMERA_MODEL, None, exif_data)
+                if output_software:
+                    software = self._exif_get_str(EXIF_SOFTWARE, None, exif_data)
+                if output_lens_model:
+                    lens_model = self._exif_get_str(EXIF_LENS_MODEL, general_ifd, exif_data)
+                if output_aperture:
+                    aperture = self._format_aperture(self._exif_get(EXIF_APERTURE, general_ifd, exif_data))
+                if output_exposure_time:
+                    exposure_time = self._format_exposure_time(
+                        self._exif_get(EXIF_EXPOSURE_TIME, general_ifd, exif_data)
+                    )
+                if output_focal_length:
+                    focal_length = self._format_focal_length(self._exif_get(EXIF_FOCAL_LENGTH, general_ifd, exif_data))
+                if output_iso:
+                    iso = self._format_iso(self._exif_get(EXIF_ISO, general_ifd, exif_data))
+                if output_gps and gps_ifd:
+                    lat_ref = gps_ifd.get(1)
+                    lat = gps_ifd.get(2)
+                    long_ref = gps_ifd.get(3)
+                    long = gps_ifd.get(4)
+                    gps_latitude = self._format_gps_coord(lat, lat_ref)
+                    gps_longitude = self._format_gps_coord(long, long_ref)
+                fields = {
+                    "Offsets": offset,
+                    "Dimensions": dimensions,
+                    "Makes": make,
+                    "Models": model,
+                    "Softwares": software,
+                    "Lens_Models": lens_model,
+                    "Apertures": aperture,
+                    "Exposure_Times": exposure_time,
+                    "Focal_Lengths": focal_length,
+                    "ISOs": iso,
+                    "GPS_Latitudes": gps_latitude,
+                    "GPS_Longitudes": gps_longitude,
+                }
+            else:
+                fields = None
+            return parsed, has_time, offset, fields, None
+        except Exception as e:  # noqa: BLE001
+            return None, False, None, None, str(e)
+
     def _get_photo_date_and_offset(self, path: Path) -> tuple[datetime | None, bool, str | None]:
         """Opens given path as an Image to extract EXIF datetime."""
         try:
-            with Image.open(path) as img:
-                exif_data = img.getexif()
-                general_ifd = exif_data.get_ifd(0x8769)
-            parsed, has_time, offset_tag = self._select_photo_datetime(exif_data, general_ifd)
-            if offset_tag is None:
-                return parsed, has_time, None
-            raw_offset = self._exif_get_str(offset_tag, general_ifd, exif_data)
-            if isinstance(raw_offset, str):
-                return parsed, has_time, raw_offset.strip() or None
-            return parsed, has_time, None
+            if self._photo_cache is not None:
+                if path not in self._photo_cache:
+                    self._photo_cache[path] = self._read_photo_entry(path, self._scan_cache_flags)
+                entry = self._photo_cache[path]
+                return entry[0], entry[1], entry[2]
+            else:
+                entry = self._read_photo_entry(path, None)
+                return entry[0], entry[1], entry[2]
         except Exception:  # noqa: BLE001
             return None, False, None
 
     def _get_video_date(self, path: Path) -> datetime | None:
         """Passes path to extract_video_metadata to get creation timestamp."""
         try:
-            dt = extract_video_metadata(path)
-            if dt is None:
-                return None
-            if dt.tzinfo is not None:
-                return dt.replace(tzinfo=None)
-            return dt
+            if self._video_cache is not None and path in self._video_cache:
+                return self._video_cache[path]
+            else:
+                dt = extract_video_metadata(path)
+                if dt is not None and dt.tzinfo is not None:
+                    dt = dt.replace(tzinfo=None)
+                if self._video_cache is not None:
+                    self._video_cache[path] = dt
+                return dt
         except (OSError, ValueError, struct.error, OverflowError, KeyError):
             return None
 
@@ -820,30 +917,6 @@ class MetadataExtractor:
         # Reassemble with the extension the user provided (or .xlsx if none)
         return stem + ext
 
-    # Helpers for progress bar
-    def get_total_files(
-        self,
-        max_depth: int,
-        include_hiddens: bool,
-        include_undateable: bool,
-        date_range: bool = False,
-        start_date: date | None = None,
-        end_date: date | None = None,
-        directory_path: Path | None = None,
-    ) -> int:
-        """Counts total number of photo files in directories."""
-        file_count = 0
-        target_dir = directory_path if directory_path is not None else self.directory_path
-        if target_dir is None:
-            return file_count
-        for _, _, files in self.walk_and_filter(
-            target_dir, max_depth, include_hiddens, date_range, start_date, end_date, include_undateable
-        ):
-            if self.cancel_event.is_set():
-                return file_count
-            file_count += sum(1 for entry in files if entry.lower().endswith(PHOTO_TYPES))
-        return file_count
-
     # Main-thread setter for total_files (queued via root.after from worker)
     def _set_total_files(self, count: int, started_at: float | None = None) -> None:
         """Reset progress state and start the ETA clock."""
@@ -914,23 +987,6 @@ class MetadataExtractor:
             if scan_dir is None:
                 self.collected_warnings["Directory Error"].append("No root directory.")
                 return
-            if not self._destroyed:
-                self._safe_after(self.current_directory.set, "Counting files...")
-                count = self.get_total_files(
-                    self.maxdepth,
-                    cfg.include_hiddens,
-                    cfg.include_undateable,
-                    cfg.date_range,
-                    cfg.start_date,
-                    cfg.end_date,
-                    scan_dir,
-                )
-                if self.cancel_event.is_set():
-                    return
-                scan_started = time.perf_counter()
-                self._safe_after(self._set_total_files, count, scan_started)
-                if self.cancel_event.is_set():
-                    return
             self.find_directories(
                 scan_dir,
                 cfg.modifier,
@@ -1022,6 +1078,12 @@ class MetadataExtractor:
         self.elapsed_time.set("Time Elapsed: ...")
         self.time_started = None
         self._cleanup_pending = False
+
+    def _clear_scan_cache(self) -> None:
+        """Clears _photo_cache, _video_cache, and _scan_cache_flags."""
+        self._photo_cache = None
+        self._video_cache = None
+        self._scan_cache_flags = None
 
     # Runs on "Cancel" button press
     def cancel(self) -> None:
@@ -1279,72 +1341,33 @@ class MetadataExtractor:
         output_gps: bool,
     ) -> bool:
         """Extracts EXIF metadata from an image file and appends each to a key in the "data" dict. Returns True on success."""
-        offset = None
-        dimensions = None
-        make = None
-        model = None
-        software = None
-        lens_model = None
-        aperture = None
-        exposure_time = None
-        focal_length = None
-        iso = None
-        gps_latitude = None
-        gps_longitude = None
+        flags = (
+            output_utc,
+            output_dimensions,
+            output_make,
+            output_model,
+            output_software,
+            output_lens_model,
+            output_aperture,
+            output_exposure_time,
+            output_focal_length,
+            output_iso,
+            output_gps,
+        )
         path = Path(directory_path) / filename
-        try:
-            with Image.open(path) as img:
-                if output_dimensions:
-                    dimensions = f"{img.size[0]}x{img.size[1]}"
-                exif_data = img.getexif()
-                general_ifd = exif_data.get_ifd(0x8769)
-                gps_ifd = exif_data.get_ifd(0x8825)
-            if output_utc:
-                _, _, offset_tag = self._select_photo_datetime(exif_data, general_ifd)
-                if offset_tag is not None:
-                    raw_offset = self._exif_get_str(offset_tag, general_ifd, exif_data)
-                    if isinstance(raw_offset, str):
-                        offset = raw_offset.strip() or None
-            if output_make:
-                make = self._exif_get_str(EXIF_CAMERA_MAKE, None, exif_data)
-            if output_model:
-                model = self._exif_get_str(EXIF_CAMERA_MODEL, None, exif_data)
-            if output_software:
-                software = self._exif_get_str(EXIF_SOFTWARE, None, exif_data)
-            if output_lens_model:
-                lens_model = self._exif_get_str(EXIF_LENS_MODEL, general_ifd, exif_data)
-            if output_aperture:
-                aperture = self._format_aperture(self._exif_get(EXIF_APERTURE, general_ifd, exif_data))
-            if output_exposure_time:
-                exposure_time = self._format_exposure_time(self._exif_get(EXIF_EXPOSURE_TIME, general_ifd, exif_data))
-            if output_focal_length:
-                focal_length = self._format_focal_length(self._exif_get(EXIF_FOCAL_LENGTH, general_ifd, exif_data))
-            if output_iso:
-                iso = self._format_iso(self._exif_get(EXIF_ISO, general_ifd, exif_data))
-            if output_gps and gps_ifd:
-                lat_ref = gps_ifd.get(1)
-                lat = gps_ifd.get(2)
-                long_ref = gps_ifd.get(3)
-                long = gps_ifd.get(4)
-                gps_latitude = self._format_gps_coord(lat, lat_ref)
-                gps_longitude = self._format_gps_coord(long, long_ref)
-        except Exception as e:  # noqa: BLE001
-            self.collected_warnings["Scan Error"].append(f"{path.as_posix()}: {e}")
+        entry = None
+        if self._photo_cache is not None and self._scan_cache_flags == flags:
+            entry = self._photo_cache.pop(path, None)
+        if entry is None:
+            entry = self._read_photo_entry(path, flags)
+        _, _, _, fields, err = entry
+        if err is not None or fields is None:
+            self.collected_warnings["Scan Error"].append(f"{path.as_posix()}: {err}")
             return False
         else:
             data["Images"].append(filename)
-            data["Offsets"].append(offset)
-            data["Dimensions"].append(dimensions)
-            data["Makes"].append(make)
-            data["Models"].append(model)
-            data["Softwares"].append(software)
-            data["Lens_Models"].append(lens_model)
-            data["Apertures"].append(aperture)
-            data["Exposure_Times"].append(exposure_time)
-            data["Focal_Lengths"].append(focal_length)
-            data["ISOs"].append(iso)
-            data["GPS_Latitudes"].append(gps_latitude)
-            data["GPS_Longitudes"].append(gps_longitude)
+            for key, value in fields.items():
+                data[key].append(value)
             return True
 
     # Hyperlink addition
@@ -1393,47 +1416,13 @@ class MetadataExtractor:
         progress_callback: Callable[[int, int, Path], None] | None = None,
     ) -> tuple[int, int]:
         """Lists subdirectories in recursive mode (single-folder has no subdirectories), runs sort_and_extract on both modes. Builds progress_callback and sheet_name."""
-        sheet_names = []
-        files_lists = []
-        directories = []
-        for dirpath, _, files in self.walk_and_filter(
-            directory_path, self.maxdepth, include_hiddens, date_range, start_date, end_date, include_undateable
-        ):
-            if self.cancel_event.is_set():
-                break
-            if not files:
-                continue
-            if not any(f.lower().endswith(PHOTO_TYPES) for f in files):
-                # All-videos folder produces nothing — bail early
-                self.collected_warnings["Only Video(s)"].append(dirpath)
-                continue
-            dirpath = Path(dirpath)
-            try:
-                rel = Path(os.path.relpath(dirpath, directory_path))
-            except ValueError:
-                self.collected_warnings["Directory Error"].append(str(dirpath))
-                continue
-            sheet_name = "_".join(rel.parts)
-            files_lists.append(files)
-            sheet_names.append(sheet_name)
-            directories.append(dirpath.as_posix())
-        for directory, media_files, sheet_name in zip(directories, files_lists, sheet_names):
-            if self.cancel_event.is_set():
-                break
-            self.current_sheet_name = sheet_name
-            if progress_callback:
-                _base_p = self.total_processed
-                _base_s = self.total_skipped
-                wrapped_cb = lambda p, s, d, base_p=_base_p, base_s=_base_s: progress_callback(
-                    base_p + p, base_s + s, d
-                )
-            else:
-                wrapped_cb = None
-            p, s = self.extract(
-                directory,
-                modifier,
-                media_files,
-                cutoff,
+        try:
+            sheet_names = []
+            files_lists = []
+            directories = []
+            self._photo_cache = {}
+            self._video_cache = {}
+            self._scan_cache_flags = (
                 output_utc,
                 output_dimensions,
                 output_make,
@@ -1445,11 +1434,70 @@ class MetadataExtractor:
                 output_focal_length,
                 output_iso,
                 output_gps,
-                progress_callback=wrapped_cb,
             )
-            self.total_processed += p
-            self.total_skipped += s
-        return self.total_processed, self.total_skipped
+            file_count = 0
+            if not self._destroyed:
+                self._safe_after(self.current_directory.set, "Counting files...")
+            for dirpath, _, files in self.walk_and_filter(
+                directory_path, self.maxdepth, include_hiddens, date_range, start_date, end_date, include_undateable
+            ):
+                if self.cancel_event.is_set():
+                    break
+                if not files:
+                    continue
+                if not any(f.lower().endswith(PHOTO_TYPES) for f in files):
+                    # All-videos folder produces nothing — bail early
+                    self.collected_warnings["Only Video(s)"].append(dirpath)
+                    continue
+                dirpath = Path(dirpath)
+                try:
+                    rel = Path(os.path.relpath(dirpath, directory_path))
+                except ValueError:
+                    self.collected_warnings["Directory Error"].append(str(dirpath))
+                    continue
+                sheet_name = "_".join(rel.parts)
+                file_count += sum(1 for entry in files if entry.lower().endswith(PHOTO_TYPES))
+                files_lists.append(files)
+                sheet_names.append(sheet_name)
+                directories.append(dirpath.as_posix())
+            scan_started = time.perf_counter()
+            if not self.cancel_event.is_set():
+                self._safe_after(self._set_total_files, file_count, scan_started)
+            for directory, media_files, sheet_name in zip(directories, files_lists, sheet_names):
+                if self.cancel_event.is_set():
+                    break
+                self.current_sheet_name = sheet_name
+                if progress_callback:
+                    _base_p = self.total_processed
+                    _base_s = self.total_skipped
+                    wrapped_cb = lambda p, s, d, base_p=_base_p, base_s=_base_s: progress_callback(
+                        base_p + p, base_s + s, d
+                    )
+                else:
+                    wrapped_cb = None
+                p, s = self.extract(
+                    directory,
+                    modifier,
+                    media_files,
+                    cutoff,
+                    output_utc,
+                    output_dimensions,
+                    output_make,
+                    output_model,
+                    output_software,
+                    output_lens_model,
+                    output_aperture,
+                    output_exposure_time,
+                    output_focal_length,
+                    output_iso,
+                    output_gps,
+                    progress_callback=wrapped_cb,
+                )
+                self.total_processed += p
+                self.total_skipped += s
+            return self.total_processed, self.total_skipped
+        finally:
+            self._clear_scan_cache()
 
     # Helper to find directories one-by-one to max_depth
     def walk_and_filter(
@@ -1680,66 +1728,130 @@ class MetadataExtractor:
         progress_callback: Callable[[int, int, Path], None] | None = None,
     ) -> tuple[int, int]:
         """Creates pd.DataFrame from extracted EXIF metadata and groups by timestamp."""
-        processed = 0  # Processed files this turn; increments by photos_before_video, although scan_image only scans last photo of a series
-        skipped = 0  # Skipped files this turn
-        data = self._empty_scan_data()  # Data dictionary
-        img_series = []
-        timestamped = []
-        timestamped_to_file = {}
-        no_timestamp = []
-        index = 1 + modifier
-        date_only_dts: dict[str, datetime] = {}
-        date_only_dates: dict[str, str] = {}
         try:
-            for file in media_files:
-                if self.cancel_event.is_set():
-                    return processed, skipped
-                ts = None
-                has_time = True
-                offset_str = None
-                if file.lower().endswith(VIDEO_TYPES):
-                    ts = self._get_video_date(Path(directory_path) / file)
-                    if ts is None:
-                        path = (Path(directory_path) / file).as_posix()
-                        if file.lower().endswith((".mp4", ".mov")):
-                            self.collected_warnings["No Video Date"].append(path)
-                            has_time = False
+            owns_cache = self._photo_cache is None
+            if owns_cache:
+                self._photo_cache = {}
+                self._video_cache = {}
+                self._scan_cache_flags = (
+                    output_utc,
+                    output_dimensions,
+                    output_make,
+                    output_model,
+                    output_software,
+                    output_lens_model,
+                    output_aperture,
+                    output_exposure_time,
+                    output_focal_length,
+                    output_iso,
+                    output_gps,
+                )
+            processed = 0  # Processed files this turn; increments by photos_before_video, although scan_image only scans last photo of a series
+            skipped = 0  # Skipped files this turn
+            data = self._empty_scan_data()  # Data dictionary
+            img_series = []
+            timestamped = []
+            timestamped_to_file = {}
+            no_timestamp = []
+            index = 1 + modifier
+            date_only_dts: dict[str, datetime] = {}
+            date_only_dates: dict[str, str] = {}
+            try:
+                for file in media_files:
+                    if self.cancel_event.is_set():
+                        return processed, skipped
+                    ts = None
+                    has_time = True
+                    offset_str = None
+                    path = Path(directory_path) / file
+                    if file.lower().endswith(VIDEO_TYPES):
+                        ts = self._get_video_date(path)
+                        if self._video_cache is not None:
+                            self._video_cache.pop(path, None)
+                        if ts is None:
+                            path = (path).as_posix()
+                            if file.lower().endswith((".mp4", ".mov")):
+                                self.collected_warnings["No Video Date"].append(path)
+                                has_time = False
+                            else:
+                                self.collected_warnings["Unsupported Video Format"].append(path)
+                                has_time = False
+                    elif file.lower().endswith(PHOTO_TYPES):
+                        ts, has_time, offset_str = self._get_photo_date_and_offset(path)
+                    if ts is None or not has_time:
+                        if ts is not None and not has_time:
+                            date_only_dates[file] = ts.strftime("%Y:%m:%d")
+                            date_only_dts[file] = ts
+                        no_timestamp.append(file)
+                    else:
+                        group_ts = ts
+                        if output_utc and offset_str is not None:
+                            offset_td = self._parse_utc_offset(offset_str)
+                            if offset_td is not None:
+                                group_ts = ts - offset_td  # local - (+offset) = UTC; local - (-offset) = UTC
+                        timestamped.append((group_ts, file))
+                        timestamped_to_file[file] = ts, group_ts
+                groups = self.group_by_timestamp(timestamped, cutoff)
+                for group in groups:
+                    if self.cancel_event.is_set():
+                        break
+                    # Video-only groups are orphans — don't consume a series slot
+                    if not any(f.lower().endswith(PHOTO_TYPES) for _, f in group):
+                        continue
+                    temp_data_holder = self._empty_scan_data()
+                    group_photos_ok = 0
+                    group_slots = 0
+                    for ts, file in group:
+                        if self.cancel_event.is_set():
+                            break
+                        if file.lower().endswith(PHOTO_TYPES):
+                            ok = self.scan_image(
+                                directory_path,
+                                file,
+                                temp_data_holder,
+                                output_utc,
+                                output_dimensions,
+                                output_make,
+                                output_model,
+                                output_software,
+                                output_lens_model,
+                                output_aperture,
+                                output_exposure_time,
+                                output_focal_length,
+                                output_iso,
+                                output_gps,
+                            )
+                            if ok:
+                                ts_dt = timestamped_to_file[file][0].strftime("%Y:%m:%d %H:%M:%S")
+                                temp_data_holder["Dates"].append(ts_dt)
+                                temp_data_holder["Sort_Timestamps"].append(timestamped_to_file[file][1])
+                                group_photos_ok += 1
+                                group_slots += 1
+                            else:
+                                skipped += 1
+                            if progress_callback:
+                                progress_callback(processed + group_photos_ok, skipped, Path(directory_path))
                         else:
-                            self.collected_warnings["Unsupported Video Format"].append(path)
-                            has_time = False
-                elif file.lower().endswith(PHOTO_TYPES):
-                    ts, has_time, offset_str = self._get_photo_date_and_offset(Path(directory_path) / file)
-                if ts is None or not has_time:
-                    if ts is not None and not has_time:
-                        date_only_dates[file] = ts.strftime("%Y:%m:%d")
-                        date_only_dts[file] = ts
-                    no_timestamp.append(file)
-                else:
-                    group_ts = ts
-                    if output_utc and offset_str is not None:
-                        offset_td = self._parse_utc_offset(offset_str)
-                        if offset_td is not None:
-                            group_ts = ts - offset_td  # local - (+offset) = UTC; local - (-offset) = UTC
-                    timestamped.append((group_ts, file))
-                    timestamped_to_file[file] = ts, group_ts
-            groups = self.group_by_timestamp(timestamped, cutoff)
-            for group in groups:
-                if self.cancel_event.is_set():
-                    break
-                # Video-only groups are orphans — don't consume a series slot
-                if not any(f.lower().endswith(PHOTO_TYPES) for _, f in group):
-                    continue
-                temp_data_holder = self._empty_scan_data()
-                group_photos_ok = 0
-                group_slots = 0
-                for ts, file in group:
+                            # Video in a mixed group still occupies its series slot
+                            group_slots += 1
+                    if group_photos_ok == 0:
+                        continue
+                    for key, value in temp_data_holder.items():
+                        data[key].extend(value)
+                    group_start = index
+                    group_end = index + group_slots - 1
+                    label = str(group_start) if group_start == group_end else f"{group_start}-{group_end}"
+                    img_series.extend([label] * group_photos_ok)
+                    processed += group_photos_ok
+                    index = group_end + 1
+                for file in no_timestamp:
                     if self.cancel_event.is_set():
                         break
                     if file.lower().endswith(PHOTO_TYPES):
                         ok = self.scan_image(
                             directory_path,
                             file,
-                            temp_data_holder,
+                            data,
                             output_utc,
                             output_dimensions,
                             output_make,
@@ -1753,86 +1865,46 @@ class MetadataExtractor:
                             output_gps,
                         )
                         if ok:
-                            ts_dt = timestamped_to_file[file][0].strftime("%Y:%m:%d %H:%M:%S")
-                            temp_data_holder["Dates"].append(ts_dt)
-                            temp_data_holder["Sort_Timestamps"].append(timestamped_to_file[file][1])
-                            group_photos_ok += 1
-                            group_slots += 1
+                            img_series.append("")
+                            if file in date_only_dates:
+                                data["Dates"].append(date_only_dates.get(file, ""))
+                                data["Sort_Timestamps"].append(date_only_dts.get(file))
+                            else:
+                                data["Dates"].append("")
+                                data["Sort_Timestamps"].append(None)
+                                self.collected_warnings["No Metadata"].append((Path(directory_path) / file).as_posix())
+                            processed += 1
                         else:
                             skipped += 1
                         if progress_callback:
-                            progress_callback(processed + group_photos_ok, skipped, Path(directory_path))
-                    else:
-                        # Video in a mixed group still occupies its series slot
-                        group_slots += 1
-                if group_photos_ok == 0:
-                    continue
-                for key, value in temp_data_holder.items():
-                    data[key].extend(value)
-                group_start = index
-                group_end = index + group_slots - 1
-                label = str(group_start) if group_start == group_end else f"{group_start}-{group_end}"
-                img_series.extend([label] * group_photos_ok)
-                processed += group_photos_ok
-                index = group_end + 1
-            for file in no_timestamp:
-                if self.cancel_event.is_set():
-                    break
-                if file.lower().endswith(PHOTO_TYPES):
-                    ok = self.scan_image(
-                        directory_path,
-                        file,
-                        data,
-                        output_utc,
-                        output_dimensions,
-                        output_make,
-                        output_model,
-                        output_software,
-                        output_lens_model,
-                        output_aperture,
-                        output_exposure_time,
-                        output_focal_length,
-                        output_iso,
-                        output_gps,
-                    )
-                    if ok:
-                        img_series.append("")
-                        if file in date_only_dates:
-                            data["Dates"].append(date_only_dates.get(file, ""))
-                            data["Sort_Timestamps"].append(date_only_dts.get(file))
-                        else:
-                            data["Dates"].append("")
-                            data["Sort_Timestamps"].append(None)
-                            self.collected_warnings["No Metadata"].append((Path(directory_path) / file).as_posix())
-                        processed += 1
-                    else:
-                        skipped += 1
-                    if progress_callback:
-                        progress_callback(processed, skipped, Path(directory_path))
-        except Exception as e:  # noqa: BLE001
-            self.collected_warnings["Unexpected"].append(f"[{directory_path}]: {e}\n{traceback.format_exc()}")
-            skipped = sum(1 for f in media_files if f.lower().endswith(PHOTO_TYPES)) - processed
-        if not self.cancel_event.is_set():
-            data["Dates"], data["Times"] = self.fix_time(
-                output_utc, data["Dates"], data["Offsets"], data["Images"], directory_path
-            )
-        if not self.cancel_event.is_set():
-            self.create_dataframe(
-                img_series,
-                data,
-                directory_path,
-                output_dimensions,
-                output_make,
-                output_model,
-                output_software,
-                output_lens_model,
-                output_aperture,
-                output_exposure_time,
-                output_focal_length,
-                output_iso,
-                output_gps,
-            )
-        return processed, skipped  # For tallying total processed and skipped
+                            progress_callback(processed, skipped, Path(directory_path))
+            except Exception as e:  # noqa: BLE001
+                self.collected_warnings["Unexpected"].append(f"[{directory_path}]: {e}\n{traceback.format_exc()}")
+                skipped = sum(1 for f in media_files if f.lower().endswith(PHOTO_TYPES)) - processed
+            if not self.cancel_event.is_set():
+                data["Dates"], data["Times"] = self.fix_time(
+                    output_utc, data["Dates"], data["Offsets"], data["Images"], directory_path
+                )
+            if not self.cancel_event.is_set():
+                self.create_dataframe(
+                    img_series,
+                    data,
+                    directory_path,
+                    output_dimensions,
+                    output_make,
+                    output_model,
+                    output_software,
+                    output_lens_model,
+                    output_aperture,
+                    output_exposure_time,
+                    output_focal_length,
+                    output_iso,
+                    output_gps,
+                )
+            return processed, skipped  # For tallying total processed and skipped
+        finally:
+            if owns_cache:
+                self._clear_scan_cache()
 
     @staticmethod
     def group_by_timestamp(entries: list[tuple[datetime, str]], cutoff: float) -> list[list[tuple[datetime, str]]]:
@@ -1984,6 +2056,8 @@ class MetadataExtractor:
     def create_sheet(self, output_path: Path, total_processed: int, total_skipped: int) -> None:
         """Creates Excel, CSV, JSON, and Markdown File(s) using self.results DataFrame(s). Displays total images processed and skipped, as well as writes a warning log if needed."""
         try:
+            files_written = 0
+            filetype = self._active_filetype or self.filetype_var.get()
             # Check for empty results before prompting so the user isn't asked to overwrite for nothing
             if not self.results:
                 if total_processed == 0 and total_skipped == 0:
@@ -1993,12 +2067,10 @@ class MetadataExtractor:
                 else:
                     messagebox.showerror("No data", "No valid photos with metadata were found.")
             else:
-                filetype = self._active_filetype or self.filetype_var.get()
                 proceed = not (filetype in ("Excel", "JSON") and output_path.exists()) or messagebox.askyesno(
                     "Overwrite?", message=output_path.as_posix() + " \nalready exists. Overwrite?"
                 )
                 if proceed:
-                    files_written = 0
                     # Data was found
                     if filetype == "Excel":
                         with pd.ExcelWriter(output_path) as writer:  # Opens ExcelWriter and closes automatically
@@ -2111,9 +2183,14 @@ class MetadataExtractor:
             if not self.keepopen_var.get():  # Checks to close program or not
                 self._on_close()
         except OSError as e:
+            err_target = (
+                output_path.parent.as_posix()
+                if filetype in ("CSV", "Markdown") and len(self.results) > 1
+                else output_path.as_posix()
+            )
             messagebox.showerror(
                 "Error writing output",
-                f"Is another program using {output_path.as_posix() if (filetype == "Excel" or filetype == "Markdown") and files_written == 1 else output_path.parent.as_posix()}?\n\nError: {e}",
+                f"Is another program using {err_target}?\n\nError: {e}",
             )
             if not self.keepopen_var.get():
                 self._on_close()
@@ -2271,9 +2348,13 @@ class MetadataExtractor:
         self.filetype_to_ext = {"Excel": ".xlsx", "CSV": ".csv", "JSON": ".json", "Markdown": ".md"}
         # Tracking destroyed root
         self._destroyed = False
-        # For reporting partial results
+        # For reporting results, partial and complete
         self.total_processed = 0
         self.total_skipped = 0
+        # To minimize image open operations
+        self._photo_cache = None
+        self._video_cache = None
+        self._scan_cache_flags = None
         # Progress bar widgets
         self.current_directory = tk.StringVar()
         self.scanned_count = tk.StringVar()

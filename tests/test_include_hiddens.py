@@ -1,18 +1,19 @@
 """Tests for the include-hiddens toggle (v3.21.0).
 
 The feature: an "Include Hidden Files" checkbox that, when on, disables
-the dot-prefix and FILE_ATTRIBUTE_HIDDEN filters in walk_and_filter.
+the dot-prefix and OS hidden filters in walk_and_filter.
 
 Layers covered:
 - _check_hidden direct (flag short-circuits)
 - walk_and_filter (flag plumbed through)
-- get_total_files (flag plumbed through)
+- find_directories photo counting (flag plumbed through)
 - find_directories (flag plumbed through, end-to-end DataFrame check)
 - scan_image (defensive — doesn't filter, operates on media_files as-is)
 - Settings persistence (save, load, round-trip both directions)
 """
 
 import json
+from unittest.mock import patch
 
 from tests.conftest import make_jpeg_with_exif
 from tests.helpers import find_scan
@@ -61,24 +62,32 @@ def test_walk_includes_hidden_when_flag_on(extractor, tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# get_total_files
+# find_directories total count
 # ---------------------------------------------------------------------------
 
 
-def test_get_total_files_default_excludes_hidden(extractor, tmp_path):
+def test_find_directories_count_default_excludes_hidden(extractor, tmp_path):
     make_jpeg_with_exif(tmp_path / "visible.jpg", "2024:05:15 12:30:45")
     make_jpeg_with_exif(tmp_path / ".hidden.jpg", "2024:05:16 12:30:45")
 
-    extractor.directory_path = tmp_path
-    assert extractor.get_total_files(0, False, True) == 1
+    with patch.object(extractor, "_safe_after") as mock_after:
+        find_scan(extractor, tmp_path, include_hiddens=False, write=False)
+
+    total_calls = [c for c in mock_after.call_args_list if c.args[0] == extractor._set_total_files]
+    assert len(total_calls) == 1
+    assert total_calls[0].args[1] == 1
 
 
-def test_get_total_files_includes_hidden_when_flag_on(extractor, tmp_path):
+def test_find_directories_count_includes_hidden_when_flag_on(extractor, tmp_path):
     make_jpeg_with_exif(tmp_path / "visible.jpg", "2024:05:15 12:30:45")
     make_jpeg_with_exif(tmp_path / ".hidden.jpg", "2024:05:16 12:30:45")
 
-    extractor.directory_path = tmp_path
-    assert extractor.get_total_files(0, True, True) == 2
+    with patch.object(extractor, "_safe_after") as mock_after:
+        find_scan(extractor, tmp_path, include_hiddens=True, write=False)
+
+    total_calls = [c for c in mock_after.call_args_list if c.args[0] == extractor._set_total_files]
+    assert len(total_calls) == 1
+    assert total_calls[0].args[1] == 2
 
 
 # ---------------------------------------------------------------------------
