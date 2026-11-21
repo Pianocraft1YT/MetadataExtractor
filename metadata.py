@@ -6,7 +6,7 @@
 # Please increment this counter as a warning
 # For the next person:
 #
-# hours_spent_original = 99
+# hours_spent_original = 100
 # hours_wasted_here = 0
 
 # Coded by Pianocraft1YT
@@ -22,6 +22,7 @@ import os
 import re
 import stat
 import struct
+import sys
 import threading
 import time
 import tkinter as tk
@@ -117,6 +118,7 @@ class ScanConfig:
     cutoff: float
     output_utc: bool
     output_dimensions: bool
+    output_filesize: bool
     output_make: bool
     output_model: bool
     output_software: bool
@@ -222,6 +224,7 @@ class MetadataExtractor:
             # Pack Extra Checkboxes
             self.extra_exif_frame.pack(after=self.extra_exif_checkbox)
             self.dimensions_checkbox.pack()
+            self.filesize_checkbox.pack()
             self.make_checkbox.pack()
             self.model_checkbox.pack()
             self.software_checkbox.pack()
@@ -232,6 +235,7 @@ class MetadataExtractor:
             self.iso_checkbox.pack()
         else:
             self.dimensions_checkbox.pack_forget()
+            self.filesize_checkbox.pack_forget()
             self.make_checkbox.pack_forget()
             self.model_checkbox.pack_forget()
             self.software_checkbox.pack_forget()
@@ -356,26 +360,29 @@ class MetadataExtractor:
         return None, False, None
 
     def _read_photo_entry(
-        self, path: Path, flags: tuple[bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool] | None
+        self, path: Path, flags: tuple[bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool] | None
     ) -> tuple[datetime | None, bool, str | None, dict[str, Any] | None, str | None]:
+        """Extracts photo metadata based on flag state in flags, returns dict of values or None."""
         if flags is not None:
             output_utc = flags[0]
             output_dimensions = flags[1]
-            output_make = flags[2]
-            output_model = flags[3]
-            output_software = flags[4]
-            output_lens_model = flags[5]
-            output_aperture = flags[6]
-            output_exposure_time = flags[7]
-            output_focal_length = flags[8]
-            output_iso = flags[9]
-            output_gps = flags[10]
+            output_filesize = flags[2]
+            output_make = flags[3]
+            output_model = flags[4]
+            output_software = flags[5]
+            output_lens_model = flags[6]
+            output_aperture = flags[7]
+            output_exposure_time = flags[8]
+            output_focal_length = flags[9]
+            output_iso = flags[10]
+            output_gps = flags[11]
         else:
-            output_utc = output_dimensions = output_make = output_model = False
+            output_utc = output_dimensions = output_filesize = output_make = output_model = False
             output_software = output_lens_model = output_aperture = False
             output_exposure_time = output_focal_length = output_iso = output_gps = False
         offset = None
         dimensions = None
+        filesize = None
         make = None
         model = None
         software = None
@@ -399,6 +406,9 @@ class MetadataExtractor:
                 if isinstance(raw_offset, str):
                     offset = raw_offset.strip() or None
             if flags is not None:
+                if output_filesize:
+                    filesize = os.path.getsize(path)
+                    filesize = self._convert_filesize(filesize)
                 if output_make:
                     make = self._exif_get_str(EXIF_CAMERA_MAKE, None, exif_data)
                 if output_model:
@@ -427,6 +437,7 @@ class MetadataExtractor:
                 fields = {
                     "Offsets": offset,
                     "Dimensions": dimensions,
+                    "Filesizes": filesize,
                     "Makes": make,
                     "Models": model,
                     "Softwares": software,
@@ -543,6 +554,21 @@ class MetadataExtractor:
         else:
             output = ", ".join(output)
         return output
+
+    @staticmethod
+    # Turn filesize bytes into human-readable formats
+    def _convert_filesize(v: int) -> str:
+        """Converts filesize bytes into human-readable format (e.g. '4.5 MB')."""
+        if v < 0:
+            return "0 B"
+        size = float(v)
+        for unit in ("B", "KB", "MB", "GB", "TB", "PB"):
+            if size < 1000.0 or unit == "PB":
+                if unit == "B":
+                    return f"{int(size)} B"
+                return f"{size:.1f} {unit}"
+            size /= 1000.0
+        return f"{size:.1f} PB"
 
     @staticmethod
     def _decode_exif_string(v: Any) -> Any:
@@ -993,6 +1019,7 @@ class MetadataExtractor:
                 cfg.cutoff,
                 cfg.output_utc,
                 cfg.output_dimensions,
+                cfg.output_filesize,
                 cfg.output_make,
                 cfg.output_model,
                 cfg.output_software,
@@ -1101,6 +1128,7 @@ class MetadataExtractor:
             "Images": [],
             "Offsets": [],
             "Dimensions": [],
+            "Filesizes": [],
             "Makes": [],
             "Models": [],
             "Softwares": [],
@@ -1172,6 +1200,8 @@ class MetadataExtractor:
                 "User Mode": self.user_mode_var.get(),
                 "Burst Cutoff": cutoff_entry,
                 "Include Undateable": self.include_undateable_var.get(),
+                "Auto-Open Output": self.open_folder_var.get(),
+                "Filesize": self.filesize_var.get(),
             }
             SETTINGS_PATH.write_text(json.dumps(settings, indent=2), encoding="utf-8")
         except (OSError, ValueError, TypeError, AttributeError, tk.TclError):
@@ -1205,6 +1235,8 @@ class MetadataExtractor:
                 "GPS": self.gps_var,
                 "Include Hiddens": self.hidden_var,
                 "Include Undateable": self.include_undateable_var,
+                "Auto-Open Output": self.open_folder_var,
+                "Filesize": self.filesize_var,
             }
             data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
             for key, value in data.items():
@@ -1289,6 +1321,27 @@ class MetadataExtractor:
         except (OSError, json.JSONDecodeError, AttributeError):
             return
 
+    @staticmethod
+    def _open_folder(path: Path) -> None:
+        """Opens a directory in the OS file explorer safely."""
+        try:
+            if not path.is_dir():
+                path = path.parent
+            if not path.exists():
+                return
+            if os.name == "nt":
+                os.startfile(path)
+            elif sys.platform == "darwin":
+                import subprocess
+
+                subprocess.Popen(["open", str(path)])
+            else:
+                import subprocess
+
+                subprocess.Popen(["xdg-open", str(path)])
+        except OSError:
+            pass
+
     # Core Functions
     # Gets called on set directory button press to set image directory
     def set_dir(self) -> None:
@@ -1330,6 +1383,7 @@ class MetadataExtractor:
         data: dict,
         output_utc: bool,
         output_dimensions: bool,
+        output_filesize: bool,
         output_make: bool,
         output_model: bool,
         output_software: bool,
@@ -1344,6 +1398,7 @@ class MetadataExtractor:
         flags = (
             output_utc,
             output_dimensions,
+            output_filesize,
             output_make,
             output_model,
             output_software,
@@ -1399,6 +1454,7 @@ class MetadataExtractor:
         cutoff: float,
         output_utc: bool,
         output_dimensions: bool,
+        output_filesize: bool,
         output_make: bool,
         output_model: bool,
         output_software: bool,
@@ -1425,6 +1481,7 @@ class MetadataExtractor:
             self._scan_cache_flags = (
                 output_utc,
                 output_dimensions,
+                output_filesize,
                 output_make,
                 output_model,
                 output_software,
@@ -1482,6 +1539,7 @@ class MetadataExtractor:
                     cutoff,
                     output_utc,
                     output_dimensions,
+                    output_filesize,
                     output_make,
                     output_model,
                     output_software,
@@ -1561,6 +1619,7 @@ class MetadataExtractor:
         include_hiddens = False
         include_undateable = False
         output_dimensions = False
+        output_filesize = False
         output_make = False
         output_model = False
         output_software = False
@@ -1590,6 +1649,7 @@ class MetadataExtractor:
                 return
             if self.extra_exif_var.get():
                 output_dimensions = self.dimensions_var.get()
+                output_filesize = self.filesize_var.get()
                 output_make = self.make_var.get()
                 output_model = self.model_var.get()
                 output_software = self.software_var.get()
@@ -1676,6 +1736,7 @@ class MetadataExtractor:
             cutoff=cutoff,
             output_utc=output_utc,
             output_dimensions=output_dimensions,
+            output_filesize=output_filesize,
             output_make=output_make,
             output_model=output_model,
             output_software=output_software,
@@ -1716,6 +1777,7 @@ class MetadataExtractor:
         cutoff: float,
         output_utc: bool,
         output_dimensions: bool,
+        output_filesize: bool,
         output_make: bool,
         output_model: bool,
         output_software: bool,
@@ -1736,6 +1798,7 @@ class MetadataExtractor:
                 self._scan_cache_flags = (
                     output_utc,
                     output_dimensions,
+                    output_filesize,
                     output_make,
                     output_model,
                     output_software,
@@ -1811,6 +1874,7 @@ class MetadataExtractor:
                                 temp_data_holder,
                                 output_utc,
                                 output_dimensions,
+                                output_filesize,
                                 output_make,
                                 output_model,
                                 output_software,
@@ -1854,6 +1918,7 @@ class MetadataExtractor:
                             data,
                             output_utc,
                             output_dimensions,
+                            output_filesize,
                             output_make,
                             output_model,
                             output_software,
@@ -1891,6 +1956,7 @@ class MetadataExtractor:
                     data,
                     directory_path,
                     output_dimensions,
+                    output_filesize,
                     output_make,
                     output_model,
                     output_software,
@@ -1971,6 +2037,7 @@ class MetadataExtractor:
         data: dict,
         directory_path: str,
         output_dimensions: bool,
+        output_filesize: bool,
         output_make: bool,
         output_model: bool,
         output_software: bool,
@@ -1991,6 +2058,8 @@ class MetadataExtractor:
             }
             if output_dimensions:
                 df_data["Dimensions"] = data["Dimensions"]
+            if output_filesize:
+                df_data["File Size"] = data["Filesizes"]
             if output_make:
                 df_data["Camera Make"] = data["Makes"]
             if output_model:
@@ -2138,6 +2207,8 @@ class MetadataExtractor:
                                 else output_path.as_posix()
                             ),
                         )
+                        if self.open_folder_var.get():
+                            self._open_folder(output_path)
                         if not self.cancel_event.is_set():
                             self.progress_var.set(100)
                             self.percentage_done.set("100%")
@@ -2218,6 +2289,10 @@ class MetadataExtractor:
         self.keepopen_var = tk.BooleanVar(value=False)
         self.keepopen_checkbox = tk.Checkbutton(
             self.basic_mode_frame, text="Keep Open After Scan", variable=self.keepopen_var
+        )
+        self.open_folder_var = tk.BooleanVar(value=False)
+        self.open_folder_checkbox = tk.Checkbutton(
+            self.basic_mode_frame, text="Auto-Open Output Folder", variable=self.open_folder_var
         )
         self.recursive_var = tk.BooleanVar(value=False)
         self.recursive_checkbox = tk.Checkbutton(
@@ -2316,7 +2391,8 @@ class MetadataExtractor:
         )
         self.iso_var = tk.BooleanVar(value=False)
         self.iso_checkbox = tk.Checkbutton(self.extra_exif_frame, text="ISO", variable=self.iso_var)
-
+        self.filesize_var = tk.BooleanVar(value=False)
+        self.filesize_checkbox = tk.Checkbutton(self.extra_exif_frame, text="File Size", variable=self.filesize_var)
         # Set default sheet name
         self.current_sheet_name = "Sheet"
         # Collect warnings
@@ -2391,7 +2467,8 @@ class MetadataExtractor:
         for ft in self.filetypes:
             tk.Radiobutton(self.filetype_frame, text=ft, variable=self.filetype_var, value=ft).pack(side="left")
         self.keepopen_checkbox.pack(after=self.filetype_frame)
-        self.user_modes_frame.pack(side="top", after=self.keepopen_checkbox)
+        self.open_folder_checkbox.pack(after=self.keepopen_checkbox)
+        self.user_modes_frame.pack(side="top", after=self.open_folder_checkbox)
         for um in self.user_modes:
             tk.Radiobutton(
                 self.user_modes_frame, text=um, variable=self.user_mode_var, value=um, command=self.user_mode

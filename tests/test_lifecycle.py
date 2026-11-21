@@ -15,6 +15,7 @@ def _make_cfg(tmp_path):
         cutoff=2.0,
         output_utc=False,
         output_dimensions=False,
+        output_filesize=False,
         output_make=False,
         output_model=False,
         output_software=False,

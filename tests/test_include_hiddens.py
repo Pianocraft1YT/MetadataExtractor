@@ -141,6 +141,7 @@ def test_scan_image_processes_hidden_filename(extractor, tmp_path):
         data,
         output_utc=False,
         output_dimensions=False,
+        output_filesize=False,
         output_make=False,
         output_model=False,
         output_software=False,

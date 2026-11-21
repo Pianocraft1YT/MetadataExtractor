@@ -7,6 +7,7 @@ from tests.conftest import make_jpeg_with_nested_exif
 _EXTRA_OFF = dict(
     output_utc=False,
     output_dimensions=False,
+    output_filesize=False,
     output_make=False,
     output_model=False,
     output_software=False,
@@ -27,6 +28,7 @@ def _scan(extractor, tmp_path, media_files, output_utc=False):
         data,
         output_utc=output_utc,
         output_dimensions=False,
+        output_filesize=False,
         output_make=False,
         output_model=False,
         output_software=False,

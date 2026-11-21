@@ -6,6 +6,7 @@ Burst Cutoff
 Filename
 Filetype
 Keep Open
+Auto-Open Output Folder
 Basic Advanced Flip
 Execute
 Cancel

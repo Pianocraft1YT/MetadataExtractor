@@ -5,6 +5,7 @@ import pandas as pd
 _EXTRA_OFF = dict(
     output_utc=False,
     output_dimensions=False,
+    output_filesize=False,
     output_make=False,
     output_model=False,
     output_software=False,
@@ -16,9 +17,7 @@ _EXTRA_OFF = dict(
     output_gps=False,
 )
 
-
-# Narrower dict for create_dataframe — that function no longer takes
-# date_range/start_date/end_date (the filter moved into scan_image).
+# Shared defaults for dataframe creation
 _DF_OFF = dict(
     output_aperture=False,
     output_exposure_time=False,
@@ -36,6 +35,7 @@ def test_empty_scan_data_has_all_expected_keys(extractor):
         "Images",
         "Offsets",
         "Dimensions",
+        "Filesizes",
         "Makes",
         "Models",
         "Softwares",
@@ -62,6 +62,7 @@ def _scan_extras(extractor, tmp_path, media_files, **extras):
         data,
         output_utc=False,
         output_dimensions=extras.get("dimensions", False),
+        output_filesize=extras.get("filesize", False),
         output_make=extras.get("make", False),
         output_model=extras.get("model", False),
         output_software=extras.get("software", False),
@@ -139,6 +140,7 @@ def _populated_data(extractor):
     data["Dates"] = ["05/15/2024", "05/16/2024"]
     data["Times"] = ["12:30:45", "13:00:00"]
     data["Dimensions"] = ["1920x1080", "1080x1920"]
+    data["Filesizes"] = ["1.5 MB", "2.0 MB"]
     data["Makes"] = ["Canon", "Nikon"]
     data["Models"] = ["EOS 70D", "D750"]
     data["Softwares"] = ["Lightroom", None]
@@ -153,6 +155,7 @@ def test_create_dataframe_all_extras_enabled(extractor, tmp_path):
         data,
         tmp_path,
         output_dimensions=True,
+        output_filesize=True,
         output_make=True,
         output_model=True,
         output_software=True,
@@ -164,6 +167,7 @@ def test_create_dataframe_all_extras_enabled(extractor, tmp_path):
     assert list(df["Camera Make"]) == ["Canon", "Nikon"]
     assert list(df["Camera Model"]) == ["EOS 70D", "D750"]
     assert list(df["Dimensions"]) == ["1920x1080", "1080x1920"]
+    assert list(df["File Size"]) == ["1.5 MB", "2.0 MB"]
     assert df["Software"].iloc[0] == "Lightroom"
     assert pd.isna(df["Software"].iloc[1])
     assert df["Lens Model"].iloc[0] == "EF 50mm"
@@ -178,6 +182,7 @@ def test_create_dataframe_all_extras_disabled(extractor, tmp_path):
         data,
         tmp_path,
         output_dimensions=False,
+        output_filesize=False,
         output_make=False,
         output_model=False,
         output_software=False,
@@ -195,6 +200,7 @@ def test_create_dataframe_selective_columns(extractor, tmp_path):
         data,
         tmp_path,
         output_dimensions=True,
+        output_filesize=False,
         output_make=False,
         output_model=False,
         output_software=True,
@@ -203,30 +209,31 @@ def test_create_dataframe_selective_columns(extractor, tmp_path):
     )
     df = extractor.results[0][0]
     assert "Dimensions" in df.columns
+    assert "File Size" not in df.columns
     assert "Camera Make" not in df.columns
     assert "Software" in df.columns
     assert "Lens Model" not in df.columns
-    # Img # Series is now always emitted, regardless of img_series being None
     assert "Img # Series" in df.columns
 
 
 def test_create_dataframe_empty_data_skips_sheet(extractor, tmp_path):
-    """Empty folders no longer produce an empty sheet — create_dataframe returns early."""
+    """Empty folders produce no sheet — create_dataframe returns early."""
     data = extractor._empty_scan_data()
     extractor.create_dataframe(
         [],
         data,
         tmp_path,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
+        False,  # output_dimensions
+        False,  # output_filesize
+        False,  # output_make
+        False,  # output_model
+        False,  # output_software
+        False,  # output_lens_model
+        False,  # output_aperture
+        False,  # output_exposure_time
+        False,  # output_focal_length
+        False,  # output_iso
+        False,  # output_gps
     )
     assert len(extractor.results) == 0
 

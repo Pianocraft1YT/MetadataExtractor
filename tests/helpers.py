@@ -7,6 +7,7 @@ from pathlib import Path
 _EXTRA_OFF = dict(
     output_utc=False,
     output_dimensions=False,
+    output_filesize=False,
     output_make=False,
     output_model=False,
     output_software=False,
@@ -22,7 +23,7 @@ _EXTRA_OFF = dict(
 def media_files(folder, extractor=None):
     files = [f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))]
     if extractor is not None:
-        # _check_hidden now requires the include_hiddens flag
+        # _check_hidden requires the include_hiddens flag
         files = [f for f in files if not extractor._check_hidden(f, folder, False)]
     return sorted(
         files,
@@ -64,8 +65,6 @@ def find_scan(
     include_undateable=True,
     **overrides,
 ):
-    # `debug` is kept for backward compatibility with existing callers, but
-    # find_directories() no longer takes it.
     if final_output is None:
         final_output = Path("out.xlsx")
     processed, skipped = extractor.find_directories(

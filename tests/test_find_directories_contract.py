@@ -2,8 +2,7 @@
 
 REGRESSION: find_directories accumulated into self.total_processed /
 self.total_skipped but never returned them, breaking every caller that
-unpacked the result. The contract mirrors sort_and_extract: return
-(processed, skipped). These tests require the Option A source fix.
+unpacked the result. The contract mirrors extract: return (processed, skipped).
 """
 
 from tests.conftest import make_jpeg_with_exif
@@ -17,6 +16,7 @@ def _call(extractor, path, **kw):
         2.0,
         output_utc=False,
         output_dimensions=False,
+        output_filesize=False,
         output_make=False,
         output_model=False,
         output_software=False,
