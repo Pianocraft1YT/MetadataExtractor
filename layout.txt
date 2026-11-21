@@ -1,5 +1,7 @@
 Set Directory
+Source Label
 Set Output
+Output Label
 Recursive
 Add Hyperlinks
 Burst Cutoff

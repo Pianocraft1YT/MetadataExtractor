@@ -41,6 +41,15 @@ from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 from PIL import Image
+
+try:
+    import pillow_heif
+
+    pillow_heif.register_heif_opener()
+    HEIF_SUPPORTED = True
+except ImportError:
+    HEIF_SUPPORTED = False
+
 from tk_date_entry import DateEntry
 
 from video_metadata import extract_video_metadata
@@ -71,7 +80,7 @@ SETTINGS_PATH = Path.home() / ".metadata-extractor" / "settings.json"
 # Only .mp4 and .mov are scanned for metadata currently
 VIDEO_TYPES = (".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv")
 # Common and uncommon image formats to check
-# TODO: Lists .heic/.heif (without pillow_heif.register_heif_opener()) and 27 camera RAW extensions (.cr3, .raf, .rw2, .x3f, etc.) with no RAW EXIF reader/decoder.
+# TODO: 27 camera RAW extensions (.cr3, .raf, .rw2, .x3f, etc.) with no RAW EXIF reader/decoder.
 PHOTO_TYPES = (
     ".jpg",
     ".jpeg",
@@ -301,6 +310,19 @@ class MetadataExtractor:
             self.root.update_idletasks()  # flush pending layout
             self.root.geometry(f"{X_WIDTH}x{self.root.winfo_reqheight()}")  # fixed width, auto height
 
+    # Updates path label variables
+    def _update_path_labels(self) -> None:
+        """Updates labels for source path and output path."""
+        self.source_path_var.set(self._format_path_label("Source", self.directory_path))
+        self.output_path_var.set(self._format_path_label("Output", self.output_path))
+
+    # Opens warnings.log
+    def _view_warnings_log(self):
+        if self.last_warnings_log and self.last_warnings_log.is_file():
+            self._open_path(self.last_warnings_log, False)
+        else:
+            messagebox.showinfo("Log file not found.", message="Log file not found.")
+
     # Sort helper
     @staticmethod
     def natural_key(text: str) -> list[tuple[int, int | str]]:
@@ -396,6 +418,8 @@ class MetadataExtractor:
         gps_latitude = None
         gps_longitude = None
         try:
+            if not HEIF_SUPPORTED and path.suffix.lower() in (".heic", ".heif"):
+                return (None, False, None, None, "HEIC/HEIF requires pillow-heif")
             with Image.open(path) as img:
                 if output_dimensions and flags is not None:
                     dimensions = f"{img.size[0]}x{img.size[1]}"
@@ -576,6 +600,16 @@ class MetadataExtractor:
         else:
             output = ", ".join(output)
         return output
+
+    @staticmethod
+    def _format_path_label(prefix: str, path: Path | None) -> str:
+        """Formats path label and truncates if needed."""
+        if path is None:
+            return f"{prefix}: Not set"
+        text = path.as_posix()
+        if len(text) > 50:
+            return f"{prefix}: ...{text[-47:]}"
+        return f"{prefix}: {text}"
 
     @staticmethod
     # Turn filesize bytes into human-readable formats
@@ -1126,6 +1160,8 @@ class MetadataExtractor:
         self.eta.set("Estimating...")
         self.elapsed_time.set("Time Elapsed: ...")
         self.time_started = None
+        self.last_warnings_log = None
+        self.view_log_button.config(state="disabled")
         self._cleanup_pending = False
 
     def _clear_scan_cache(self) -> None:
@@ -1340,14 +1376,15 @@ class MetadataExtractor:
                             key_to_checkbox_var[key].set(False)
                 except (ValueError, TypeError):
                     pass
+            self._update_path_labels()
         except (OSError, json.JSONDecodeError, AttributeError):
             return
 
     @staticmethod
-    def _open_folder(path: Path) -> None:
+    def _open_path(path: Path, open_parent: bool) -> None:
         """Opens a directory in the OS file explorer safely."""
         try:
-            if not path.is_dir():
+            if open_parent and not path.is_dir():
                 path = path.parent
             if not path.exists():
                 return
@@ -1371,6 +1408,7 @@ class MetadataExtractor:
         selected = filedialog.askdirectory(title="Select a Directory")
         if selected:
             self.directory_path = Path(selected)
+        self._update_path_labels()
 
     # Gets called on set output button press
     def set_output(self) -> None:
@@ -1378,6 +1416,7 @@ class MetadataExtractor:
         selected = filedialog.askdirectory(title="Select a Output Directory")
         if selected:
             self.output_path = Path(selected)
+        self._update_path_labels()
 
     # Checks if given file is hidden
     def _check_hidden(self, filename: str, directory: str, include_hiddens: bool) -> bool:
@@ -2231,7 +2270,7 @@ class MetadataExtractor:
                             ),
                         )
                         if self.open_folder_var.get():
-                            self._open_folder(output_path)
+                            self._open_path(output_path, True)
                         if not self.cancel_event.is_set():
                             self.progress_var.set(100)
                             self.percentage_done.set("100%")
@@ -2267,9 +2306,13 @@ class MetadataExtractor:
                     for filename in file:
                         output += f"\n{filename}\n"
                 try:
+                    log_path = None
                     if not self.results or proceed:
                         log_path = output_path.parent / "warnings.log"
                         log_path.write_text(output, encoding="utf-8")
+                        self.last_warnings_log = log_path
+                        if not self._destroyed:
+                            self.view_log_button.config(state="normal")
                         summary = f"{len(self.collected_warnings)} warning categories.\n\nFull details: {log_path.as_posix()}\n\nPlease verify any issues"
                         messagebox.showwarning("Warning(s)", message=summary)
                 except OSError:
@@ -2416,6 +2459,14 @@ class MetadataExtractor:
         self.iso_checkbox = tk.Checkbutton(self.extra_exif_frame, text="ISO", variable=self.iso_var)
         self.filesize_var = tk.BooleanVar(value=False)
         self.filesize_checkbox = tk.Checkbutton(self.extra_exif_frame, text="File Size", variable=self.filesize_var)
+        self.source_path_var = tk.StringVar()
+        self.output_path_var = tk.StringVar()
+        self.source_path_label = tk.Label(self.basic_mode_frame, foreground="gray", textvariable=self.source_path_var)
+        self.output_path_label = tk.Label(self.basic_mode_frame, foreground="gray", textvariable=self.output_path_var)
+        self.last_warnings_log: Path | None = None
+        self.view_log_button = tk.Button(
+            self.basic_mode_frame, text="View warnings.log", command=self._view_warnings_log, state="disabled"
+        )
         # Set default sheet name
         self.current_sheet_name = "Sheet"
         # Collect warnings
@@ -2474,6 +2525,7 @@ class MetadataExtractor:
         self._active_filetype: str | None = None
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._load_settings()
+        self._update_path_labels()
 
     # After initialization
     def run(self) -> None:
@@ -2481,8 +2533,10 @@ class MetadataExtractor:
         # Pack main widgets
         self.basic_mode_frame.pack()
         self.set_directory_button.pack()
-        self.set_output_button.pack(after=self.set_directory_button)
-        self.recursive_checkbox.pack(after=self.set_output_button)
+        self.source_path_label.pack(after=self.set_directory_button)
+        self.set_output_button.pack(after=self.source_path_label)
+        self.output_path_label.pack(after=self.set_output_button)
+        self.recursive_checkbox.pack(after=self.output_path_label)
         self.hyperlink_checkbox.pack(after=self.recursive_checkbox)
         self.burst_cutoff_entry.pack(after=self.hyperlink_checkbox)
         self.name_entry.pack(after=self.burst_cutoff_entry)
@@ -2498,6 +2552,7 @@ class MetadataExtractor:
             ).pack(side="left")
         self.execute_button.pack(after=self.user_modes_frame)
         self.cancel_button.pack(after=self.execute_button)
+        self.view_log_button.pack(after=self.cancel_button)
         self.progress_frame.pack()
         self.progress_bar.pack()  # First in progress_frame
         self.directory_label.pack()
