@@ -95,11 +95,9 @@ def test_end_to_end_filesize_column_written(extractor, tmp_path):
 
 # ---------------------------------------------------------------------------
 # _open_path & create_sheet integration
-# _open_path & create_sheet integration
 # ---------------------------------------------------------------------------
 
 
-def test_open_path_windows_uses_startfile(tmp_path, monkeypatch):
 def test_open_path_windows_uses_startfile(tmp_path, monkeypatch):
     monkeypatch.setattr(os, "name", "nt")
     target = tmp_path / "out.xlsx"
@@ -110,7 +108,6 @@ def test_open_path_windows_uses_startfile(tmp_path, monkeypatch):
 
 
 def test_open_path_macos_uses_open(tmp_path, monkeypatch):
-def test_open_path_macos_uses_open(tmp_path, monkeypatch):
     monkeypatch.setattr(os, "name", "posix")
     monkeypatch.setattr(sys, "platform", "darwin")
     with patch("subprocess.Popen") as mock_popen:
@@ -118,7 +115,6 @@ def test_open_path_macos_uses_open(tmp_path, monkeypatch):
     mock_popen.assert_called_once_with(["open", str(tmp_path)])
 
 
-def test_open_path_linux_uses_xdg_open(tmp_path, monkeypatch):
 def test_open_path_linux_uses_xdg_open(tmp_path, monkeypatch):
     monkeypatch.setattr(os, "name", "posix")
     monkeypatch.setattr(sys, "platform", "linux")
@@ -128,7 +124,6 @@ def test_open_path_linux_uses_xdg_open(tmp_path, monkeypatch):
 
 
 def test_open_path_missing_path_no_op(tmp_path, monkeypatch):
-def test_open_path_missing_path_no_op(tmp_path, monkeypatch):
     monkeypatch.setattr(os, "name", "nt")
     missing = tmp_path / "does_not_exist" / "out.xlsx"
     with patch("metadata.os.startfile", create=True) as mock_start:
@@ -136,7 +131,6 @@ def test_open_path_missing_path_no_op(tmp_path, monkeypatch):
     mock_start.assert_not_called()
 
 
-def test_open_path_swallows_oserror(tmp_path, monkeypatch):
 def test_open_path_swallows_oserror(tmp_path, monkeypatch):
     monkeypatch.setattr(os, "name", "nt")
     with patch("metadata.os.startfile", side_effect=OSError("boom"), create=True):
@@ -153,12 +147,10 @@ def test_create_sheet_opens_folder_only_when_enabled(extractor, tmp_path):
 
     extractor.open_folder_var.set(False)
     with patch.object(extractor, "_open_path") as mock_open:
-    with patch.object(extractor, "_open_path") as mock_open:
         extractor.create_sheet(output, 1, 0)
     mock_open.assert_not_called()
 
     extractor.open_folder_var.set(True)
-    with patch.object(extractor, "_open_path") as mock_open:
     with patch.object(extractor, "_open_path") as mock_open:
         extractor.create_sheet(output, 1, 0)
     mock_open.assert_called_once_with(output, True)

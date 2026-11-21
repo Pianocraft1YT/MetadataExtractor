@@ -23,15 +23,14 @@ def test_format_path_label_none(extractor):
 
 def test_format_path_label_short_path_not_truncated(extractor):
     short = Path("photos/trip")
-    assert extractor._format_path_label("Source", short) == "photos/trip"
+    assert extractor._format_path_label("Source", short) == "Source: photos/trip"
 
 
-def test_format_path_label_long_path_truncated_to_50_chars(extractor):
+def test_format_path_label_long_path_truncated(extractor):
     long_path = Path("a" * 30) / ("b" * 30)
     formatted = extractor._format_path_label("Source", long_path)
-    assert len(formatted) == 50
-    assert formatted.startswith("...")
-    assert formatted == "..." + long_path.as_posix()[-47:]
+    assert formatted == f"Source: ...{long_path.as_posix()[-47:]}"
+    assert len(formatted) == len("Source: ") + 50
 
 
 def test_init_defaults_path_labels_to_not_set(extractor):
