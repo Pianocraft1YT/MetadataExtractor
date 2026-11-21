@@ -38,6 +38,8 @@ from typing import Any
 import openpyxl
 import pandas as pd
 from openpyxl.styles import Font
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.worksheet import Worksheet
 from PIL import Image
 from tk_date_entry import DateEntry
 
@@ -519,6 +521,26 @@ class MetadataExtractor:
             return True
         except (ValueError, TypeError):
             return False
+
+    @staticmethod
+    # Apply formatting to Excel sheets
+    def _format_excel_sheet(ws: Worksheet | None) -> None:
+        """Applies formatting to Excel sheets (freeze, bold, autofilter, column width)"""
+        if ws is None or ws.max_row < 1 or ws.max_column < 1:
+            return
+        ws.freeze_panes = "A2"
+        for cell in ws[1]:
+            cell.font = Font(bold=True)
+        ws.auto_filter.ref = ws.dimensions
+        for col_idx, col in enumerate(ws.columns, start=1):
+            col_letter = get_column_letter(col_idx)
+            max_len = 0
+            for cell in col:
+                if cell.value is None:
+                    continue
+                curr_len = max((len(line) for line in str(cell.value).splitlines()), default=0)
+                max_len = max(max_len, curr_len)
+            ws.column_dimensions[col_letter].width = min(max_len + 4, 50)
 
     @staticmethod
     # Turn only seconds into normal time measurements
@@ -2145,6 +2167,7 @@ class MetadataExtractor:
                         with pd.ExcelWriter(output_path) as writer:  # Opens ExcelWriter and closes automatically
                             for sheet_df, sheet_name, _ in self.results:
                                 self._sanitize_for_excel(sheet_df).to_excel(writer, sheet_name=sheet_name, index=False)
+                                self._format_excel_sheet(writer.sheets[sheet_name])
                         if self.hyperlink_var.get():
                             self.add_hyperlinks(output_path.as_posix())
                         files_written += 1
