@@ -75,3 +75,8 @@ Created from new tags/releases and old tags/releases from past repo.
 | **v4.0.0** | 2026-11-12 | **Time-based grouping**, "Filename" sort -> "Timestamp" sort. Efficiency improved from O(n²) to O(n log n), old pattern detection removed |
 | v4.0.1 | 2026-11-13 | Six bug fixes: .mkv/.avi/.webm/.wmv folders scan correctly, leading videos keep their series labels, CSV/Markdown dialogs report the right outcome, hyperlinks use proper file:/// URIs, debug mode stops overwriting your output folder, and settings persist on close. |
 | v4.0.2 | 2026-11-14 | Twelve crash fixes from the ScanConfig refactor, plus find_directories returning None, CSV/Markdown non-recursive scans silently no-op'ing, silent video warnings, settings not saving on close, one bad EXIF file discarding the whole folder, and a reverted timezone fix. Many new tests. |
+| v4.0.3 | 2026-11-19 | Bug-fix sweep across EXIF sub-IFD pairing, UTC burst clustering, date sorting, folder error recovery, export sanitization, traversal, and Tkinter shutdown. |
+| v4.0.4 | 2026-11-20 | Performance release on eliminating redundant disk I/O, and removing redundant tree walk |
+| v4.1.0 | 2026-11-20 | Auto-Open Output Folder, File Size extraction |
+| v4.2.0 | 2026-11-21 | Excel Auto-formatting, HEIC/HEIF support, source and output path labels, log opener |
+| v4.3.0 | 2026-11-22 | Output Video Rows |

@@ -12,9 +12,11 @@ Auto-Open Output Folder
 Basic Advanced Flip
 Execute
 Cancel
+Show Warning Log
 
 Advanced Flip:
 Debug Mode
+Video Rows
 Starting index
 Sort Method
 Date Range

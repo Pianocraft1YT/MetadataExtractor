@@ -17,6 +17,7 @@ _EXTRA_OFF = dict(
     output_focal_length=False,
     output_iso=False,
     output_gps=False,
+    output_video_rows=False,
 )
 
 

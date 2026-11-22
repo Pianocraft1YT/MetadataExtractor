@@ -4,3 +4,4 @@ openpyxl>=3.1.0
 pytest>=7.4.0
 pytest-cov>=4.1.0
 pillow-heif>=1.8.1
+hachoir>=3.4.0

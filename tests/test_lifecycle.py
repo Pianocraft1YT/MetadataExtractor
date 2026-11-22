@@ -25,6 +25,7 @@ def _make_cfg(tmp_path):
         output_focal_length=False,
         output_iso=False,
         output_gps=False,
+        output_video_rows=False,
         date_range=False,
         start_date=None,
         end_date=None,

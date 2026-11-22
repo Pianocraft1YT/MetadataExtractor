@@ -37,6 +37,14 @@ from typing import Any
 
 import openpyxl
 import pandas as pd
+
+try:
+    from hachoir.metadata import extractMetadata
+    from hachoir.parser import createParser
+
+    HACHOIR_SUPPORTED = True
+except ImportError:
+    HACHOIR_SUPPORTED = False
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
@@ -139,6 +147,7 @@ class ScanConfig:
     output_focal_length: bool
     output_iso: bool
     output_gps: bool
+    output_video_rows: bool
     date_range: bool
     start_date: date | None
     end_date: date | None
@@ -284,7 +293,8 @@ class MetadataExtractor:
         if self.user_mode_var.get() == "Advanced":
             self.advanced_mode_frame.pack(after=self.basic_mode_frame)
             self.debug_checkbox.pack()  # First in advanced_mode_frame
-            self.modifier_entry.pack(after=self.debug_checkbox)
+            self.video_rows_checkbox.pack(after=self.debug_checkbox)
+            self.modifier_entry.pack(after=self.video_rows_checkbox)
             self.sort_methods_frame.pack(side="top", after=self.modifier_entry)
             self.sort_methods_label.pack()  # First in sort_methods_frame
             if len(self.sort_method_objects) > 0:  # Already have objects to pack, don't need new ones
@@ -1085,6 +1095,7 @@ class MetadataExtractor:
                 cfg.output_focal_length,
                 cfg.output_iso,
                 cfg.output_gps,
+                cfg.output_video_rows,
                 cfg.include_hiddens,
                 cfg.include_undateable,
                 cfg.date_range,
@@ -1260,6 +1271,7 @@ class MetadataExtractor:
                 "Include Undateable": self.include_undateable_var.get(),
                 "Auto-Open Output": self.open_folder_var.get(),
                 "Filesize": self.filesize_var.get(),
+                "Video Rows": self.video_rows_var.get(),
             }
             SETTINGS_PATH.write_text(json.dumps(settings, indent=2), encoding="utf-8")
         except (OSError, ValueError, TypeError, AttributeError, tk.TclError):
@@ -1295,6 +1307,7 @@ class MetadataExtractor:
                 "Include Undateable": self.include_undateable_var,
                 "Auto-Open Output": self.open_folder_var,
                 "Filesize": self.filesize_var,
+                "Video Rows": self.video_rows_var,
             }
             data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
             for key, value in data.items():
@@ -1525,6 +1538,7 @@ class MetadataExtractor:
         output_focal_length: bool,
         output_iso: bool,
         output_gps: bool,
+        output_video_rows: bool,
         include_hiddens: bool,
         include_undateable: bool,
         date_range: bool = False,
@@ -1563,7 +1577,7 @@ class MetadataExtractor:
                     break
                 if not files:
                     continue
-                if not any(f.lower().endswith(PHOTO_TYPES) for f in files):
+                if not any(f.lower().endswith(PHOTO_TYPES) for f in files) and not output_video_rows:
                     # All-videos folder produces nothing — bail early
                     self.collected_warnings["Only Video(s)"].append(dirpath)
                     continue
@@ -1574,7 +1588,10 @@ class MetadataExtractor:
                     self.collected_warnings["Directory Error"].append(str(dirpath))
                     continue
                 sheet_name = "_".join(rel.parts)
-                file_count += sum(1 for entry in files if entry.lower().endswith(PHOTO_TYPES))
+                if not output_video_rows:
+                    file_count += sum(1 for entry in files if entry.lower().endswith(PHOTO_TYPES))
+                else:
+                    file_count += sum(1 for entry in files if entry.lower().endswith(PHOTO_TYPES + VIDEO_TYPES))
                 files_lists.append(files)
                 sheet_names.append(sheet_name)
                 directories.append(dirpath.as_posix())
@@ -1610,6 +1627,7 @@ class MetadataExtractor:
                     output_focal_length,
                     output_iso,
                     output_gps,
+                    output_video_rows,
                     progress_callback=wrapped_cb,
                 )
                 self.total_processed += p
@@ -1677,6 +1695,7 @@ class MetadataExtractor:
         output_utc = False
         date_range = False
         output_gps = False
+        output_video_rows = False
         include_hiddens = False
         include_undateable = False
         output_dimensions = False
@@ -1699,6 +1718,7 @@ class MetadataExtractor:
             output_gps = self.gps_var.get()
             include_hiddens = self.hidden_var.get()
             val = self.modifier_entry.get().strip()
+            output_video_rows = self.video_rows_var.get()
             if val == "Starting index (Img # Series)" or val == "":
                 modifier = 0
             elif val.isascii() and val.isdigit() and int(val) > 0:
@@ -1807,6 +1827,7 @@ class MetadataExtractor:
             output_focal_length=output_focal_length,
             output_iso=output_iso,
             output_gps=output_gps,
+            output_video_rows=output_video_rows,
             date_range=date_range,
             start_date=start_date,
             end_date=end_date,
@@ -1848,6 +1869,7 @@ class MetadataExtractor:
         output_focal_length: bool,
         output_iso: bool,
         output_gps: bool,
+        output_video_rows: bool,
         progress_callback: Callable[[int, int, Path], None] | None = None,
     ) -> tuple[int, int]:
         """Creates pd.DataFrame from extracted EXIF metadata and groups by timestamp."""
@@ -1896,10 +1918,11 @@ class MetadataExtractor:
                             path = (path).as_posix()
                             if file.lower().endswith((".mp4", ".mov")):
                                 self.collected_warnings["No Video Date"].append(path)
-                                has_time = False
                             else:
                                 self.collected_warnings["Unsupported Video Format"].append(path)
-                                has_time = False
+                            has_time = False
+                            if output_video_rows:
+                                skipped += 1
                     elif file.lower().endswith(PHOTO_TYPES):
                         ts, has_time, offset_str = self._get_photo_date_and_offset(path)
                     if ts is None or not has_time:
@@ -1920,7 +1943,7 @@ class MetadataExtractor:
                     if self.cancel_event.is_set():
                         break
                     # Video-only groups are orphans — don't consume a series slot
-                    if not any(f.lower().endswith(PHOTO_TYPES) for _, f in group):
+                    if not output_video_rows and not any(f.lower().endswith(PHOTO_TYPES) for _, f in group):
                         continue
                     temp_data_holder = self._empty_scan_data()
                     group_photos_ok = 0
@@ -1957,8 +1980,46 @@ class MetadataExtractor:
                             if progress_callback:
                                 progress_callback(processed + group_photos_ok, skipped, Path(directory_path))
                         else:
-                            # Video in a mixed group still occupies its series slot
-                            group_slots += 1
+                            if output_video_rows:
+                                for key in temp_data_holder:
+                                    if not key in (
+                                        "Dates",
+                                        "Images",
+                                        "Filesizes",
+                                        "Sort_Timestamps",
+                                        "Times",
+                                        "ISOs",
+                                        "Dimensions",
+                                    ):
+                                        temp_data_holder[key].append(None)
+                                ts_dt = timestamped_to_file[file][0].strftime("%Y:%m:%d %H:%M:%S")
+                                temp_data_holder["Dates"].append(ts_dt)
+                                temp_data_holder["Sort_Timestamps"].append(timestamped_to_file[file][1])
+                                temp_data_holder["Images"].append(file)
+                                temp_data_holder["ISOs"].append("")
+                                video_path = Path(directory_path) / file
+                                filesize = os.path.getsize(video_path)
+                                filesize = self._convert_filesize(filesize)
+                                temp_data_holder["Filesizes"].append(filesize)
+                                dim = None
+                                try:
+                                    if HACHOIR_SUPPORTED:
+                                        parser = createParser(video_path.as_posix())
+                                        if parser is not None:
+                                            with parser:
+                                                meta = extractMetadata(parser)
+                                                if meta is not None and meta.has("width") and meta.has("height"):
+                                                    dim = f"{meta.get('width')}x{meta.get('height')}"
+                                except Exception:  # noqa: BLE001, S110
+                                    pass
+                                temp_data_holder["Dimensions"].append(dim)
+                                group_photos_ok += 1
+                                group_slots += 1
+                                if progress_callback:
+                                    progress_callback(processed + group_photos_ok, skipped, Path(directory_path))
+                            else:
+                                # Video in a mixed group still occupies its series slot
+                                group_slots += 1
                     if group_photos_ok == 0:
                         continue
                     for key, value in temp_data_holder.items():
@@ -2006,7 +2067,10 @@ class MetadataExtractor:
                             progress_callback(processed, skipped, Path(directory_path))
             except Exception as e:  # noqa: BLE001
                 self.collected_warnings["Unexpected"].append(f"[{directory_path}]: {e}\n{traceback.format_exc()}")
-                skipped = sum(1 for f in media_files if f.lower().endswith(PHOTO_TYPES)) - processed
+                if output_video_rows:
+                    skipped = sum(1 for f in media_files if f.lower().endswith(PHOTO_TYPES + VIDEO_TYPES)) - processed
+                else:
+                    skipped = sum(1 for f in media_files if f.lower().endswith(PHOTO_TYPES)) - processed
             if not self.cancel_event.is_set():
                 data["Dates"], data["Times"] = self.fix_time(
                     output_utc, data["Dates"], data["Offsets"], data["Images"], directory_path
@@ -2084,9 +2148,10 @@ class MetadataExtractor:
                 if offset_td is not None:
                     dt -= offset_td
                 else:
-                    self.collected_warnings["Bad Timestamp"].append(
-                        f"{os.path.join(directory, list_of_images[offset_index])}"
-                    )
+                    if not list_of_images[offset_index].lower().endswith(VIDEO_TYPES):
+                        self.collected_warnings["Bad Timestamp"].append(
+                            f"{os.path.join(directory, list_of_images[offset_index])}"
+                        )
             fixed_date.append(dt.strftime("%m/%d/%Y"))
             fixed_time.append(dt.strftime("%H:%M:%S"))
         return fixed_date, fixed_time
@@ -2363,6 +2428,10 @@ class MetadataExtractor:
         self.recursive_var = tk.BooleanVar(value=False)
         self.recursive_checkbox = tk.Checkbutton(
             self.basic_mode_frame, text="Recursive Mode", variable=self.recursive_var, command=self.recursive_input
+        )
+        self.video_rows_var = tk.BooleanVar(value=False)
+        self.video_rows_checkbox = tk.Checkbutton(
+            self.advanced_mode_frame, text="Create Video Rows", variable=self.video_rows_var
         )
         self.utc_var = tk.BooleanVar(value=False)
         self.utc_checkbox = tk.Checkbutton(self.advanced_mode_frame, text="Time in UTC", variable=self.utc_var)
