@@ -135,9 +135,6 @@ PHOTO_TYPES = (
     ".tif",
 ) + RAW_TYPES
 
-# Width of window
-X_WIDTH = 350
-
 
 @dataclass
 # Config options for scans, instead of passing through values
@@ -223,11 +220,11 @@ class MetadataExtractor:
     def gps_warning(self) -> None:
         """Displays privacy warning when gps_checkbox is checked."""
         if self.gps_var.get():
-            self.gps_warning_label.pack(after=self.gps_checkbox)
+            self.gps_warning_label.pack(after=self.gps_checkbox, fill="x", padx=4)
         else:
             self.gps_warning_label.pack_forget()
-        self.root.update_idletasks()  # flush pending layout
-        self.root.geometry(f"{X_WIDTH}x{self.root.winfo_reqheight()}")
+        self.root.update_idletasks()
+        self.root.geometry(f"{self.root.winfo_reqwidth()}x{self.root.winfo_reqheight()}")
 
     def debug_warning(self) -> None:
         """Prompts user with askokcancel dialog when debug_checkbox is checked, and explains what debug mode does."""
@@ -247,44 +244,29 @@ class MetadataExtractor:
         else:
             self.maxdepth_entry.pack_forget()
         self.root.update_idletasks()  # flush pending layout
-        self.root.geometry(f"{X_WIDTH}x{self.root.winfo_reqheight()}")  # fixed width, auto height
+        self.root.geometry(f"{self.root.winfo_reqwidth()}x{self.root.winfo_reqheight()}")  # fixed width, auto height
 
     # Show extra metadata checkboxes when extra_exif_checkbox is checked
     def extra_exif(self) -> None:
         """Displays exif_extra_frame and related checkboxes when extra_exif_checkbox is checked."""
         if self.extra_exif_var.get():
             # Pack Extra Checkboxes
-            self.extra_exif_frame.pack(after=self.extra_exif_checkbox)
-            self.dimensions_checkbox.pack()
-            self.filesize_checkbox.pack()
-            self.make_checkbox.pack()
-            self.model_checkbox.pack()
-            self.software_checkbox.pack()
-            self.lens_model_checkbox.pack()
-            self.aperture_checkbox.pack()
-            self.exposure_checkbox.pack()
-            self.focal_length_checkbox.pack()
-            self.iso_checkbox.pack()
+            self.extra_exif_frame.pack(after=self.extra_scan_options_frame)
+            for i, checkbox in enumerate(self.extra_exif_options):
+                checkbox.grid(row=i // 2, column=i % 2, sticky="w", padx=4)
         else:
-            self.dimensions_checkbox.pack_forget()
-            self.filesize_checkbox.pack_forget()
-            self.make_checkbox.pack_forget()
-            self.model_checkbox.pack_forget()
-            self.software_checkbox.pack_forget()
-            self.lens_model_checkbox.pack_forget()
-            self.aperture_checkbox.pack_forget()
-            self.exposure_checkbox.pack_forget()
-            self.focal_length_checkbox.pack_forget()
-            self.iso_checkbox.pack_forget()
+            for checkbox in self.extra_exif_options:
+                checkbox.pack_forget()
             self.extra_exif_frame.pack_forget()
         self.root.update_idletasks()
-        self.root.geometry(f"{X_WIDTH}x{self.root.winfo_reqheight()}")
+        self.root.geometry(f"{self.root.winfo_reqwidth()}x{self.root.winfo_reqheight()}")
 
     # Show starting date and ending date calendar widgets on checkbox click only
     def date_range(self) -> None:
         """Displays date_notice_label informing user of required info as well as starting and ending date_entry calendar."""
         if self.date_range_var.get():
-            self.date_notice_label.pack(after=self.date_range_checkbox)
+            self.date_frame.pack(after=self.extra_scan_options_frame, fill="x", pady=(0, 8))
+            self.date_notice_label.pack()
             self.include_undateable_checkbox.pack(after=self.date_notice_label)
             self.start_date_label.pack(after=self.include_undateable_checkbox)
             self.start_date_entry.pack(after=self.start_date_label)
@@ -297,41 +279,56 @@ class MetadataExtractor:
             self.end_date_label.pack_forget()
             self.end_date_entry.pack_forget()
             self.date_notice_label.pack_forget()
+            self.date_frame.pack_forget()
         self.root.update_idletasks()  # flush pending layout
-        self.root.geometry(f"{X_WIDTH}x{self.root.winfo_reqheight()}")  # fixed width, auto height
+        self.root.geometry(f"{self.root.winfo_reqwidth()}x{self.root.winfo_reqheight()}")  # fixed width, auto height
 
     def user_mode(self) -> None:
         """Displays advanced_mode_frame when advanced mode radio is selected."""
         if self.user_mode_var.get() == "Advanced":
-            self.advanced_mode_frame.pack(after=self.basic_mode_frame)
-            self.debug_checkbox.pack()  # First in advanced_mode_frame
-            self.video_rows_checkbox.pack(after=self.debug_checkbox)
-            self.modifier_entry.pack(after=self.video_rows_checkbox)
-            self.sort_methods_frame.pack(side="top", after=self.modifier_entry)
-            self.sort_methods_label.pack()  # First in sort_methods_frame
-            if len(self.sort_method_objects) > 0:  # Already have objects to pack, don't need new ones
+            self.advanced_mode_frame.pack(side="left", anchor="n", padx=10, pady=6)
+
+            # 1. Debug Mode
+            self.debug_checkbox.pack(padx=8, pady=2)
+
+            # 2. Extra Scan Options Frame
+            self.extra_scan_options_frame.pack(fill="x", padx=8, pady=4)
+            self.modifier_entry.pack(fill="x", padx=4, pady=3)
+            self.video_rows_checkbox.pack(anchor="w", padx=4, pady=1)
+            self.hidden_checkbox.pack(anchor="w", padx=4, pady=1)
+            self.utc_checkbox.pack(anchor="w", padx=4, pady=1)
+            self.gps_checkbox.pack(anchor="w", padx=4, pady=1)
+            self.gps_warning()
+
+            # 3. Sort Methods Frame
+            self.sort_methods_frame.pack(after=self.extra_scan_options_frame, fill="x", padx=8, pady=4)
+            if len(self.sort_method_objects) > 0:
                 for sm in self.sort_method_objects:
-                    sm.pack(side="left")
+                    sm.pack(side="left", padx=2)
             else:
                 for sm in self.sort_methods:
                     smr = tk.Radiobutton(self.sort_methods_frame, text=sm, variable=self.sort_methods_var, value=sm)
-                    smr.pack(side="left")
+                    smr.pack(side="left", padx=2)
                     self.sort_method_objects.append(smr)
-            self.date_range_checkbox.pack(after=self.sort_methods_frame)
-            self.date_format_combobox.pack(after=self.date_range_checkbox)
-            self.hidden_checkbox.pack(after=self.date_format_combobox)
-            self.utc_checkbox.pack(after=self.hidden_checkbox)
-            self.gps_checkbox.pack(after=self.utc_checkbox)
-            self.extra_exif_checkbox.pack(after=self.gps_checkbox)
-            self.extra_exif()
+
+            # Date Format
+            self.date_format_frame.pack(fill="x", padx=4, pady=4)
+            self.date_format_combobox.pack(fill="x", padx=4, pady=2)
+
+            # 4. Date Range section
+            self.date_range_checkbox.pack(anchor="w", padx=4, pady=1)
             self.date_range()
-            self.gps_warning()
-            self.root.update_idletasks()  # flush pending layout
-            self.root.geometry(f"{X_WIDTH}x{self.root.winfo_reqheight()}")  # fixed width, auto height
+
+            # 5. Extra Metadata section
+            self.extra_exif_checkbox.pack(anchor="w", padx=4, pady=1)
+            self.extra_exif()
+
+            self.root.update_idletasks()
+            self.root.geometry(f"{self.root.winfo_reqwidth()}x{self.root.winfo_reqheight()}")
         else:
             self.advanced_mode_frame.pack_forget()
-            self.root.update_idletasks()  # flush pending layout
-            self.root.geometry(f"{X_WIDTH}x{self.root.winfo_reqheight()}")  # fixed width, auto height
+            self.root.update_idletasks()
+            self.root.geometry(f"{self.root.winfo_reqwidth()}x{self.root.winfo_reqheight()}")
 
     # Updates path label variables
     def _update_path_labels(self) -> None:
@@ -2674,35 +2671,46 @@ class MetadataExtractor:
         """Initializes all Tkinter objects, core variables, and loads previous settings, if applicable."""
         self.root = tk.Tk()
         self.root.title("Metadata Extractor")
-        self.basic_mode_frame = tk.Frame(self.root)
-        self.advanced_mode_frame = tk.Frame(self.root)
-        self.filetype_frame = tk.Frame(self.basic_mode_frame)
-        self.sort_methods_frame = tk.Frame(self.advanced_mode_frame)
-        self.sort_methods_label = tk.Label(self.sort_methods_frame, text="Sort Method (default timestamp)")
-        self.execute_button = tk.Button(self.basic_mode_frame, command=self.initialize, text="Execute")
-        self.cancel_button = tk.Button(self.basic_mode_frame, command=self.cancel, text="Cancel", state="disabled")
-        self.set_directory_button = tk.Button(
-            self.basic_mode_frame, command=self.set_dir, text="Set folder with images"
+        self.columns_frame = tk.Frame(self.root)
+        self.basic_mode_frame = tk.Frame(self.columns_frame)
+        self.advanced_mode_frame = tk.Frame(self.columns_frame)
+        self.file_options_frame = tk.LabelFrame(self.basic_mode_frame, text="File Options", padx=8, pady=6)
+        self.sort_methods_frame = tk.LabelFrame(
+            self.advanced_mode_frame, text="Sort Method (default Timestamp)", padx=8, pady=6
         )
-        self.set_output_button = tk.Button(self.basic_mode_frame, command=self.set_output, text="Set output folder")
+        self.date_frame = tk.LabelFrame(self.advanced_mode_frame, text="Date Range", padx=8, pady=6)
+        self.extra_exif_frame = tk.LabelFrame(self.advanced_mode_frame, text="Extra Metadata", padx=8, pady=6)
+        self.actions_frame = tk.LabelFrame(self.basic_mode_frame, text="Actions", padx=8, pady=6)
+        self.folders_frame = tk.LabelFrame(self.basic_mode_frame, text="Folders", padx=8, pady=6)
+        self.progress_frame = tk.LabelFrame(self.basic_mode_frame, text="Progress", padx=8, pady=6)
+        self.open_options_frame = tk.LabelFrame(self.basic_mode_frame, text="Open Options", padx=8, pady=6)
+        self.scan_options_frame = tk.LabelFrame(self.basic_mode_frame, text="Scan Options", padx=8, pady=6)
+        self.extra_scan_options_frame = tk.LabelFrame(
+            self.advanced_mode_frame, text="Extra Scan Options", padx=8, pady=6
+        )
+        self.date_format_frame = tk.LabelFrame(self.extra_scan_options_frame, text="Date Format", padx=8, pady=6)
+        self.execute_button = tk.Button(self.actions_frame, command=self.initialize, text="Execute")
+        self.cancel_button = tk.Button(self.actions_frame, command=self.cancel, text="Cancel", state="disabled")
+        self.set_directory_button = tk.Button(self.folders_frame, command=self.set_dir, text="Set folder with images")
+        self.set_output_button = tk.Button(self.folders_frame, command=self.set_output, text="Set output folder")
         self.keepopen_var = tk.BooleanVar(value=False)
         self.keepopen_checkbox = tk.Checkbutton(
-            self.basic_mode_frame, text="Keep Open After Scan", variable=self.keepopen_var
+            self.open_options_frame, text="Keep Open After Scan", variable=self.keepopen_var
         )
         self.open_folder_var = tk.BooleanVar(value=False)
         self.open_folder_checkbox = tk.Checkbutton(
-            self.basic_mode_frame, text="Auto-Open Output Folder", variable=self.open_folder_var
+            self.open_options_frame, text="Auto-Open Output Folder", variable=self.open_folder_var
         )
         self.recursive_var = tk.BooleanVar(value=False)
         self.recursive_checkbox = tk.Checkbutton(
-            self.basic_mode_frame, text="Recursive Mode", variable=self.recursive_var, command=self.recursive_input
+            self.scan_options_frame, text="Recursive Mode", variable=self.recursive_var, command=self.recursive_input
         )
         self.video_rows_var = tk.BooleanVar(value=False)
         self.video_rows_checkbox = tk.Checkbutton(
-            self.advanced_mode_frame, text="Create Video Rows", variable=self.video_rows_var
+            self.extra_scan_options_frame, text="Create Video Rows", variable=self.video_rows_var
         )
         self.utc_var = tk.BooleanVar(value=False)
-        self.utc_checkbox = tk.Checkbutton(self.advanced_mode_frame, text="Time in UTC", variable=self.utc_var)
+        self.utc_checkbox = tk.Checkbutton(self.extra_scan_options_frame, text="Time in UTC", variable=self.utc_var)
         self.debug_var = tk.BooleanVar(value=False)
         self.debug_checkbox = tk.Checkbutton(
             self.advanced_mode_frame, text="Debug Mode", variable=self.debug_var, command=self.debug_warning
@@ -2711,32 +2719,32 @@ class MetadataExtractor:
         self.sort_methods_var = tk.StringVar(value="Timestamp")
         self.hyperlink_var = tk.BooleanVar(value=True)
         self.hyperlink_checkbox = tk.Checkbutton(
-            self.basic_mode_frame, text="Add Hyperlinks", variable=self.hyperlink_var
+            self.scan_options_frame, text="Add Hyperlinks", variable=self.hyperlink_var
         )
-        self.burst_cutoff_entry = tk.Entry(self.basic_mode_frame, width=40, foreground="gray")
+        self.burst_cutoff_entry = tk.Entry(self.scan_options_frame, width=40, foreground="gray")
         self.burst_cutoff_entry.insert(0, "Photo grouping cutoff (default 2 seconds)")
-        self.name_entry = tk.Entry(self.basic_mode_frame, width=30, foreground="gray")
+        self.name_entry = tk.Entry(self.file_options_frame, width=30, foreground="gray")
         self.name_entry.insert(0, "Filename (default output.filetype)")
-        self.modifier_entry = tk.Entry(self.advanced_mode_frame, width=30, foreground="gray")
+        self.modifier_entry = tk.Entry(self.extra_scan_options_frame, width=30, foreground="gray")
         self.modifier_entry.insert(0, "Starting index (Img # Series)")
-        self.maxdepth_entry = tk.Entry(self.basic_mode_frame, width=20, foreground="gray")
+        self.maxdepth_entry = tk.Entry(self.scan_options_frame, width=20, foreground="gray")
         self.maxdepth_entry.insert(0, "Recursion Depth (#)")
         self.date_range_var = tk.BooleanVar(value=False)
         self.date_range_checkbox = tk.Checkbutton(
-            self.advanced_mode_frame,
+            self.extra_scan_options_frame,
             text="Date Range (Local Time)",
             variable=self.date_range_var,
             command=self.date_range,
         )
         self.include_undateable_var = tk.BooleanVar(value=True)
         self.include_undateable_checkbox = tk.Checkbutton(
-            self.advanced_mode_frame, text="Include undateable files", variable=self.include_undateable_var
+            self.date_frame, text="Include undateable files", variable=self.include_undateable_var
         )
-        self.start_date_entry = DateEntry(self.advanced_mode_frame, date_pattern="%Y/%m/%d", value=None)
-        self.end_date_entry = DateEntry(self.advanced_mode_frame, date_pattern="%Y/%m/%d", value=None)
-        self.date_notice_label = tk.Label(self.advanced_mode_frame, text="One date required; two dates accepted")
-        self.start_date_label = tk.Label(self.advanced_mode_frame, text="Start Date")
-        self.end_date_label = tk.Label(self.advanced_mode_frame, text="End Date")
+        self.start_date_entry = DateEntry(self.date_frame, date_pattern="%Y/%m/%d", value=None)
+        self.end_date_entry = DateEntry(self.date_frame, date_pattern="%Y/%m/%d", value=None)
+        self.date_notice_label = tk.Label(self.date_frame, text="One date required; two dates accepted")
+        self.start_date_label = tk.Label(self.date_frame, text="Start Date")
+        self.end_date_label = tk.Label(self.date_frame, text="End Date")
         self.name_entry.bind("<FocusIn>", self.nameFocusIn)
         self.name_entry.bind("<FocusOut>", self.nameFocusOut)
         self.modifier_entry.bind("<FocusIn>", self.modifierFocusIn)
@@ -2747,24 +2755,25 @@ class MetadataExtractor:
         self.burst_cutoff_entry.bind("<FocusOut>", self.burstCutoffFocusOut)
         self.gps_var = tk.BooleanVar(value=False)
         self.gps_checkbox = tk.Checkbutton(
-            self.advanced_mode_frame, text="GPS", variable=self.gps_var, command=self.gps_warning
+            self.extra_scan_options_frame, text="GPS", variable=self.gps_var, command=self.gps_warning
         )
         self.gps_warning_label = tk.Label(
-            self.advanced_mode_frame, text="Coordinates may reveal sensitive location information", foreground="gray"
+            self.extra_scan_options_frame,
+            text="Coordinates may reveal sensitive location information",
+            foreground="gray",
         )
         self.hidden_var = tk.BooleanVar(value=False)
         self.hidden_checkbox = tk.Checkbutton(
-            self.advanced_mode_frame, text="Include Hidden Files", variable=self.hidden_var
+            self.extra_scan_options_frame, text="Include Hidden Files", variable=self.hidden_var
         )
         # User modes (basic or advanced)
-        self.user_modes_frame = tk.Frame(self.basic_mode_frame)
+        self.user_modes_frame = tk.LabelFrame(self.basic_mode_frame, text="Mode", padx=8, pady=8)
         self.user_modes = ["Basic", "Advanced"]
         self.user_mode_var = tk.StringVar(value="Basic")
         # Extra EXIF checkboxes
-        self.extra_exif_frame = tk.Frame(self.advanced_mode_frame)
         self.extra_exif_var = tk.BooleanVar(value=False)
         self.extra_exif_checkbox = tk.Checkbutton(
-            self.advanced_mode_frame, text="Extra Metadata", variable=self.extra_exif_var, command=self.extra_exif
+            self.extra_scan_options_frame, text="Extra Metadata", variable=self.extra_exif_var, command=self.extra_exif
         )
         self.dimensions_var = tk.BooleanVar(value=False)
         self.dimensions_checkbox = tk.Checkbutton(
@@ -2796,20 +2805,32 @@ class MetadataExtractor:
         self.iso_checkbox = tk.Checkbutton(self.extra_exif_frame, text="ISO", variable=self.iso_var)
         self.filesize_var = tk.BooleanVar(value=False)
         self.filesize_checkbox = tk.Checkbutton(self.extra_exif_frame, text="File Size", variable=self.filesize_var)
+        self.extra_exif_options = [
+            self.dimensions_checkbox,
+            self.make_checkbox,
+            self.model_checkbox,
+            self.software_checkbox,
+            self.lens_model_checkbox,
+            self.aperture_checkbox,
+            self.exposure_checkbox,
+            self.focal_length_checkbox,
+            self.iso_checkbox,
+            self.filesize_checkbox,
+        ]
         self.source_path_var = tk.StringVar()
         self.output_path_var = tk.StringVar()
-        self.source_path_label = tk.Label(self.basic_mode_frame, foreground="gray", textvariable=self.source_path_var)
-        self.output_path_label = tk.Label(self.basic_mode_frame, foreground="gray", textvariable=self.output_path_var)
+        self.source_path_label = tk.Label(self.folders_frame, foreground="gray", textvariable=self.source_path_var)
+        self.output_path_label = tk.Label(self.folders_frame, foreground="gray", textvariable=self.output_path_var)
         self.last_warnings_log: Path | None = None
         self.view_log_button = tk.Button(
-            self.basic_mode_frame, text="View warnings.log", command=self._view_warnings_log, state="disabled"
+            self.actions_frame, text="View warnings.log", command=self._view_warnings_log, state="disabled"
         )
         self.summary_var = tk.BooleanVar(value=False)
-        self.summary_checkbox = tk.Checkbutton(self.basic_mode_frame, text="Summary Sheet", variable=self.summary_var)
+        self.summary_checkbox = tk.Checkbutton(self.scan_options_frame, text="Summary Sheet", variable=self.summary_var)
         self.date_formats = ["MM/DD/YYYY", "YYYY-MM-DD", "DD/MM/YYYY"]
         self.date_format_var = tk.StringVar(value=self.date_formats[0])
         self.date_format_combobox = ttk.Combobox(
-            self.advanced_mode_frame, values=self.date_formats, state="readonly", textvariable=self.date_format_var
+            self.date_format_frame, values=self.date_formats, state="readonly", textvariable=self.date_format_var
         )
         # Set default sheet name
         self.current_sheet_name = "Sheet"
@@ -2856,7 +2877,6 @@ class MetadataExtractor:
         self.percentage_done = tk.StringVar()
         self.eta = tk.StringVar()
         self.elapsed_time = tk.StringVar()
-        self.progress_frame = tk.Frame(self.root)
         self.progress_var = tk.DoubleVar(value=0)
         self.progress_bar = ttk.Progressbar(self.progress_frame, variable=self.progress_var)
         self.directory_label = tk.Label(self.progress_frame, textvariable=self.current_directory)
@@ -2875,30 +2895,37 @@ class MetadataExtractor:
     def run(self) -> None:
         """Displays main window and widgets."""
         # Pack main widgets
-        self.basic_mode_frame.pack()
+        self.columns_frame.pack(fill="both", expand=True)
+        self.progress_frame.pack()
+        self.basic_mode_frame.pack(side="left", anchor="n", padx=10, pady=6)
+        self.actions_frame.pack(before=self.progress_frame, anchor="s", padx=10, pady=6)
+        self.folders_frame.pack(before=self.actions_frame, padx=10, pady=6)
+        self.file_options_frame.pack(after=self.folders_frame, side="top")
+        self.scan_options_frame.pack(after=self.file_options_frame)
+        self.open_options_frame.pack(after=self.scan_options_frame)
+        self.extra_scan_options_frame.pack()
+        self.date_format_frame.pack(pady=2)
         self.set_directory_button.pack()
         self.source_path_label.pack(after=self.set_directory_button)
         self.set_output_button.pack(after=self.source_path_label)
         self.output_path_label.pack(after=self.set_output_button)
-        self.recursive_checkbox.pack(after=self.output_path_label)
+        self.recursive_checkbox.pack()
         self.hyperlink_checkbox.pack(after=self.recursive_checkbox)
         self.summary_checkbox.pack(after=self.hyperlink_checkbox)
         self.burst_cutoff_entry.pack(after=self.summary_checkbox)
-        self.name_entry.pack(after=self.burst_cutoff_entry)
-        self.filetype_frame.pack(after=self.name_entry, side="top")
+        self.name_entry.pack()
         for ft in self.filetypes:
-            tk.Radiobutton(self.filetype_frame, text=ft, variable=self.filetype_var, value=ft).pack(side="left")
-        self.keepopen_checkbox.pack(after=self.filetype_frame)
+            tk.Radiobutton(self.file_options_frame, text=ft, variable=self.filetype_var, value=ft).pack(side="left")
+        self.keepopen_checkbox.pack()
         self.open_folder_checkbox.pack(after=self.keepopen_checkbox)
-        self.user_modes_frame.pack(side="top", after=self.open_folder_checkbox)
+        self.user_modes_frame.pack(side="top", after=self.open_options_frame)
         for um in self.user_modes:
             tk.Radiobutton(
                 self.user_modes_frame, text=um, variable=self.user_mode_var, value=um, command=self.user_mode
             ).pack(side="left")
-        self.execute_button.pack(after=self.user_modes_frame)
+        self.execute_button.pack()
         self.cancel_button.pack(after=self.execute_button)
         self.view_log_button.pack(after=self.cancel_button)
-        self.progress_frame.pack()
         self.progress_bar.pack()  # First in progress_frame
         self.directory_label.pack()
         self.scanned_label.pack()

@@ -68,7 +68,8 @@ def _write_minimal_mp4(path, utc: datetime) -> None:
     mvhd_payload = b"\x00\x00\x00\x00" + mp4_time.to_bytes(4, "big")
     mvhd = (8 + len(mvhd_payload)).to_bytes(4, "big") + b"mvhd" + mvhd_payload
     moov = (8 + len(mvhd)).to_bytes(4, "big") + b"moov" + mvhd
-    ftyp = b"\x00\x00\x00\x14ftypisom\x00\x00\x02\x00"
+    ftyp_payload = b"isom\x00\x00\x02\x00isomiso2"
+    ftyp = (8 + len(ftyp_payload)).to_bytes(4, "big") + b"ftyp" + ftyp_payload
     path.write_bytes(ftyp + moov)
 
 
