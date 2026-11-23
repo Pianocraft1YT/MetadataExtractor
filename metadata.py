@@ -37,18 +37,13 @@ from typing import Any
 
 import openpyxl
 import pandas as pd
-
-try:
-    from hachoir.metadata import extractMetadata
-    from hachoir.parser import createParser
-
-    HACHOIR_SUPPORTED = True
-except ImportError:
-    HACHOIR_SUPPORTED = False
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 from PIL import Image
+from tk_date_entry import DateEntry
+
+from video_metadata import extract_video_metadata
 
 try:
     import pillow_heif
@@ -58,9 +53,20 @@ try:
 except ImportError:
     HEIF_SUPPORTED = False
 
-from tk_date_entry import DateEntry
+try:
+    from hachoir.metadata import extractMetadata
+    from hachoir.parser import createParser
 
-from video_metadata import extract_video_metadata
+    HACHOIR_SUPPORTED = True
+except ImportError:
+    HACHOIR_SUPPORTED = False
+
+try:
+    import exifread
+
+    RAW_SUPPORTED = True
+except ImportError:
+    RAW_SUPPORTED = False
 
 # EXIF Constants
 EXIF_DATETIME = 306
@@ -88,15 +94,8 @@ SETTINGS_PATH = Path.home() / ".metadata-extractor" / "settings.json"
 # Only .mp4 and .mov are scanned for metadata currently
 VIDEO_TYPES = (".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv")
 # Common and uncommon image formats to check
-# TODO: 27 camera RAW extensions (.cr3, .raf, .rw2, .x3f, etc.) with no RAW EXIF reader/decoder.
-PHOTO_TYPES = (
-    ".jpg",
-    ".jpeg",
-    ".heic",
-    ".heif",
-    ".png",
-    ".tiff",
-    ".tif",
+# TODO: TIFF-based RAWs are supported with exifread installed; non-TIFF RAWs (.cr3, .x3f) depend on exifread container support.
+RAW_TYPES = (
     ".dng",
     ".crw",
     ".cr2",
@@ -125,6 +124,17 @@ PHOTO_TYPES = (
     ".srw",
     ".mrw",
 )
+
+PHOTO_TYPES = (
+    ".jpg",
+    ".jpeg",
+    ".heic",
+    ".heif",
+    ".png",
+    ".tiff",
+    ".tif",
+) + RAW_TYPES
+
 # Width of window
 X_WIDTH = 350
 
@@ -433,6 +443,11 @@ class MetadataExtractor:
         try:
             if not HEIF_SUPPORTED and path.suffix.lower() in (".heic", ".heif"):
                 return (None, False, None, None, "HEIC/HEIF requires pillow-heif")
+            if path.suffix.lower() in RAW_TYPES:
+                if not RAW_SUPPORTED:
+                    return (None, False, None, None, "RAW files require exifread")
+                else:
+                    return self._read_raw_photo_entry(path, flags)
             with Image.open(path) as img:
                 if output_dimensions and flags is not None:
                     dimensions = f"{img.size[0]}x{img.size[1]}"
@@ -493,6 +508,124 @@ class MetadataExtractor:
             return parsed, has_time, offset, fields, None
         except Exception as e:  # noqa: BLE001
             return None, False, None, None, str(e)
+
+    def _read_raw_photo_entry(
+        self, path: Path, flags: tuple[bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool] | None
+    ) -> tuple[datetime | None, bool, str | None, dict[str, Any] | None, str | None]:
+        try:
+            if flags is not None:
+                output_utc = flags[0]
+                output_dimensions = flags[1]
+                output_filesize = flags[2]
+                output_make = flags[3]
+                output_model = flags[4]
+                output_software = flags[5]
+                output_lens_model = flags[6]
+                output_aperture = flags[7]
+                output_exposure_time = flags[8]
+                output_focal_length = flags[9]
+                output_iso = flags[10]
+                output_gps = flags[11]
+            else:
+                output_utc = output_dimensions = output_filesize = output_make = output_model = False
+                output_software = output_lens_model = output_aperture = False
+                output_exposure_time = output_focal_length = output_iso = output_gps = False
+            offset = None
+            dimensions = None
+            filesize = None
+            make = None
+            model = None
+            software = None
+            lens_model = None
+            aperture = None
+            exposure_time = None
+            focal_length = None
+            iso = None
+            gps_latitude = None
+            gps_longitude = None
+            with open(path, "rb") as f:
+                tags = exifread.process_file(f, details=False)  # details=False skips makerinfo and thumbnails
+            datetime_priority_pairs = [
+                ("EXIF DateTimeOriginal", "EXIF OffsetTimeOriginal", "EXIF Tag 0x9011"),
+                ("EXIF DateTimeDigitized", "EXIF OffsetTimeDigitized", "EXIF Tag 0x9012"),
+                ("Image DateTime", "EXIF OffsetTime", "EXIF Tag 0x9010"),
+            ]
+
+            parsed, has_time, offset = None, False, None
+            for dt_key, offset_key, fallback_offset_key in datetime_priority_pairs:
+                dt_tag = tags.get(dt_key)
+                if not dt_tag:
+                    continue
+                cand_dt, cand_has_time = self._parse_exif_datetime(self._decode_exif_string(str(dt_tag)))
+                if cand_dt is not None:
+                    parsed, has_time = cand_dt, cand_has_time
+                    if flags is None or output_utc:
+                        offset = self._raw_tag_str(tags, offset_key, fallback_offset_key)
+                    break
+
+            if flags is not None:
+                if output_dimensions:
+                    w_tag = tags.get("EXIF ExifImageWidth") or tags.get("Image ImageWidth")
+                    h_tag = tags.get("EXIF ExifImageLength") or tags.get("Image ImageLength")
+                    if w_tag and h_tag and getattr(w_tag, "values", None) and getattr(h_tag, "values", None):
+                        w, h = w_tag.values[0], h_tag.values[0]
+                        if isinstance(w, int) and isinstance(h, int) and w > 0 and h > 0:
+                            dimensions = f"{w}x{h}"
+                if output_filesize:
+                    filesize = self._convert_filesize(os.path.getsize(path))
+                if output_make:
+                    make = self._raw_tag_str(tags, "Image Make")
+                if output_model:
+                    model = self._raw_tag_str(tags, "Image Model")
+                if output_software:
+                    software = self._raw_tag_str(tags, "Image Software")
+                if output_lens_model:
+                    lens_model = self._raw_tag_str(tags, "EXIF LensModel", "EXIF Tag 0xA434")
+                if output_aperture:
+                    aperture = self._format_aperture(self._raw_rational(tags.get("EXIF FNumber")))
+                if output_exposure_time:
+                    exposure_time = self._format_exposure_time(self._raw_rational(tags.get("EXIF ExposureTime")))
+                if output_focal_length:
+                    focal_length = self._format_focal_length(self._raw_rational(tags.get("EXIF FocalLength")))
+                if output_iso:
+                    iso_tag = tags.get("EXIF ISOSpeedRatings")
+                    iso = self._format_iso(getattr(iso_tag, "values", None) if iso_tag is not None else None)
+                if output_gps:
+                    lat_tag = tags.get("GPS GPSLatitude")
+                    lat_ref = self._raw_tag_str(tags, "GPS GPSLatitudeRef")
+                    lon_tag = tags.get("GPS GPSLongitude")
+                    lon_ref = self._raw_tag_str(tags, "GPS GPSLongitudeRef")
+                    if lat_tag and getattr(lat_tag, "values", None):
+                        lat_dms = tuple(
+                            (r.num, r.den) if hasattr(r, "num") and hasattr(r, "den") else r for r in lat_tag.values
+                        )
+                        gps_latitude = self._format_gps_coord(lat_dms, lat_ref)
+                    if lon_tag and getattr(lon_tag, "values", None):
+                        lon_dms = tuple(
+                            (r.num, r.den) if hasattr(r, "num") and hasattr(r, "den") else r for r in lon_tag.values
+                        )
+                        gps_longitude = self._format_gps_coord(lon_dms, lon_ref)
+                fields = {
+                    "Offsets": offset,
+                    "Dimensions": dimensions,
+                    "Filesizes": filesize,
+                    "Makes": make,
+                    "Models": model,
+                    "Softwares": software,
+                    "Lens_Models": lens_model,
+                    "Apertures": aperture,
+                    "Exposure_Times": exposure_time,
+                    "Focal_Lengths": focal_length,
+                    "ISOs": iso,
+                    "GPS_Latitudes": gps_latitude,
+                    "GPS_Longitudes": gps_longitude,
+                }
+            else:
+                fields = None
+
+            return parsed, has_time, offset, fields, None
+        except Exception as e:  # noqa: BLE001
+            return (None, False, None, None, str(e))
 
     def _get_photo_date_and_offset(self, path: Path) -> tuple[datetime | None, bool, str | None]:
         """Opens given path as an Image to extract EXIF datetime."""
@@ -660,6 +793,27 @@ class MetadataExtractor:
     def _exif_get_str(tag: int, ifd: Any, exif_data: Any) -> str | None:
         """Decode EXIF tag into string, strip NUL padding."""
         return __class__._decode_exif_string(__class__._exif_get(tag, ifd, exif_data))
+
+    @staticmethod
+    def _raw_tag_str(tags: dict[str, Any], *keys: str) -> str | None:
+        """Return the first non-empty decoded string from tags for the given keys, or None."""
+        for key in keys:
+            tag = tags.get(key)
+            if tag is not None:
+                val = MetadataExtractor._decode_exif_string(str(tag)).strip()
+                if val:
+                    return val
+        return None
+
+    @staticmethod
+    def _raw_rational(tag: Any) -> tuple[int, int] | float | None:
+        """Convert an exifread tag's first value into a (num, den) tuple or numeric value."""
+        if tag is None or not getattr(tag, "values", None):
+            return None
+        val = tag.values[0]
+        if hasattr(val, "num") and hasattr(val, "den"):
+            return (val.num, val.den)
+        return val
 
     @staticmethod
     def _rational_to_float(value: Any) -> float | None:

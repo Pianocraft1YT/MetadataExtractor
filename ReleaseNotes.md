@@ -82,3 +82,4 @@ Created from new tags/releases and old tags/releases from past repo.
 | v4.3.0 | 2026-11-22 | Output Video Rows |
 | v4.4.0 | 2026-11-23 | Summary Sheet |
 | v4.5.0 | 2026-11-23 | Date Formats |
+| v4.6.0 | 2026-11-23 | RAW Support |
