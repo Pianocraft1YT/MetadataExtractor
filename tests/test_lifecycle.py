@@ -13,6 +13,7 @@ def _make_cfg(tmp_path):
         final_output=tmp_path / "out.xlsx",
         modifier=0,
         cutoff=2.0,
+        output_summary=False,
         output_utc=False,
         output_dimensions=False,
         output_filesize=False,
@@ -127,6 +128,7 @@ def test_scan_thread_swallows_unexpected_exception(extractor, tmp_path):
         cfg.final_output,
         extractor.total_processed,
         extractor.total_skipped,
+        cfg.output_summary,
     )
 
 

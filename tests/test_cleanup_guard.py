@@ -1,8 +1,6 @@
 """Tests for _clean_up — the sole create_sheet caller after the refactor."""
 
-from unittest.mock import MagicMock, patch
-
-from tests.conftest import make_jpeg_with_exif
+from unittest.mock import patch
 
 
 def test_clean_up_skipped_when_scan_not_running(extractor, tmp_path):
@@ -18,7 +16,7 @@ def test_clean_up_writes_sheet_on_success(extractor, tmp_path):
     extractor.keepopen_var.set(True)
     with patch.object(extractor, "create_sheet") as fake:
         extractor._clean_up(tmp_path / "out.xlsx", 5, 0)
-    fake.assert_called_once_with(tmp_path / "out.xlsx", 5, 0)
+    fake.assert_called_once_with(tmp_path / "out.xlsx", 5, 0, False)
 
 
 def test_clean_up_skips_write_on_cancel(extractor, tmp_path):

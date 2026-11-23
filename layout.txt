@@ -4,6 +4,7 @@ Set Output
 Output Label
 Recursive
 Add Hyperlinks
+Add Summary
 Burst Cutoff
 Filename
 Filetype

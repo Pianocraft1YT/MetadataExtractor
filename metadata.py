@@ -6,7 +6,7 @@
 # Please increment this counter as a warning
 # For the next person:
 #
-# hours_spent_original = 100
+# hours_spent_original = 102
 # hours_wasted_here = 0
 
 # Coded by Pianocraft1YT
@@ -135,6 +135,7 @@ class ScanConfig:
     final_output: Path
     modifier: int
     cutoff: float
+    output_summary: bool
     output_utc: bool
     output_dimensions: bool
     output_filesize: bool
@@ -1112,10 +1113,11 @@ class MetadataExtractor:
                     cfg.final_output,
                     self.total_processed,
                     self.total_skipped,
+                    cfg.output_summary,
                 )
 
     # Clean up and create sheet
-    def _clean_up(self, final_output: Path, processed: int, skipped: int) -> None:
+    def _clean_up(self, final_output: Path, processed: int, skipped: int, output_summary: bool = False) -> None:
         """Calls create_sheet and flips button states."""
         # Guard so a queued _clean_up can't fire twice (e.g. through nested dialogs)
         if not self._cleanup_pending or self._destroyed:
@@ -1124,7 +1126,7 @@ class MetadataExtractor:
         cancelled = self.cancel_event.is_set()
         try:
             if not cancelled:
-                self.create_sheet(final_output, processed, skipped)
+                self.create_sheet(final_output, processed, skipped, output_summary)
         except Exception as e:  # noqa: BLE001
             self.collected_warnings["Unexpected"].append(f"_clean_up/create_sheet: {e}\n{traceback.format_exc()}")
         finally:
@@ -1272,6 +1274,7 @@ class MetadataExtractor:
                 "Auto-Open Output": self.open_folder_var.get(),
                 "Filesize": self.filesize_var.get(),
                 "Video Rows": self.video_rows_var.get(),
+                "Summary": self.summary_var.get(),
             }
             SETTINGS_PATH.write_text(json.dumps(settings, indent=2), encoding="utf-8")
         except (OSError, ValueError, TypeError, AttributeError, tk.TclError):
@@ -1308,6 +1311,7 @@ class MetadataExtractor:
                 "Auto-Open Output": self.open_folder_var,
                 "Filesize": self.filesize_var,
                 "Video Rows": self.video_rows_var,
+                "Summary": self.summary_var,
             }
             data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
             for key, value in data.items():
@@ -1692,6 +1696,7 @@ class MetadataExtractor:
         recursive = self.recursive_var.get()  # Get status of recursive_checkbox
         directory_path = self.directory_path
         debug = False
+        output_summary = self.summary_var.get()
         output_utc = False
         date_range = False
         output_gps = False
@@ -1815,6 +1820,7 @@ class MetadataExtractor:
             final_output=final_output,
             modifier=modifier,
             cutoff=cutoff,
+            output_summary=output_summary,
             output_utc=output_utc,
             output_dimensions=output_dimensions,
             output_filesize=output_filesize,
@@ -1997,13 +2003,16 @@ class MetadataExtractor:
                                 temp_data_holder["Sort_Timestamps"].append(timestamped_to_file[file][1])
                                 temp_data_holder["Images"].append(file)
                                 temp_data_holder["ISOs"].append("")
-                                video_path = Path(directory_path) / file
-                                filesize = os.path.getsize(video_path)
-                                filesize = self._convert_filesize(filesize)
-                                temp_data_holder["Filesizes"].append(filesize)
+                                if output_filesize:
+                                    video_path = Path(directory_path) / file
+                                    filesize = os.path.getsize(video_path)
+                                    filesize = self._convert_filesize(filesize)
+                                    temp_data_holder["Filesizes"].append(filesize)
+                                else:
+                                    temp_data_holder["Filesizes"].append(None)
                                 dim = None
                                 try:
-                                    if HACHOIR_SUPPORTED:
+                                    if output_dimensions and HACHOIR_SUPPORTED:
                                         parser = createParser(video_path.as_posix())
                                         if parser is not None:
                                             with parser:
@@ -2156,6 +2165,75 @@ class MetadataExtractor:
             fixed_time.append(dt.strftime("%H:%M:%S"))
         return fixed_date, fixed_time
 
+    # Creates summary dataframe for create_sheet to use
+    def _build_summary_dataframe(self, results: list) -> tuple[pd.DataFrame, str, None]:
+        """Builds summary dataframe with earliest and latest dates, total items, groups, as well as dated and undated."""
+        rows = []
+        total_items = 0
+        total_dated = 0
+        total_undated = 0
+        total_series = 0
+        all_dates = []
+        for df, sheet_name, directory_path in results:
+            items = len(df)
+            sheet_dates = []
+            dated = 0
+            undated = 0
+            if "Dates" in df.columns:
+                for value in df["Dates"]:
+                    if value is None or pd.isna(value) or value == "":
+                        undated += 1
+                    else:
+                        try:
+                            sheet_dates.append(datetime.strptime(str(value).strip(), "%m/%d/%Y").date())
+                        except ValueError:
+                            undated += 1
+                            continue
+                        dated += 1
+            else:
+                undated = items
+            series_count = (
+                len({str(v).strip() for v in df["Img # Series"].dropna() if str(v).strip()})
+                if "Img # Series" in df.columns
+                else 0
+            )
+            if sheet_dates:
+                min_date = min(sheet_dates).strftime("%m/%d/%Y")
+                max_date = max(sheet_dates).strftime("%m/%d/%Y")
+            else:
+                min_date = None
+                max_date = None
+            rows.append(
+                {
+                    "Sheet": sheet_name,
+                    "Source Path": Path(directory_path).as_posix() if directory_path else "",
+                    "Items": items,
+                    "Dated": dated,
+                    "Undated": undated,
+                    "Series Groups": series_count,
+                    "Earliest Date": min_date,
+                    "Latest Date": max_date,
+                }
+            )
+            all_dates.extend(sheet_dates)
+            total_items += items
+            total_dated += dated
+            total_undated += undated
+            total_series += series_count
+        rows.append(
+            {
+                "Sheet": "Total",
+                "Source Path": "",
+                "Items": total_items,
+                "Dated": total_dated,
+                "Undated": total_undated,
+                "Series Groups": total_series,
+                "Earliest Date": min(all_dates).strftime("%m/%d/%Y") if all_dates else "",
+                "Latest Date": max(all_dates).strftime("%m/%d/%Y") if all_dates else "",
+            }
+        )
+        return pd.DataFrame(rows), "Summary", None
+
     # Creates dataframes for create_sheet to use
     def create_dataframe(
         self,
@@ -2248,9 +2326,15 @@ class MetadataExtractor:
             return
 
     # Makes final output files
-    def create_sheet(self, output_path: Path, total_processed: int, total_skipped: int) -> None:
+    def create_sheet(
+        self, output_path: Path, total_processed: int, total_skipped: int, output_summary: bool = False
+    ) -> None:
         """Creates Excel, CSV, JSON, and Markdown File(s) using self.results DataFrame(s). Displays total images processed and skipped, as well as writes a warning log if needed."""
         try:
+            sheets_to_write = list(self.results)
+            if output_summary and len(self.results) > 1:
+                summary_df = self._build_summary_dataframe(self.results)
+                sheets_to_write.insert(0, summary_df)
             files_written = 0
             filetype = self._active_filetype or self.filetype_var.get()
             # Check for empty results before prompting so the user isn't asked to overwrite for nothing
@@ -2269,7 +2353,7 @@ class MetadataExtractor:
                     # Data was found
                     if filetype == "Excel":
                         with pd.ExcelWriter(output_path) as writer:  # Opens ExcelWriter and closes automatically
-                            for sheet_df, sheet_name, _ in self.results:
+                            for sheet_df, sheet_name, _ in sheets_to_write:
                                 self._sanitize_for_excel(sheet_df).to_excel(writer, sheet_name=sheet_name, index=False)
                                 self._format_excel_sheet(writer.sheets[sheet_name])
                         if self.hyperlink_var.get():
@@ -2277,7 +2361,7 @@ class MetadataExtractor:
                         files_written += 1
                     elif filetype == "CSV":
                         used_filenames: set[str] = set()
-                        for sheet_df, sheet_name, _ in self.results:
+                        for sheet_df, sheet_name, _ in sheets_to_write:
                             if self.cancel_event.is_set():
                                 break
                             if len(self.results) == 1:
@@ -2293,13 +2377,13 @@ class MetadataExtractor:
                             files_written += 1
                     elif filetype == "JSON":  # Local export time
                         json_data = {"exported_at": datetime.now().isoformat(), "sheets": {}}
-                        for sheet_df, sheet_name, _ in self.results:
+                        for sheet_df, sheet_name, _ in sheets_to_write:
                             json_data["sheets"][sheet_name] = json.loads(sheet_df.to_json(orient="records"))
                         output_path.write_text(json.dumps(json_data, indent=2, ensure_ascii=False), encoding="utf-8")
                         files_written += 1
                     elif filetype == "Markdown":
                         used_filenames: set[str] = set()
-                        for sheet_df, sheet_name, directory in self.results:
+                        for sheet_df, sheet_name, directory in sheets_to_write:
                             if self.cancel_event.is_set():
                                 break
                             if len(self.results) == 1:
@@ -2536,6 +2620,8 @@ class MetadataExtractor:
         self.view_log_button = tk.Button(
             self.basic_mode_frame, text="View warnings.log", command=self._view_warnings_log, state="disabled"
         )
+        self.summary_var = tk.BooleanVar(value=False)
+        self.summary_checkbox = tk.Checkbutton(self.basic_mode_frame, text="Summary Sheet", variable=self.summary_var)
         # Set default sheet name
         self.current_sheet_name = "Sheet"
         # Collect warnings
@@ -2607,7 +2693,8 @@ class MetadataExtractor:
         self.output_path_label.pack(after=self.set_output_button)
         self.recursive_checkbox.pack(after=self.output_path_label)
         self.hyperlink_checkbox.pack(after=self.recursive_checkbox)
-        self.burst_cutoff_entry.pack(after=self.hyperlink_checkbox)
+        self.summary_checkbox.pack(after=self.hyperlink_checkbox)
+        self.burst_cutoff_entry.pack(after=self.summary_checkbox)
         self.name_entry.pack(after=self.burst_cutoff_entry)
         self.filetype_frame.pack(after=self.name_entry, side="top")
         for ft in self.filetypes:
