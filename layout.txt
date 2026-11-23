@@ -21,6 +21,7 @@ Video Rows
 Starting index
 Sort Method
 Date Range
+Date Format
 Include Hiddens
 Time in UTC
 GPS

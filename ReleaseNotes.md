@@ -81,3 +81,4 @@ Created from new tags/releases and old tags/releases from past repo.
 | v4.2.0 | 2026-11-21 | Excel Auto-formatting, HEIC/HEIF support, source and output path labels, log opener |
 | v4.3.0 | 2026-11-22 | Output Video Rows |
 | v4.4.0 | 2026-11-23 | Summary Sheet |
+| v4.5.0 | 2026-11-23 | Date Formats |

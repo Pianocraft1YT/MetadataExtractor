@@ -52,6 +52,40 @@ class _FakeEntry:
         pass
 
 
+class _FakeCombobox:
+    """Stand-in for ttk.Combobox in tests. Stores selection so get/set round-trip."""
+
+    def __init__(self, master=None, values=None, textvariable=None, state=None, **kwargs):
+        self._values = list(values) if values is not None else []
+        self._var = textvariable
+        self._value = self._var.get() if self._var is not None else ""
+
+    def get(self):
+        if self._var is not None:
+            return self._var.get()
+        return self._value
+
+    def set(self, value):
+        self._value = value
+        if self._var is not None:
+            self._var.set(value)
+
+    def config(self, **kwargs):
+        pass
+
+    def configure(self, **kwargs):
+        pass
+
+    def bind(self, sequence, func):
+        pass
+
+    def pack(self, *args, **kwargs):
+        pass
+
+    def pack_forget(self, *args, **kwargs):
+        pass
+
+
 class _FakeDateEntry:
     """Stand-in for tk_date_entry.DateEntry in tests.
 
@@ -86,6 +120,7 @@ _fake_tk_date_entry.DateEntry = _FakeDateEntry
 sys.modules["tk_date_entry"] = _fake_tk_date_entry
 
 import tkinter as _tk
+import tkinter.ttk as _ttk
 
 
 class FakeVar:
@@ -111,6 +146,7 @@ _tk.BooleanVar.side_effect = FakeVar
 _tk.StringVar.side_effect = FakeVar
 _tk.DoubleVar.side_effect = FakeVar
 _tk.Entry.side_effect = _FakeEntry
+_ttk.Combobox.side_effect = _FakeCombobox
 _tk.Tk.side_effect = lambda: MagicMock()
 import metadata
 

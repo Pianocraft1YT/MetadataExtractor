@@ -16,7 +16,7 @@ def test_clean_up_writes_sheet_on_success(extractor, tmp_path):
     extractor.keepopen_var.set(True)
     with patch.object(extractor, "create_sheet") as fake:
         extractor._clean_up(tmp_path / "out.xlsx", 5, 0)
-    fake.assert_called_once_with(tmp_path / "out.xlsx", 5, 0, False)
+    fake.assert_called_once_with(tmp_path / "out.xlsx", 5, 0, False, "%m/%d/%Y")
 
 
 def test_clean_up_skips_write_on_cancel(extractor, tmp_path):

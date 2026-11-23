@@ -6,7 +6,7 @@
 # Please increment this counter as a warning
 # For the next person:
 #
-# hours_spent_original = 102
+# hours_spent_original = 103
 # hours_wasted_here = 0
 
 # Coded by Pianocraft1YT
@@ -150,6 +150,7 @@ class ScanConfig:
     output_gps: bool
     output_video_rows: bool
     date_range: bool
+    date_format: str
     start_date: date | None
     end_date: date | None
     include_hiddens: bool
@@ -307,7 +308,8 @@ class MetadataExtractor:
                     smr.pack(side="left")
                     self.sort_method_objects.append(smr)
             self.date_range_checkbox.pack(after=self.sort_methods_frame)
-            self.hidden_checkbox.pack(after=self.date_range_checkbox)
+            self.date_format_combobox.pack(after=self.date_range_checkbox)
+            self.hidden_checkbox.pack(after=self.date_format_combobox)
             self.utc_checkbox.pack(after=self.hidden_checkbox)
             self.gps_checkbox.pack(after=self.utc_checkbox)
             self.extra_exif_checkbox.pack(after=self.gps_checkbox)
@@ -1100,6 +1102,7 @@ class MetadataExtractor:
                 cfg.include_hiddens,
                 cfg.include_undateable,
                 cfg.date_range,
+                cfg.date_format,
                 cfg.start_date,
                 cfg.end_date,
                 progress_callback=_on_progress,
@@ -1114,10 +1117,18 @@ class MetadataExtractor:
                     self.total_processed,
                     self.total_skipped,
                     cfg.output_summary,
+                    cfg.date_format,
                 )
 
     # Clean up and create sheet
-    def _clean_up(self, final_output: Path, processed: int, skipped: int, output_summary: bool = False) -> None:
+    def _clean_up(
+        self,
+        final_output: Path,
+        processed: int,
+        skipped: int,
+        output_summary: bool = False,
+        date_format: str = "%m/%d/%Y",
+    ) -> None:
         """Calls create_sheet and flips button states."""
         # Guard so a queued _clean_up can't fire twice (e.g. through nested dialogs)
         if not self._cleanup_pending or self._destroyed:
@@ -1126,7 +1137,7 @@ class MetadataExtractor:
         cancelled = self.cancel_event.is_set()
         try:
             if not cancelled:
-                self.create_sheet(final_output, processed, skipped, output_summary)
+                self.create_sheet(final_output, processed, skipped, output_summary, date_format)
         except Exception as e:  # noqa: BLE001
             self.collected_warnings["Unexpected"].append(f"_clean_up/create_sheet: {e}\n{traceback.format_exc()}")
         finally:
@@ -1275,6 +1286,7 @@ class MetadataExtractor:
                 "Filesize": self.filesize_var.get(),
                 "Video Rows": self.video_rows_var.get(),
                 "Summary": self.summary_var.get(),
+                "Date Format": self.date_format_var.get(),
             }
             SETTINGS_PATH.write_text(json.dumps(settings, indent=2), encoding="utf-8")
         except (OSError, ValueError, TypeError, AttributeError, tk.TclError):
@@ -1370,6 +1382,9 @@ class MetadataExtractor:
                                 self.burst_cutoff_entry.delete(0, "end")
                                 self.burst_cutoff_entry.insert(0, "Photo grouping cutoff (default 2 seconds)")
                                 self.burst_cutoff_entry.config(foreground="gray")
+                        elif key == "Date Format":
+                            if value in self.date_formats:
+                                self.date_format_combobox.set(value)
                         elif key in key_to_checkbox_var and isinstance(value, bool):
                             key_to_checkbox_var[key].set(value)
                         elif key in key_to_checkbox_var:  # Value not a boolean
@@ -1546,6 +1561,7 @@ class MetadataExtractor:
         include_hiddens: bool,
         include_undateable: bool,
         date_range: bool = False,
+        date_format: str = "%m/%d/%Y",
         start_date: date | None = None,
         end_date: date | None = None,
         progress_callback: Callable[[int, int, Path], None] | None = None,
@@ -1632,6 +1648,7 @@ class MetadataExtractor:
                     output_iso,
                     output_gps,
                     output_video_rows,
+                    date_format,
                     progress_callback=wrapped_cb,
                 )
                 self.total_processed += p
@@ -1715,6 +1732,9 @@ class MetadataExtractor:
         output_iso = False
         start_date = None
         end_date = None
+        date_format = self.date_format_combobox.get() if user_mode == "Advanced" else "MM/DD/YYYY"
+        date_formats_dict = {"MM/DD/YYYY": "%m/%d/%Y", "YYYY-MM-DD": "%Y-%m-%d", "DD/MM/YYYY": "%d/%m/%Y"}
+        date_format = date_formats_dict.get(date_format, "%m/%d/%Y")  # Convert to python format string
         self.sort_method = self.sort_methods_var.get() if user_mode == "Advanced" else "Timestamp"
         if user_mode == "Advanced":
             debug = self.debug_var.get()
@@ -1835,6 +1855,7 @@ class MetadataExtractor:
             output_gps=output_gps,
             output_video_rows=output_video_rows,
             date_range=date_range,
+            date_format=date_format,
             start_date=start_date,
             end_date=end_date,
             include_hiddens=include_hiddens,
@@ -1876,6 +1897,7 @@ class MetadataExtractor:
         output_iso: bool,
         output_gps: bool,
         output_video_rows: bool,
+        date_format: str = "%m/%d/%Y",
         progress_callback: Callable[[int, int, Path], None] | None = None,
     ) -> tuple[int, int]:
         """Creates pd.DataFrame from extracted EXIF metadata and groups by timestamp."""
@@ -2003,8 +2025,8 @@ class MetadataExtractor:
                                 temp_data_holder["Sort_Timestamps"].append(timestamped_to_file[file][1])
                                 temp_data_holder["Images"].append(file)
                                 temp_data_holder["ISOs"].append("")
+                                video_path = Path(directory_path) / file
                                 if output_filesize:
-                                    video_path = Path(directory_path) / file
                                     filesize = os.path.getsize(video_path)
                                     filesize = self._convert_filesize(filesize)
                                     temp_data_holder["Filesizes"].append(filesize)
@@ -2082,7 +2104,7 @@ class MetadataExtractor:
                     skipped = sum(1 for f in media_files if f.lower().endswith(PHOTO_TYPES)) - processed
             if not self.cancel_event.is_set():
                 data["Dates"], data["Times"] = self.fix_time(
-                    output_utc, data["Dates"], data["Offsets"], data["Images"], directory_path
+                    output_utc, data["Dates"], data["Offsets"], data["Images"], directory_path, date_format
                 )
             if not self.cancel_event.is_set():
                 self.create_dataframe(
@@ -2100,6 +2122,7 @@ class MetadataExtractor:
                     output_focal_length,
                     output_iso,
                     output_gps,
+                    date_format,
                 )
             return processed, skipped  # For tallying total processed and skipped
         finally:
@@ -2131,6 +2154,7 @@ class MetadataExtractor:
         list_of_offsets: list[str | None],
         list_of_images: list[str],
         directory: str,
+        date_format: str = "%m/%d/%Y",
     ) -> tuple[list[str], list[str]]:
         """Splits list_of_dates into dates and times, formatted in MM/DD/YYYY, HH:MM:SS, offset by list_of_offsets if output_utc is True."""
         # Input format: "YYYY:MM:DD HH:MM:SS"
@@ -2140,7 +2164,7 @@ class MetadataExtractor:
             date_str = str(d)
             if " " not in date_str:
                 try:
-                    fixed_date.append(datetime.strptime(date_str, "%Y:%m:%d").strftime("%m/%d/%Y"))
+                    fixed_date.append(datetime.strptime(date_str, "%Y:%m:%d").strftime(date_format))
                 except ValueError:
                     fixed_date.append(date_str)
                 fixed_time.append("")
@@ -2161,12 +2185,12 @@ class MetadataExtractor:
                         self.collected_warnings["Bad Timestamp"].append(
                             f"{os.path.join(directory, list_of_images[offset_index])}"
                         )
-            fixed_date.append(dt.strftime("%m/%d/%Y"))
+            fixed_date.append(dt.strftime(date_format))
             fixed_time.append(dt.strftime("%H:%M:%S"))
         return fixed_date, fixed_time
 
     # Creates summary dataframe for create_sheet to use
-    def _build_summary_dataframe(self, results: list) -> tuple[pd.DataFrame, str, None]:
+    def _build_summary_dataframe(self, results: list, date_format: str = "%m/%d/%Y") -> tuple[pd.DataFrame, str, None]:
         """Builds summary dataframe with earliest and latest dates, total items, groups, as well as dated and undated."""
         rows = []
         total_items = 0
@@ -2185,7 +2209,7 @@ class MetadataExtractor:
                         undated += 1
                     else:
                         try:
-                            sheet_dates.append(datetime.strptime(str(value).strip(), "%m/%d/%Y").date())
+                            sheet_dates.append(datetime.strptime(str(value).strip(), date_format).date())
                         except ValueError:
                             undated += 1
                             continue
@@ -2198,8 +2222,8 @@ class MetadataExtractor:
                 else 0
             )
             if sheet_dates:
-                min_date = min(sheet_dates).strftime("%m/%d/%Y")
-                max_date = max(sheet_dates).strftime("%m/%d/%Y")
+                min_date = min(sheet_dates).strftime(date_format)
+                max_date = max(sheet_dates).strftime(date_format)
             else:
                 min_date = None
                 max_date = None
@@ -2211,8 +2235,8 @@ class MetadataExtractor:
                     "Dated": dated,
                     "Undated": undated,
                     "Series Groups": series_count,
-                    "Earliest Date": min_date,
-                    "Latest Date": max_date,
+                    "Earliest Date": min_date if min_date else "",
+                    "Latest Date": max_date if max_date else "",
                 }
             )
             all_dates.extend(sheet_dates)
@@ -2228,11 +2252,11 @@ class MetadataExtractor:
                 "Dated": total_dated,
                 "Undated": total_undated,
                 "Series Groups": total_series,
-                "Earliest Date": min(all_dates).strftime("%m/%d/%Y") if all_dates else "",
-                "Latest Date": max(all_dates).strftime("%m/%d/%Y") if all_dates else "",
+                "Earliest Date": min(all_dates).strftime(date_format) if all_dates else "",
+                "Latest Date": max(all_dates).strftime(date_format) if all_dates else "",
             }
         )
-        return pd.DataFrame(rows), "Summary", None
+        return pd.DataFrame(rows), self.verify_name("Summary", {name.lower() for _, name, _ in results}), None
 
     # Creates dataframes for create_sheet to use
     def create_dataframe(
@@ -2251,6 +2275,7 @@ class MetadataExtractor:
         output_focal_length: bool,
         output_iso: bool,
         output_gps: bool,
+        date_format: str = "%m/%d/%Y",
     ) -> None:
         """Creates a pd.DataFrame from EXIF metadata for each key in "data", sorts by Date/Time if set, appends to self.results with current_sheet_name."""
         if data["Images"]:  # Make sure images are present.
@@ -2293,7 +2318,7 @@ class MetadataExtractor:
                         date_str = str(df["Dates"].iloc[idx]).strip()
                         time_str = str(df["Time"].iloc[idx]).strip() or "00:00:00"
                         try:
-                            dt_val = datetime.strptime(f"{date_str} {time_str}", "%m/%d/%Y %H:%M:%S")
+                            dt_val = datetime.strptime(f"{date_str} {time_str}", f"{date_format} %H:%M:%S")
                         except ValueError:
                             dt_val = None
                     sort_dts.append(dt_val)
@@ -2327,13 +2352,18 @@ class MetadataExtractor:
 
     # Makes final output files
     def create_sheet(
-        self, output_path: Path, total_processed: int, total_skipped: int, output_summary: bool = False
+        self,
+        output_path: Path,
+        total_processed: int,
+        total_skipped: int,
+        output_summary: bool = False,
+        date_format: str = "%m/%d/%Y",
     ) -> None:
         """Creates Excel, CSV, JSON, and Markdown File(s) using self.results DataFrame(s). Displays total images processed and skipped, as well as writes a warning log if needed."""
         try:
             sheets_to_write = list(self.results)
             if output_summary and len(self.results) > 1:
-                summary_df = self._build_summary_dataframe(self.results)
+                summary_df = self._build_summary_dataframe(self.results, date_format)
                 sheets_to_write.insert(0, summary_df)
             files_written = 0
             filetype = self._active_filetype or self.filetype_var.get()
@@ -2622,6 +2652,11 @@ class MetadataExtractor:
         )
         self.summary_var = tk.BooleanVar(value=False)
         self.summary_checkbox = tk.Checkbutton(self.basic_mode_frame, text="Summary Sheet", variable=self.summary_var)
+        self.date_formats = ["MM/DD/YYYY", "YYYY-MM-DD", "DD/MM/YYYY"]
+        self.date_format_var = tk.StringVar(value=self.date_formats[0])
+        self.date_format_combobox = ttk.Combobox(
+            self.advanced_mode_frame, values=self.date_formats, state="readonly", textvariable=self.date_format_var
+        )
         # Set default sheet name
         self.current_sheet_name = "Sheet"
         # Collect warnings

@@ -28,6 +28,7 @@ def _make_cfg(tmp_path):
         output_gps=False,
         output_video_rows=False,
         date_range=False,
+        date_format="%m/%d/%Y",
         start_date=None,
         end_date=None,
         include_hiddens=False,
@@ -129,6 +130,7 @@ def test_scan_thread_swallows_unexpected_exception(extractor, tmp_path):
         extractor.total_processed,
         extractor.total_skipped,
         cfg.output_summary,
+        cfg.date_format,
     )
 
 
