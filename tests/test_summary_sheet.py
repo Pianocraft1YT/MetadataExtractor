@@ -57,11 +57,24 @@ def test_build_summary_dataframe_computes_metrics_and_total_row(extractor, tmp_p
     assert summary_df.loc[0, "Latest Date"] == "01/05/2025"
     assert summary_df.loc[2, "Earliest Date"] == "06/15/2024"
     assert summary_df.loc[2, "Latest Date"] == "01/05/2025"
+    assert list(summary_df["File Size"]) == ["0 B", "0 B", "0 B"]
+
+
+def test_build_summary_dataframe_sums_file_sizes_per_folder_and_total(extractor, tmp_path):
+    results = _sample_results(tmp_path)
+    (tmp_path / "Trip_A" / "a1.jpg").write_bytes(b"x" * 1500)
+    (tmp_path / "Trip_A" / "a2.jpg").write_bytes(b"x" * 500)
+    # a3.jpg missing on disk -> safely ignored
+    (tmp_path / "Trip_B" / "b1.jpg").write_bytes(b"x" * 3000)
+
+    summary_df, _, _ = extractor._build_summary_dataframe(results)
+
+    assert list(summary_df["File Size"]) == ["2.0 KB", "3.0 KB", "5.0 KB"]
 
 
 def test_build_summary_dataframe_handles_missing_columns_and_undated_rows(extractor, tmp_path):
     df_minimal = pd.DataFrame({"Files": ["only.jpg"]})
-    df_undated = pd.DataFrame({"Files": ["u.jpg"], "Dates": [""], "Img # Series": [""]})
+    df_undated = pd.DataFrame({"Files": [None], "Dates": [""], "Img # Series": [""]})
     results = [
         (df_minimal, "Minimal", None),
         (df_undated, "Undated", tmp_path.as_posix()),
@@ -75,6 +88,7 @@ def test_build_summary_dataframe_handles_missing_columns_and_undated_rows(extrac
     assert list(summary_df["Series Groups"]) == [0, 0, 0]
     assert summary_df.loc[2, "Earliest Date"] == ""
     assert summary_df.loc[2, "Latest Date"] == ""
+    assert list(summary_df["File Size"]) == ["0 B", "0 B", "0 B"]
 
 
 # ---------------------------------------------------------------------------
@@ -97,9 +111,42 @@ def test_create_sheet_excel_prepends_formatted_summary_and_keeps_hyperlinks(extr
     ws_summary = wb["Summary"]
     assert ws_summary.freeze_panes == "A2"
     assert all(cell.font.bold is True for cell in ws_summary[1])
+    assert ws_summary["B2"].hyperlink is not None
+    assert ws_summary["B2"].hyperlink.target == (tmp_path / "Trip_A").as_uri()
+    assert ws_summary["B2"].font.underline == "single"
+    assert ws_summary["B3"].hyperlink is not None
+    assert ws_summary["B3"].hyperlink.target == (tmp_path / "Trip_B").as_uri()
+    assert ws_summary["B4"].hyperlink is None  # Total row has no Source Path
     assert wb["Trip_A"]["A2"].hyperlink is not None
-    # Self.results was not mutated
-    assert [name for _, name, _ in extractor.results] == ["Trip_A", "Trip_B"]
+    assert [name for _, name, _ in extractor.results] == ["Summary", "Trip_A", "Trip_B"]
+
+
+@pytest.mark.real_create_sheet
+def test_create_sheet_excel_summary_name_collision_still_hyperlinks_summary_tab(extractor, tmp_path):
+    dir_summary = tmp_path / "Summary"
+    dir_other = tmp_path / "Other"
+    dir_summary.mkdir()
+    dir_other.mkdir()
+    df1 = pd.DataFrame({"Files": ["a.jpg"], "Dates": ["05/15/2024"], "Time": ["12:00:00"], "Img # Series": ["1"]})
+    df2 = pd.DataFrame({"Files": ["b.jpg"], "Dates": ["05/16/2024"], "Time": ["12:00:00"], "Img # Series": ["1"]})
+
+    extractor.results = [
+        (df1, "Summary", dir_summary.as_posix()),
+        (df2, "Other", dir_other.as_posix()),
+    ]
+    extractor.filetype_var.set("Excel")
+    extractor.hyperlink_var.set(True)
+    extractor.keepopen_var.set(True)
+    output = tmp_path / "collision.xlsx"
+
+    extractor.create_sheet(output, 2, 0, output_summary=True)
+
+    wb = openpyxl.load_workbook(output)
+    assert wb.sheetnames == ["Summary_2", "Summary", "Other"]
+    ws_sum = wb["Summary_2"]
+    assert ws_sum["B2"].hyperlink.target == dir_summary.as_uri()
+    assert ws_sum["B3"].hyperlink.target == dir_other.as_uri()
+    assert ws_sum["B4"].hyperlink is None
 
 
 @pytest.mark.real_create_sheet

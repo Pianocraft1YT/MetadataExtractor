@@ -1779,7 +1779,7 @@ class MetadataExtractor:
             return True
 
     # Hyperlink addition
-    def add_hyperlinks(self, excel_file: str) -> None:
+    def add_hyperlinks(self, excel_file: str, summary_sheet_name: str | None = None) -> None:
         """Adds hyperlinks to Excel files in the first collumn of each sheet."""
         try:
             wb = openpyxl.load_workbook(excel_file)
@@ -1795,6 +1795,17 @@ class MetadataExtractor:
                         cell.font = Font(color="0563C1", underline="single")
                 except Exception as e:  # noqa: BLE001
                     self.collected_warnings["Hyperlink Error"].append(sheet_name + f"\nError: {e}")
+            try:
+                if summary_sheet_name and summary_sheet_name in wb.sheetnames:
+                    for (_, _, directory), cell in zip(self.results, wb[summary_sheet_name]["B"]):
+                        if not directory:
+                            continue
+                        cell.hyperlink = Path(directory).as_uri()
+                        cell.font = Font(color="0563C1", underline="single")
+            except Exception as e:  # noqa: BLE001
+                self.collected_warnings["Hyperlink Error"].append(
+                    (summary_sheet_name or "Summary Sheet") + f"\nError: {e}"
+                )
             wb.save(excel_file)
         except Exception as e:  # noqa: BLE001
             self.collected_warnings["Hyperlink Error"].append(f"Hyperlinks could not be added. \nError: {e}")
@@ -2515,11 +2526,13 @@ class MetadataExtractor:
         total_undated = 0
         total_series = 0
         all_dates = []
+        total_bytes = 0
         for df, sheet_name, directory_path in results:
             items = len(df)
             sheet_dates = []
             dated = 0
             undated = 0
+            folder_bytes = 0
             if "Dates" in df.columns:
                 for value in df["Dates"]:
                     if value is None or pd.isna(value) or value == "":
@@ -2544,6 +2557,15 @@ class MetadataExtractor:
             else:
                 min_date = None
                 max_date = None
+            if "Files" in df.columns and directory_path:
+                for value in df["Files"]:
+                    if not isinstance(value, str) or not value:
+                        continue
+                    path = Path(directory_path) / value
+                    try:
+                        folder_bytes += os.path.getsize(path)
+                    except OSError:
+                        pass
             rows.append(
                 {
                     "Sheet": sheet_name,
@@ -2554,6 +2576,7 @@ class MetadataExtractor:
                     "Series Groups": series_count,
                     "Earliest Date": min_date if min_date else "",
                     "Latest Date": max_date if max_date else "",
+                    "File Size": self._convert_filesize(folder_bytes),
                 }
             )
             all_dates.extend(sheet_dates)
@@ -2561,6 +2584,7 @@ class MetadataExtractor:
             total_dated += dated
             total_undated += undated
             total_series += series_count
+            total_bytes += folder_bytes
         rows.append(
             {
                 "Sheet": "Total",
@@ -2571,6 +2595,7 @@ class MetadataExtractor:
                 "Series Groups": total_series,
                 "Earliest Date": min(all_dates).strftime(date_format) if all_dates else "",
                 "Latest Date": max(all_dates).strftime(date_format) if all_dates else "",
+                "File Size": self._convert_filesize(total_bytes),
             }
         )
         return pd.DataFrame(rows), self.verify_name("Summary", {name.lower() for _, name, _ in results}), None
@@ -2685,10 +2710,10 @@ class MetadataExtractor:
     ) -> None:
         """Creates Excel, CSV, JSON, and Markdown File(s) using self.results DataFrame(s). Displays total images processed and skipped, as well as writes a warning log if needed."""
         try:
-            sheets_to_write = list(self.results)
+            summary_name = None
             if output_summary and len(self.results) > 1:
-                summary_df = self._build_summary_dataframe(self.results, date_format)
-                sheets_to_write.insert(0, summary_df)
+                summary_df, summary_name, _ = self._build_summary_dataframe(self.results, date_format)
+                self.results.insert(0, (summary_df, summary_name, _))
             files_written = 0
             filetype = self._active_filetype or self.filetype_var.get()
             # Check for empty results before prompting so the user isn't asked to overwrite for nothing
@@ -2708,15 +2733,15 @@ class MetadataExtractor:
                     # Data was found
                     if filetype == "Excel":
                         with pd.ExcelWriter(output_path) as writer:  # Opens ExcelWriter and closes automatically
-                            for sheet_df, sheet_name, _ in sheets_to_write:
+                            for sheet_df, sheet_name, _ in self.results:
                                 self._sanitize_for_excel(sheet_df).to_excel(writer, sheet_name=sheet_name, index=False)
                                 self._format_excel_sheet(writer.sheets[sheet_name])
                         if self.hyperlink_var.get():
-                            self.add_hyperlinks(output_path.as_posix())
+                            self.add_hyperlinks(output_path.as_posix(), summary_name)
                         files_written += 1
                     elif filetype == "CSV":
                         used_filenames: set[str] = set()
-                        for sheet_df, sheet_name, _ in sheets_to_write:
+                        for sheet_df, sheet_name, _ in self.results:
                             if self.cancel_event.is_set():
                                 break
                             if len(self.results) == 1:
@@ -2732,13 +2757,13 @@ class MetadataExtractor:
                             files_written += 1
                     elif filetype == "JSON":  # Local export time
                         json_data = {"exported_at": datetime.now().isoformat(), "sheets": {}}
-                        for sheet_df, sheet_name, _ in sheets_to_write:
+                        for sheet_df, sheet_name, _ in self.results:
                             json_data["sheets"][sheet_name] = json.loads(sheet_df.to_json(orient="records"))
                         output_path.write_text(json.dumps(json_data, indent=2, ensure_ascii=False), encoding="utf-8")
                         files_written += 1
                     elif filetype == "Markdown":
                         used_filenames: set[str] = set()
-                        for sheet_df, sheet_name, directory in sheets_to_write:
+                        for sheet_df, sheet_name, directory in self.results:
                             if self.cancel_event.is_set():
                                 break
                             if len(self.results) == 1:
@@ -2773,8 +2798,6 @@ class MetadataExtractor:
                                 else output_path.as_posix()
                             ),
                         )
-                        if self.open_folder_var.get():
-                            self._open_path(output_path, True)
                         if not self.cancel_event.is_set():
                             self.progress_var.set(100)
                             self.percentage_done.set("100%")
@@ -2821,6 +2844,8 @@ class MetadataExtractor:
                         messagebox.showwarning("Warning(s)", message=summary)
                 except OSError:
                     messagebox.showerror("Log Error", message=f"Couldn't write log file to {log_path}.")
+            if self.open_folder_var.get() and proceed:
+                self._open_path(output_path, True)
             if not self.keepopen_var.get():  # Checks to close program or not
                 self._on_close()
         except OSError as e:
