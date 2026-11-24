@@ -2,7 +2,7 @@
 A quaint table for release information.
 Created from new tags/releases and old tags/releases from past repo.
 
-# Full tag history — 70 tags
+# Full tag history — 80 tags
 
 | Version | Date (Y/M/D) | Summary |
 |---|---|---|
@@ -83,3 +83,6 @@ Created from new tags/releases and old tags/releases from past repo.
 | v4.4.0 | 2026-11-23 | Summary Sheet |
 | v4.5.0 | 2026-11-23 | Date Formats |
 | v4.6.0 | 2026-11-23 | RAW Support |
+| v4.7.0 | 2026-11-23 | UI Redesign -> Two column format with LabelFrames |
+| v4.8.0 | 2026-11-23 | Time Format (24h, 12h), Media Type Filter |
+| v4.9.0 | 2026-11-24 | GPS Altitude, Orientation |

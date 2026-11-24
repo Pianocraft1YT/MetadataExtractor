@@ -11,18 +11,21 @@ Release History/Roadmap found here: https://github.com/Pianocraft1YT/MetadataExt
 
 ## Features
 
-- **EXIF & sub-IFD extraction**: Reads `DateTimeOriginal`, `DateTimeDigitized`, and `DateTime` (across IFD0 and the Exif sub-IFD) from JPEG, PNG, TIFF, and more, plus optional `.heic`/`.heif` support when `pillow-heif` is installed.
+- **EXIF & sub-IFD extraction**: Reads `DateTimeOriginal`, `DateTimeDigitized`, and `DateTime` (across IFD0 and the Exif sub-IFD) from JPEG, PNG, TIFF, and more, plus optional `.heic`/`.heif` support when `pillow-heif` is installed, as well as RAW extension support when `exifread` is installed.
 - **Timestamp-proximity burst grouping**: Groups photos and `.mp4`/`.mov` videos captured within a configurable **Photo grouping cutoff** (default `2.0` seconds; `0` groups identical timestamps) and assigns shared `Img # Series` labels (e.g. `1-3`) with an optional custom starting index.
 - **Basic and Advanced modes**: Launches in a streamlined **Basic** view for everyday scans and expands **Advanced** controls (Debug Mode, Create Video Rows, Starting index, Sort Method, Date Range, Hidden Files, Time in UTC, GPS, Extra Metadata) on demand.
 - **Create Video Rows (Advanced)**: Opt-in toggle that emits output rows for timestamped `.mp4`/`.mov` videos (including video-only bursts and folders) with `File Size` and optional video `Dimensions` (when `hachoir` is installed).
 - **Full recursive scanning**: Walk directory trees up to a configurable **Recursion Depth**. Each media-bearing subfolder becomes its own worksheet (Excel/JSON) or its own CSV/Markdown file.
 - **Sorting & date filtering (Advanced)**: Sort rows by `Timestamp` (default), `Date (Oldest)`, or `Date (Newest)` (keeping bursts intact), and optionally filter media by Start/End local dates with an **Include undateable files** toggle.
+- **Media Filtering (Advanced)**: Scan only selected media files, Photos Only, Videos, Only, Raw Only, and All Media.
 - **Live progress bar & cancellation**: Threaded scanning with single-open photo/video caching, live scanned/skipped counters, current subfolder display, ETA, elapsed time, and a **Cancel** button.
 - **Formatted output formats**: Excel (`.xlsx` with frozen header row, bold headers, AutoFilter, auto-fitted column widths, XML control-character scrubbing, and formula-injection neutralization), CSV (`.csv`), JSON (`.json`), and GitHub-Flavored Markdown (`.md`).
 - **Optional UTC conversion (Advanced)**: Pairs each matched EXIF datetime with its corresponding `OffsetTime*` tag and shifts timestamps to UTC before burst clustering and formatting.
-- **Optional extra metadata columns (Advanced)** via **Extra Metadata**: `Image Dimensions`, `File Size`, `Camera Make`, `Camera Model`, `Software`, `Lens Model`, `FNumber / Aperture`, `Exposure Time`, `Focal Length`, and `ISO` — each individually toggleable.
-- **Optional GPS coordinates (Advanced)**: `GPS Latitude` and `GPS Longitude` from the GPS IFD as signed decimal degrees (6-decimal precision), with an on-screen privacy notice when enabled.
+- **Optional extra metadata columns (Advanced)** via **Extra Metadata**: `Image Dimensions`, `File Size`, `Camera Make`, `Camera Model`, `Software`, `Lens Model`, `FNumber / Aperture`, `Exposure Time`, `Focal Length`, `Orientation` and `ISO` — each individually toggleable.
+- **Optional GPS coordinates (Advanced)**: `GPS Latitude` and `GPS Longitude` from the GPS IFD as signed decimal degrees (6-decimal precision), with an on-screen privacy notice when enabled, along with a **GPS Altitude** option.
 - **Clickable hyperlinks**: Links filenames in the `Files` column to the files on disk in Excel (`file:///` URIs) and Markdown (`[name](<url>)`). Unsupported in CSV and JSON.
+- **Optional Summary Sheet**: Includes item totals, items dated/undated, and series groups, as well as earliest/latest date in each folder.
+- **Clean UI**: Two-column UI with LabelFrames, checkbuttons, comboboxes, buttons, radiobuttons, entries, labels, and progressbar widgets.
 - **Path visibility, auto-open, & `warnings.log` viewer**: Displays truncated `Source:` and `Output:` paths in the main window, optionally opens the output folder on completion (**Auto-Open Output Folder**), and provides a **View warnings.log** button whenever warnings are written.
 - **Persistent settings**: Saves UI options and folder selections to `~/.metadata-extractor/settings.json` (Debug Mode is never persisted).
 
@@ -41,10 +44,9 @@ CSV and Markdown can't nest multiple sheets inside a single file, so in recursiv
 
 - **Video containers & timestamps**: `mvhd` timestamp extraction supports `.mp4` and `.mov` containers; `.mkv`, `.avi`, `.webm`, and `.wmv` cannot contribute timestamps (logged under `"Unsupported Video Format"`), and video timestamps are read as naive wall-clock time.
 - **Dateless videos**: Even with **Create Video Rows** enabled, videos without a readable `mvhd` timestamp do not produce output rows.
-- **Optional dependencies**: `.heic`/`.heif` decoding requires `pillow-heif` (without it, HEIC/HEIF files are skipped with `"HEIC/HEIF requires pillow-heif"` in `warnings.log`). Video dimensions in **Create Video Rows** require `hachoir`.
-- **Camera RAW formats**: Common RAW extensions are listed in `PHOTO_TYPES`, but no dedicated RAW EXIF reader/decoder is bundled beyond what Pillow opens natively.
+- **Optional dependencies**: `.heic`/`.heif` decoding requires `pillow-heif` (without it, HEIC/HEIF files are skipped with `"HEIC/HEIF requires pillow-heif"` in `warnings.log`). Video dimensions in **Create Video Rows** require `hachoir`. RAW support requires `exifread` installation.
 - **Hyperlinks**: Supported in Excel and Markdown only, not CSV or JSON.
-- **Markdown & GPS scope**: Markdown output does not include frontmatter, per-column alignment, or hyperlinks outside the `Files` column. GPS altitude (`GPSAltitudeRef`, `GPSAltitude`) and `GPSDateStamp` are not extracted.
+- **Markdown scope**: Markdown output does not include frontmatter, per-column alignment, or hyperlinks outside the `Files` column.
 
 ## Requirements
 
@@ -54,7 +56,7 @@ CSV and Markdown can't nest multiple sheets inside a single file, so in recursiv
 - openpyxl
 - tk-date-entry
 - tkinter (usually included with Python)
-- **Optional**: `pillow-heif` (for `.heic`/`.heif` support), `hachoir` (for video dimensions when **Create Video Rows** is enabled)
+- **Optional**: `pillow-heif` (for `.heic`/`.heif` support), `hachoir` (for video dimensions when **Create Video Rows** is enabled), `exifread` for RAW photo support.
 
 ## Basic usage
 
@@ -62,7 +64,7 @@ CSV and Markdown can't nest multiple sheets inside a single file, so in recursiv
 2. Click **Set folder with images** and choose the media folder, then click **Set output folder** and choose where exports should be saved.
 3. Optionally adjust **Photo grouping cutoff (default 2 seconds)**, enter a custom filename, or check **Add Hyperlinks**, **Keep Open After Scan**, and **Auto-Open Output Folder**.
 4. Check **Recursive Mode** if you want to scan subfolders, and enter a **Recursion Depth** (defaults to `1` if left unset).
-5. Switch to **Advanced** if you want **Debug Mode**, **Create Video Rows**, custom **Starting index**, **Sort Method**, **Date Range (Local Time)**, **Include Hidden Files**, **Time in UTC**, **GPS**, or **Extra Metadata** columns.
+5. Switch to **Advanced** if you want **Debug Mode**, **Create Video Rows**, custom **Starting index**, **Sort Method**, **Date Range (Local Time)**, **Include Hidden Files**, **Time in UTC**, **GPS**, **Date Format**, **Time Format** or **Extra Metadata** columns.
 6. Choose **Excel**, **CSV**, **JSON**, or **Markdown** output format.
 7. Click **Execute**. A live progress bar tracks the scan; if any warnings are logged, click **View warnings.log** afterward to inspect them.
 
