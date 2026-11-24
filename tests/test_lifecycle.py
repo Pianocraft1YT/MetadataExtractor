@@ -29,10 +29,12 @@ def _make_cfg(tmp_path):
         output_video_rows=False,
         date_range=False,
         date_format="%m/%d/%Y",
+        time_format="%H:%M:%S",
         start_date=None,
         end_date=None,
         include_hiddens=False,
         include_undateable=True,
+        media_filter="All Media",
         directory_path=tmp_path,
     )
 

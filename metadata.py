@@ -6,7 +6,7 @@
 # Please increment this counter as a warning
 # For the next person:
 #
-# hours_spent_original = 103
+# hours_spent_original = 105
 # hours_wasted_here = 0
 
 # Coded by Pianocraft1YT
@@ -158,10 +158,12 @@ class ScanConfig:
     output_video_rows: bool
     date_range: bool
     date_format: str
+    time_format: str
     start_date: date | None
     end_date: date | None
     include_hiddens: bool
     include_undateable: bool
+    media_filter: str
     filetype: str | None = None
     directory_path: Path | None = None
 
@@ -287,20 +289,24 @@ class MetadataExtractor:
         """Displays advanced_mode_frame when advanced mode radio is selected."""
         if self.user_mode_var.get() == "Advanced":
             self.advanced_mode_frame.pack(side="left", anchor="n", padx=10, pady=6)
-
-            # 1. Debug Mode
-            self.debug_checkbox.pack(padx=8, pady=2)
-
-            # 2. Extra Scan Options Frame
+            # Extra Scan Options Frame
             self.extra_scan_options_frame.pack(fill="x", padx=8, pady=4)
+            # Date Format
+            self.date_format_frame.pack(fill="x", padx=4, pady=4)
+            self.date_format_combobox.pack(fill="x", padx=4, pady=2)
+            # Time Format
+            self.time_format_frame.pack(after=self.date_format_frame, fill="x", padx=4, pady=4)
+            self.time_format_combobox.pack(fill="x", padx=4, pady=4)
+
             self.modifier_entry.pack(fill="x", padx=4, pady=3)
             self.video_rows_checkbox.pack(anchor="w", padx=4, pady=1)
             self.hidden_checkbox.pack(anchor="w", padx=4, pady=1)
+            self.media_filter_combobox.pack(anchor="w", padx=4, pady=1)
             self.utc_checkbox.pack(anchor="w", padx=4, pady=1)
             self.gps_checkbox.pack(anchor="w", padx=4, pady=1)
             self.gps_warning()
 
-            # 3. Sort Methods Frame
+            # Sort Methods Frame
             self.sort_methods_frame.pack(after=self.extra_scan_options_frame, fill="x", padx=8, pady=4)
             if len(self.sort_method_objects) > 0:
                 for sm in self.sort_method_objects:
@@ -311,17 +317,15 @@ class MetadataExtractor:
                     smr.pack(side="left", padx=2)
                     self.sort_method_objects.append(smr)
 
-            # Date Format
-            self.date_format_frame.pack(fill="x", padx=4, pady=4)
-            self.date_format_combobox.pack(fill="x", padx=4, pady=2)
-
-            # 4. Date Range section
+            # Date Range section
             self.date_range_checkbox.pack(anchor="w", padx=4, pady=1)
             self.date_range()
 
-            # 5. Extra Metadata section
+            # Extra Metadata section
             self.extra_exif_checkbox.pack(anchor="w", padx=4, pady=1)
             self.extra_exif()
+
+            self.debug_checkbox.pack(padx=8, pady=2)
 
             self.root.update_idletasks()
             self.root.geometry(f"{self.root.winfo_reqwidth()}x{self.root.winfo_reqheight()}")
@@ -1252,8 +1256,10 @@ class MetadataExtractor:
                 cfg.output_video_rows,
                 cfg.include_hiddens,
                 cfg.include_undateable,
+                cfg.media_filter,
                 cfg.date_range,
                 cfg.date_format,
+                cfg.time_format,
                 cfg.start_date,
                 cfg.end_date,
                 progress_callback=_on_progress,
@@ -1438,6 +1444,7 @@ class MetadataExtractor:
                 "Video Rows": self.video_rows_var.get(),
                 "Summary": self.summary_var.get(),
                 "Date Format": self.date_format_var.get(),
+                "Time Format": self.time_format_var.get(),
             }
             SETTINGS_PATH.write_text(json.dumps(settings, indent=2), encoding="utf-8")
         except (OSError, ValueError, TypeError, AttributeError, tk.TclError):
@@ -1536,6 +1543,9 @@ class MetadataExtractor:
                         elif key == "Date Format":
                             if value in self.date_formats:
                                 self.date_format_combobox.set(value)
+                        elif key == "Time Format":
+                            if value in self.time_formats:
+                                self.time_format_combobox.set(value)
                         elif key in key_to_checkbox_var and isinstance(value, bool):
                             key_to_checkbox_var[key].set(value)
                         elif key in key_to_checkbox_var:  # Value not a boolean
@@ -1711,8 +1721,10 @@ class MetadataExtractor:
         output_video_rows: bool,
         include_hiddens: bool,
         include_undateable: bool,
+        media_filter: str = "All Media",
         date_range: bool = False,
         date_format: str = "%m/%d/%Y",
+        time_format: str = "%H:%M:%S",
         start_date: date | None = None,
         end_date: date | None = None,
         progress_callback: Callable[[int, int, Path], None] | None = None,
@@ -1742,13 +1754,24 @@ class MetadataExtractor:
             if not self._destroyed:
                 self._safe_after(self.current_directory.set, "Counting files...")
             for dirpath, _, files in self.walk_and_filter(
-                directory_path, self.maxdepth, include_hiddens, date_range, start_date, end_date, include_undateable
+                directory_path,
+                self.maxdepth,
+                include_hiddens,
+                date_range,
+                start_date,
+                end_date,
+                include_undateable,
+                media_filter,
             ):
                 if self.cancel_event.is_set():
                     break
                 if not files:
                     continue
-                if not any(f.lower().endswith(PHOTO_TYPES) for f in files) and not output_video_rows:
+                if (
+                    not any(f.lower().endswith(PHOTO_TYPES) for f in files)
+                    and not output_video_rows
+                    and media_filter != "Videos Only"
+                ):
                     # All-videos folder produces nothing — bail early
                     self.collected_warnings["Only Video(s)"].append(dirpath)
                     continue
@@ -1800,6 +1823,7 @@ class MetadataExtractor:
                     output_gps,
                     output_video_rows,
                     date_format,
+                    time_format,
                     progress_callback=wrapped_cb,
                 )
                 self.total_processed += p
@@ -1818,6 +1842,7 @@ class MetadataExtractor:
         start_date: date | None = None,
         end_date: date | None = None,
         include_undateable: bool = True,
+        media_filter: str = "All Media",
     ) -> Iterator[tuple[str, list[str], list[str]]]:
         """Yields subdirectories one-by-one with os.walk to max_depth, while filtering based on include_hiddens, sorting using natural_key"""
         # Normalize the path and count baseline separators
@@ -1838,11 +1863,19 @@ class MetadataExtractor:
                 and not self._check_hidden(d, dirpath, include_hiddens)
             ]
             dirs.sort(key=lambda x: self.natural_key(x))
+            if media_filter == "Photos Only":
+                kept_filetypes = PHOTO_TYPES
+            elif media_filter == "Videos Only":
+                kept_filetypes = VIDEO_TYPES
+            elif media_filter == "RAW Only":
+                kept_filetypes = RAW_TYPES
+            else:
+                kept_filetypes = PHOTO_TYPES + VIDEO_TYPES
             # Symlinked files included for media_files, not directories
             media_files = [
                 f
                 for f in media_files
-                if not self._check_hidden(f, dirpath, include_hiddens) and f.lower().endswith(PHOTO_TYPES + VIDEO_TYPES)
+                if not self._check_hidden(f, dirpath, include_hiddens) and f.lower().endswith(kept_filetypes)
             ]
             # Sorts files alphabetically, ignoring file extensions and capitalization, ignoring any non-photo or non-video files
             media_files.sort(
@@ -1886,6 +1919,10 @@ class MetadataExtractor:
         date_format = self.date_format_combobox.get() if user_mode == "Advanced" else "MM/DD/YYYY"
         date_formats_dict = {"MM/DD/YYYY": "%m/%d/%Y", "YYYY-MM-DD": "%Y-%m-%d", "DD/MM/YYYY": "%d/%m/%Y"}
         date_format = date_formats_dict.get(date_format, "%m/%d/%Y")  # Convert to python format string
+        time_format = self.time_format_combobox.get() if user_mode == "Advanced" else "24-Hour (HH:MM:SS)"
+        time_formats_dict = {"24-Hour (HH:MM:SS)": "%H:%M:%S", "12-Hour (hh:mm:ss AM/PM)": "%I:%M:%S %p"}
+        time_format = time_formats_dict.get(time_format, "%H:%M:%S")
+        media_filter = self.media_filter_var.get() if user_mode == "Advanced" else "All Media"
         self.sort_method = self.sort_methods_var.get() if user_mode == "Advanced" else "Timestamp"
         if user_mode == "Advanced":
             debug = self.debug_var.get()
@@ -1895,6 +1932,8 @@ class MetadataExtractor:
             include_hiddens = self.hidden_var.get()
             val = self.modifier_entry.get().strip()
             output_video_rows = self.video_rows_var.get()
+            if media_filter == "Videos Only":
+                output_video_rows = True
             if val == "Starting index (Img # Series)" or val == "":
                 modifier = 0
             elif val.isascii() and val.isdigit() and int(val) > 0:
@@ -2007,10 +2046,12 @@ class MetadataExtractor:
             output_video_rows=output_video_rows,
             date_range=date_range,
             date_format=date_format,
+            time_format=time_format,
             start_date=start_date,
             end_date=end_date,
             include_hiddens=include_hiddens,
             include_undateable=include_undateable,
+            media_filter=media_filter,
         )
         if (
             (filetype == "CSV" or filetype == "Markdown")
@@ -2049,6 +2090,7 @@ class MetadataExtractor:
         output_gps: bool,
         output_video_rows: bool,
         date_format: str = "%m/%d/%Y",
+        time_format: str = "%H:%M:%S",
         progress_callback: Callable[[int, int, Path], None] | None = None,
     ) -> tuple[int, int]:
         """Creates pd.DataFrame from extracted EXIF metadata and groups by timestamp."""
@@ -2255,7 +2297,7 @@ class MetadataExtractor:
                     skipped = sum(1 for f in media_files if f.lower().endswith(PHOTO_TYPES)) - processed
             if not self.cancel_event.is_set():
                 data["Dates"], data["Times"] = self.fix_time(
-                    output_utc, data["Dates"], data["Offsets"], data["Images"], directory_path, date_format
+                    output_utc, data["Dates"], data["Offsets"], data["Images"], directory_path, date_format, time_format
                 )
             if not self.cancel_event.is_set():
                 self.create_dataframe(
@@ -2274,6 +2316,7 @@ class MetadataExtractor:
                     output_iso,
                     output_gps,
                     date_format,
+                    time_format,
                 )
             return processed, skipped  # For tallying total processed and skipped
         finally:
@@ -2306,6 +2349,7 @@ class MetadataExtractor:
         list_of_images: list[str],
         directory: str,
         date_format: str = "%m/%d/%Y",
+        time_format: str = "%H:%M:%S",
     ) -> tuple[list[str], list[str]]:
         """Splits list_of_dates into dates and times, formatted in MM/DD/YYYY, HH:MM:SS, offset by list_of_offsets if output_utc is True."""
         # Input format: "YYYY:MM:DD HH:MM:SS"
@@ -2337,7 +2381,7 @@ class MetadataExtractor:
                             f"{os.path.join(directory, list_of_images[offset_index])}"
                         )
             fixed_date.append(dt.strftime(date_format))
-            fixed_time.append(dt.strftime("%H:%M:%S"))
+            fixed_time.append(dt.strftime(time_format))
         return fixed_date, fixed_time
 
     # Creates summary dataframe for create_sheet to use
@@ -2427,6 +2471,7 @@ class MetadataExtractor:
         output_iso: bool,
         output_gps: bool,
         date_format: str = "%m/%d/%Y",
+        time_format: str = "%H:%M:%S",
     ) -> None:
         """Creates a pd.DataFrame from EXIF metadata for each key in "data", sorts by Date/Time if set, appends to self.results with current_sheet_name."""
         if data["Images"]:  # Make sure images are present.
@@ -2469,7 +2514,7 @@ class MetadataExtractor:
                         date_str = str(df["Dates"].iloc[idx]).strip()
                         time_str = str(df["Time"].iloc[idx]).strip() or "00:00:00"
                         try:
-                            dt_val = datetime.strptime(f"{date_str} {time_str}", f"{date_format} %H:%M:%S")
+                            dt_val = datetime.strptime(f"{date_str} {time_str}", f"{date_format} {time_format}")
                         except ValueError:
                             dt_val = None
                     sort_dts.append(dt_val)
@@ -2524,6 +2569,7 @@ class MetadataExtractor:
                     messagebox.showerror(
                         "Empty directory", "No photos or videos were found. Please select a valid directory."
                     )
+                    self.current_directory.set("No Files")
                 else:
                     messagebox.showerror("No data", "No valid photos with metadata were found.")
             else:
@@ -2689,6 +2735,7 @@ class MetadataExtractor:
             self.advanced_mode_frame, text="Extra Scan Options", padx=8, pady=6
         )
         self.date_format_frame = tk.LabelFrame(self.extra_scan_options_frame, text="Date Format", padx=8, pady=6)
+        self.time_format_frame = tk.LabelFrame(self.extra_scan_options_frame, text="Time Format", padx=8, pady=6)
         self.execute_button = tk.Button(self.actions_frame, command=self.initialize, text="Execute")
         self.cancel_button = tk.Button(self.actions_frame, command=self.cancel, text="Cancel", state="disabled")
         self.set_directory_button = tk.Button(self.folders_frame, command=self.set_dir, text="Set folder with images")
@@ -2832,6 +2879,11 @@ class MetadataExtractor:
         self.date_format_combobox = ttk.Combobox(
             self.date_format_frame, values=self.date_formats, state="readonly", textvariable=self.date_format_var
         )
+        self.time_formats = ["24-Hour (HH:MM:SS)", "12-Hour (hh:mm:ss AM/PM)"]
+        self.time_format_var = tk.StringVar(value="24-Hour (HH:MM:SS)")
+        self.time_format_combobox = ttk.Combobox(
+            self.time_format_frame, values=self.time_formats, state="readonly", textvariable=self.time_format_var
+        )
         # Set default sheet name
         self.current_sheet_name = "Sheet"
         # Collect warnings
@@ -2847,6 +2899,15 @@ class MetadataExtractor:
         # For output filetypes
         self.filetypes = ["Excel", "CSV", "JSON", "Markdown"]
         self.extensions = [".xlsx", ".csv", ".json", ".md"]
+        # For media filter
+        self.media_filters = ["All Media", "Photos Only", "Videos Only", "RAW Only"]
+        self.media_filter_var = tk.StringVar(value=self.media_filters[0])
+        self.media_filter_combobox = ttk.Combobox(
+            self.extra_scan_options_frame,
+            values=self.media_filters,
+            state="readonly",
+            textvariable=self.media_filter_var,
+        )
         # For sorting
         self.sort_methods = ["Timestamp", "Date (Oldest)", "Date (Newest)"]
         self.sort_method = "Timestamp"
@@ -2903,8 +2964,6 @@ class MetadataExtractor:
         self.file_options_frame.pack(after=self.folders_frame, side="top")
         self.scan_options_frame.pack(after=self.file_options_frame)
         self.open_options_frame.pack(after=self.scan_options_frame)
-        self.extra_scan_options_frame.pack()
-        self.date_format_frame.pack(pady=2)
         self.set_directory_button.pack()
         self.source_path_label.pack(after=self.set_directory_button)
         self.set_output_button.pack(after=self.source_path_label)

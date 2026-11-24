@@ -38,7 +38,9 @@ Extra Scan Options (LabelFrame):
   Starting Index Entry
   Create Video Rows
   Include Hidden Files
+  Media Filter
   Time in UTC
+  Time Format
   GPS (reveals Privacy Notice when checked)
 Sort Method (LabelFrame):
   Timestamp | Date (Oldest) | Date (Newest) Radios
