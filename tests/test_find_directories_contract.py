@@ -25,7 +25,9 @@ def _call(extractor, path, **kw):
         output_exposure_time=False,
         output_focal_length=False,
         output_iso=False,
+        output_orientation=False,
         output_gps=False,
+        output_gps_altitude=False,
         output_video_rows=False,
         **{"include_hiddens": False, "include_undateable": True, **kw},
     )

@@ -98,6 +98,8 @@ def test_create_dataframe_fallback_sort_parses_custom_date_format(extractor, tmp
         False,
         False,
         False,
+        False,
+        False,
         date_format="%Y-%m-%d",
     )
 

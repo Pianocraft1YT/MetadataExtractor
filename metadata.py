@@ -6,7 +6,7 @@
 # Please increment this counter as a warning
 # For the next person:
 #
-# hours_spent_original = 105
+# hours_spent_original = 106
 # hours_wasted_here = 0
 
 # Coded by Pianocraft1YT
@@ -77,6 +77,7 @@ EXIF_OFFSET_TIME_ORIGINAL = 36881
 EXIF_OFFSET_TIME_DIGITIZED = 36882
 EXIF_CAMERA_MAKE = 271
 EXIF_CAMERA_MODEL = 272
+EXIF_ORIENTATION = 274
 EXIF_SOFTWARE = 305
 EXIF_LENS_MODEL = 42036
 EXIF_APERTURE = 33437
@@ -142,20 +143,6 @@ class ScanConfig:
     final_output: Path
     modifier: int
     cutoff: float
-    output_summary: bool
-    output_utc: bool
-    output_dimensions: bool
-    output_filesize: bool
-    output_make: bool
-    output_model: bool
-    output_software: bool
-    output_lens_model: bool
-    output_aperture: bool
-    output_exposure_time: bool
-    output_focal_length: bool
-    output_iso: bool
-    output_gps: bool
-    output_video_rows: bool
     date_range: bool
     date_format: str
     time_format: str
@@ -164,6 +151,22 @@ class ScanConfig:
     include_hiddens: bool
     include_undateable: bool
     media_filter: str
+    output_summary: bool = False
+    output_utc: bool = False
+    output_dimensions: bool = False
+    output_filesize: bool = False
+    output_make: bool = False
+    output_model: bool = False
+    output_software: bool = False
+    output_lens_model: bool = False
+    output_aperture: bool = False
+    output_exposure_time: bool = False
+    output_focal_length: bool = False
+    output_iso: bool = False
+    output_orientation: bool = False
+    output_gps: bool = False
+    output_gps_altitude: bool = False
+    output_video_rows: bool = False
     filetype: str | None = None
     directory_path: Path | None = None
 
@@ -223,8 +226,10 @@ class MetadataExtractor:
         """Displays privacy warning when gps_checkbox is checked."""
         if self.gps_var.get():
             self.gps_warning_label.pack(after=self.gps_checkbox, fill="x", padx=4)
+            self.gps_altitude_checkbox.pack(before=self.gps_warning_label, anchor="w", padx=4, pady=1)
         else:
             self.gps_warning_label.pack_forget()
+            self.gps_altitude_checkbox.pack_forget()
         self.root.update_idletasks()
         self.root.geometry(f"{self.root.winfo_reqwidth()}x{self.root.winfo_reqheight()}")
 
@@ -408,7 +413,9 @@ class MetadataExtractor:
         return None, False, None
 
     def _read_photo_entry(
-        self, path: Path, flags: tuple[bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool] | None
+        self,
+        path: Path,
+        flags: tuple[bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool] | None,
     ) -> tuple[datetime | None, bool, str | None, dict[str, Any] | None, str | None]:
         """Extracts photo metadata based on flag state in flags, returns dict of values or None."""
         if flags is not None:
@@ -423,11 +430,13 @@ class MetadataExtractor:
             output_exposure_time = flags[8]
             output_focal_length = flags[9]
             output_iso = flags[10]
-            output_gps = flags[11]
+            output_orientation = flags[11]
+            output_gps = flags[12]
+            output_gps_altitude = flags[13]
         else:
             output_utc = output_dimensions = output_filesize = output_make = output_model = False
-            output_software = output_lens_model = output_aperture = False
-            output_exposure_time = output_focal_length = output_iso = output_gps = False
+            output_software = output_lens_model = output_aperture = output_gps_altitude = False
+            output_exposure_time = output_focal_length = output_iso = output_gps = output_orientation = False
         offset = None
         dimensions = None
         filesize = None
@@ -439,8 +448,10 @@ class MetadataExtractor:
         exposure_time = None
         focal_length = None
         iso = None
+        orientation = None
         gps_latitude = None
         gps_longitude = None
+        gps_altitude = None
         try:
             if not HEIF_SUPPORTED and path.suffix.lower() in (".heic", ".heif"):
                 return (None, False, None, None, "HEIC/HEIF requires pillow-heif")
@@ -482,6 +493,8 @@ class MetadataExtractor:
                     focal_length = self._format_focal_length(self._exif_get(EXIF_FOCAL_LENGTH, general_ifd, exif_data))
                 if output_iso:
                     iso = self._format_iso(self._exif_get(EXIF_ISO, general_ifd, exif_data))
+                if output_orientation:
+                    orientation = self._format_orientation(exif_data.get(EXIF_ORIENTATION))
                 if output_gps and gps_ifd:
                     lat_ref = gps_ifd.get(1)
                     lat = gps_ifd.get(2)
@@ -489,6 +502,23 @@ class MetadataExtractor:
                     long = gps_ifd.get(4)
                     gps_latitude = self._format_gps_coord(lat, lat_ref)
                     gps_longitude = self._format_gps_coord(long, long_ref)
+                    if output_gps_altitude:
+                        gps_altitude_ref = gps_ifd.get(5)
+                        gps_altitude = gps_ifd.get(6)
+                        if gps_altitude_ref:
+                            if gps_altitude_ref in (0, b"\x00", "0"):
+                                ref = "+"
+                            elif gps_altitude_ref in (1, b"\x01", "1"):
+                                ref = "-"
+                            elif gps_altitude_ref == "":
+                                ref = "+"
+                            else:
+                                gps_altitude = None
+                        else:
+                            ref = "+"
+                        if gps_altitude:
+                            gps_altitude = self._format_gps_altitude(gps_altitude, ref)
+
                 fields = {
                     "Offsets": offset,
                     "Dimensions": dimensions,
@@ -503,6 +533,8 @@ class MetadataExtractor:
                     "ISOs": iso,
                     "GPS_Latitudes": gps_latitude,
                     "GPS_Longitudes": gps_longitude,
+                    "GPS_Altitudes": gps_altitude,
+                    "Orientations": orientation,
                 }
             else:
                 fields = None
@@ -511,7 +543,9 @@ class MetadataExtractor:
             return None, False, None, None, str(e)
 
     def _read_raw_photo_entry(
-        self, path: Path, flags: tuple[bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool] | None
+        self,
+        path: Path,
+        flags: tuple[bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool] | None,
     ) -> tuple[datetime | None, bool, str | None, dict[str, Any] | None, str | None]:
         try:
             if flags is not None:
@@ -526,11 +560,13 @@ class MetadataExtractor:
                 output_exposure_time = flags[8]
                 output_focal_length = flags[9]
                 output_iso = flags[10]
-                output_gps = flags[11]
+                output_orientation = flags[11]
+                output_gps = flags[12]
+                output_gps_altitude = flags[13]
             else:
                 output_utc = output_dimensions = output_filesize = output_make = output_model = False
-                output_software = output_lens_model = output_aperture = False
-                output_exposure_time = output_focal_length = output_iso = output_gps = False
+                output_software = output_lens_model = output_aperture = output_gps_altitude = False
+                output_exposure_time = output_focal_length = output_iso = output_gps = output_orientation = False
             offset = None
             dimensions = None
             filesize = None
@@ -542,8 +578,10 @@ class MetadataExtractor:
             exposure_time = None
             focal_length = None
             iso = None
+            orientation = None
             gps_latitude = None
             gps_longitude = None
+            gps_altitude = None
             with open(path, "rb") as f:
                 tags = exifread.process_file(f, details=False)  # details=False skips makerinfo and thumbnails
             datetime_priority_pairs = [
@@ -591,6 +629,11 @@ class MetadataExtractor:
                 if output_iso:
                     iso_tag = tags.get("EXIF ISOSpeedRatings")
                     iso = self._format_iso(getattr(iso_tag, "values", None) if iso_tag is not None else None)
+                if output_orientation:
+                    orientation_tag = tags.get("Image Orientation")
+                    raw_values = getattr(orientation_tag, "values", None)
+                    orientation = raw_values[0] if isinstance(raw_values, (list, tuple)) and raw_values else raw_values
+                    orientation = self._format_orientation(orientation)
                 if output_gps:
                     lat_tag = tags.get("GPS GPSLatitude")
                     lat_ref = self._raw_tag_str(tags, "GPS GPSLatitudeRef")
@@ -606,6 +649,19 @@ class MetadataExtractor:
                             (r.num, r.den) if hasattr(r, "num") and hasattr(r, "den") else r for r in lon_tag.values
                         )
                         gps_longitude = self._format_gps_coord(lon_dms, lon_ref)
+                    if output_gps_altitude:
+                        gps_altitude_tag = tags.get("GPS GPSAltitude")
+                        gps_altitude = self._raw_rational(gps_altitude_tag)
+                        gps_altitude_ref_tag = tags.get("GPS GPSAltitudeRef")
+                        gps_altitude_ref_tag = self._raw_rational(gps_altitude_ref_tag)
+                        if gps_altitude_ref_tag in (0, b"\x00", "0"):
+                            ref = "+"
+                        elif gps_altitude_ref_tag in (1, b"\x01", "1"):
+                            ref = "-"
+                        else:
+                            gps_altitude = None
+                        if gps_altitude:
+                            gps_altitude = self._format_gps_altitude(gps_altitude_tag, ref)
                 fields = {
                     "Offsets": offset,
                     "Dimensions": dimensions,
@@ -620,6 +676,8 @@ class MetadataExtractor:
                     "ISOs": iso,
                     "GPS_Latitudes": gps_latitude,
                     "GPS_Longitudes": gps_longitude,
+                    "GPS_Altitudes": gps_altitude,
+                    "Orientations": orientation,
                 }
             else:
                 fields = None
@@ -875,6 +933,26 @@ class MetadataExtractor:
         except (TypeError, ValueError):
             return ""
 
+    @staticmethod
+    def _format_orientation(val: Any) -> str | None:
+        if val is None:
+            return None
+        try:
+            code = int(val)
+        except (TypeError, ValueError):
+            return str(val)
+        mapping = {
+            1: "Normal",
+            2: "Mirrored Horizontal",
+            3: "Rotated 180°",
+            4: "Mirrored Vertical",
+            5: "Mirrored Horizontal & Rotated 270° CW",
+            6: "Rotated 90° CW",
+            7: "Mirrored Horizontal & Rotated 90° CW",
+            8: "Rotated 270° CW",
+        }
+        return mapping.get(code, str(code))
+
     def _dataframe_to_txt(self, df: pd.DataFrame, directory: Any = None, hyperlinks: bool = False) -> str:
         """Renders a DataFrame as a Markdown table, using directory to create hyperlinks if hyperlinks is True."""
 
@@ -971,6 +1049,15 @@ class MetadataExtractor:
                 return datetime.strptime(s, "%Y:%m:%d %H:%M:%S.%f"), True
             except ValueError:
                 return None, False
+
+    def _format_gps_altitude(self, altitude: float | None, ref: str) -> str | None:
+        """Turns GPS altitude rational into str."""
+        altitude = self._rational_to_float(altitude)
+        if altitude is not None:
+            if ref == "-":
+                altitude *= -1.0
+            return f"{altitude:.1f} m"
+        return None
 
     def _format_gps_coord(self, dms_tuple: Any, ref: Any) -> str | None:
         """Turns a GPS degrees, minutes, seconds tuple to a string."""
@@ -1252,7 +1339,9 @@ class MetadataExtractor:
                 cfg.output_exposure_time,
                 cfg.output_focal_length,
                 cfg.output_iso,
+                cfg.output_orientation,
                 cfg.output_gps,
+                cfg.output_gps_altitude,
                 cfg.output_video_rows,
                 cfg.include_hiddens,
                 cfg.include_undateable,
@@ -1294,7 +1383,7 @@ class MetadataExtractor:
         cancelled = self.cancel_event.is_set()
         try:
             if not cancelled:
-                self.create_sheet(final_output, processed, skipped, output_summary, date_format)
+                self.create_sheet(final_output, processed, skipped, date_format, output_summary)
         except Exception as e:  # noqa: BLE001
             self.collected_warnings["Unexpected"].append(f"_clean_up/create_sheet: {e}\n{traceback.format_exc()}")
         finally:
@@ -1379,7 +1468,9 @@ class MetadataExtractor:
             "ISOs": [],
             "GPS_Latitudes": [],
             "GPS_Longitudes": [],
+            "GPS_Altitudes": [],
             "Sort_Timestamps": [],
+            "Orientations": [],
         }
 
     # Saves settings to a JSON file at SETTINGS_PATH
@@ -1433,7 +1524,9 @@ class MetadataExtractor:
                 "Exposure Time": self.exposure_time_var.get(),
                 "Focal Length": self.focal_length_var.get(),
                 "ISO": self.iso_var.get(),
+                "Orientation": self.orientation_var.get(),
                 "GPS": self.gps_var.get(),
+                "GPS Altitude": self.gps_altitude_var.get(),
                 "Include Hiddens": self.hidden_var.get(),
                 "Sort Method": self.sort_methods_var.get(),
                 "User Mode": self.user_mode_var.get(),
@@ -1476,12 +1569,14 @@ class MetadataExtractor:
                 "Focal Length": self.focal_length_var,
                 "ISO": self.iso_var,
                 "GPS": self.gps_var,
+                "GPS Altitude": self.gps_altitude_var,
                 "Include Hiddens": self.hidden_var,
                 "Include Undateable": self.include_undateable_var,
                 "Auto-Open Output": self.open_folder_var,
                 "Filesize": self.filesize_var,
                 "Video Rows": self.video_rows_var,
                 "Summary": self.summary_var,
+                "Orientation": self.orientation_var,
             }
             data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
             for key, value in data.items():
@@ -1635,18 +1730,20 @@ class MetadataExtractor:
         directory_path: str,
         filename: str,
         data: dict,
-        output_utc: bool,
-        output_dimensions: bool,
-        output_filesize: bool,
-        output_make: bool,
-        output_model: bool,
-        output_software: bool,
-        output_lens_model: bool,
-        output_aperture: bool,
-        output_exposure_time: bool,
-        output_focal_length: bool,
-        output_iso: bool,
-        output_gps: bool,
+        output_utc: bool = False,
+        output_dimensions: bool = False,
+        output_filesize: bool = False,
+        output_make: bool = False,
+        output_model: bool = False,
+        output_software: bool = False,
+        output_lens_model: bool = False,
+        output_aperture: bool = False,
+        output_exposure_time: bool = False,
+        output_focal_length: bool = False,
+        output_iso: bool = False,
+        output_orientation: bool = False,
+        output_gps: bool = False,
+        output_gps_altitude: bool = False,
     ) -> bool:
         """Extracts EXIF metadata from an image file and appends each to a key in the "data" dict. Returns True on success."""
         flags = (
@@ -1661,7 +1758,9 @@ class MetadataExtractor:
             output_exposure_time,
             output_focal_length,
             output_iso,
+            output_orientation,
             output_gps,
+            output_gps_altitude,
         )
         path = Path(directory_path) / filename
         entry = None
@@ -1706,21 +1805,23 @@ class MetadataExtractor:
         directory_path: Path,
         modifier: int,
         cutoff: float,
-        output_utc: bool,
-        output_dimensions: bool,
-        output_filesize: bool,
-        output_make: bool,
-        output_model: bool,
-        output_software: bool,
-        output_lens_model: bool,
-        output_aperture: bool,
-        output_exposure_time: bool,
-        output_focal_length: bool,
-        output_iso: bool,
-        output_gps: bool,
-        output_video_rows: bool,
-        include_hiddens: bool,
-        include_undateable: bool,
+        output_utc: bool = False,
+        output_dimensions: bool = False,
+        output_filesize: bool = False,
+        output_make: bool = False,
+        output_model: bool = False,
+        output_software: bool = False,
+        output_lens_model: bool = False,
+        output_aperture: bool = False,
+        output_exposure_time: bool = False,
+        output_focal_length: bool = False,
+        output_iso: bool = False,
+        output_orientation: bool = False,
+        output_gps: bool = False,
+        output_gps_altitude: bool = False,
+        output_video_rows: bool = False,
+        include_hiddens: bool = False,
+        include_undateable: bool = False,
         media_filter: str = "All Media",
         date_range: bool = False,
         date_format: str = "%m/%d/%Y",
@@ -1748,7 +1849,9 @@ class MetadataExtractor:
                 output_exposure_time,
                 output_focal_length,
                 output_iso,
+                output_orientation,
                 output_gps,
+                output_gps_altitude,
             )
             file_count = 0
             if not self._destroyed:
@@ -1820,7 +1923,9 @@ class MetadataExtractor:
                     output_exposure_time,
                     output_focal_length,
                     output_iso,
+                    output_orientation,
                     output_gps,
+                    output_gps_altitude,
                     output_video_rows,
                     date_format,
                     time_format,
@@ -1901,6 +2006,7 @@ class MetadataExtractor:
         output_utc = False
         date_range = False
         output_gps = False
+        output_gps_altitude = False
         output_video_rows = False
         include_hiddens = False
         include_undateable = False
@@ -1914,6 +2020,7 @@ class MetadataExtractor:
         output_exposure_time = False
         output_focal_length = False
         output_iso = False
+        output_orientation = False
         start_date = None
         end_date = None
         date_format = self.date_format_combobox.get() if user_mode == "Advanced" else "MM/DD/YYYY"
@@ -1929,6 +2036,8 @@ class MetadataExtractor:
             output_utc = self.utc_var.get()
             date_range = self.date_range_var.get()
             output_gps = self.gps_var.get()
+            if output_gps:
+                output_gps_altitude = self.gps_altitude_var.get()
             include_hiddens = self.hidden_var.get()
             val = self.modifier_entry.get().strip()
             output_video_rows = self.video_rows_var.get()
@@ -1954,6 +2063,7 @@ class MetadataExtractor:
                 output_exposure_time = self.exposure_time_var.get()
                 output_focal_length = self.focal_length_var.get()
                 output_iso = self.iso_var.get()
+                output_orientation = self.orientation_var.get()
             if date_range:
                 include_undateable = self.include_undateable_var.get()
                 start_date = self.start_date_entry.get_date()
@@ -2042,7 +2152,9 @@ class MetadataExtractor:
             output_exposure_time=output_exposure_time,
             output_focal_length=output_focal_length,
             output_iso=output_iso,
+            output_orientation=output_orientation,
             output_gps=output_gps,
+            output_gps_altitude=output_gps_altitude,
             output_video_rows=output_video_rows,
             date_range=date_range,
             date_format=date_format,
@@ -2076,19 +2188,21 @@ class MetadataExtractor:
         modifier: int,
         media_files: list[str],
         cutoff: float,
-        output_utc: bool,
-        output_dimensions: bool,
-        output_filesize: bool,
-        output_make: bool,
-        output_model: bool,
-        output_software: bool,
-        output_lens_model: bool,
-        output_aperture: bool,
-        output_exposure_time: bool,
-        output_focal_length: bool,
-        output_iso: bool,
-        output_gps: bool,
-        output_video_rows: bool,
+        output_utc: bool = False,
+        output_dimensions: bool = False,
+        output_filesize: bool = False,
+        output_make: bool = False,
+        output_model: bool = False,
+        output_software: bool = False,
+        output_lens_model: bool = False,
+        output_aperture: bool = False,
+        output_exposure_time: bool = False,
+        output_focal_length: bool = False,
+        output_iso: bool = False,
+        output_orientation: bool = False,
+        output_gps: bool = False,
+        output_gps_altitude: bool = False,
+        output_video_rows: bool = False,
         date_format: str = "%m/%d/%Y",
         time_format: str = "%H:%M:%S",
         progress_callback: Callable[[int, int, Path], None] | None = None,
@@ -2111,7 +2225,9 @@ class MetadataExtractor:
                     output_exposure_time,
                     output_focal_length,
                     output_iso,
+                    output_orientation,
                     output_gps,
+                    output_gps_altitude,
                 )
             processed = 0  # Processed files this turn; increments by photos_before_video, although scan_image only scans last photo of a series
             skipped = 0  # Skipped files this turn
@@ -2188,7 +2304,9 @@ class MetadataExtractor:
                                 output_exposure_time,
                                 output_focal_length,
                                 output_iso,
+                                output_orientation,
                                 output_gps,
+                                output_gps_altitude,
                             )
                             if ok:
                                 ts_dt = timestamped_to_file[file][0].strftime("%Y:%m:%d %H:%M:%S")
@@ -2273,7 +2391,9 @@ class MetadataExtractor:
                             output_exposure_time,
                             output_focal_length,
                             output_iso,
+                            output_orientation,
                             output_gps,
+                            output_gps_altitude,
                         )
                         if ok:
                             img_series.append("")
@@ -2314,7 +2434,9 @@ class MetadataExtractor:
                     output_exposure_time,
                     output_focal_length,
                     output_iso,
+                    output_orientation,
                     output_gps,
+                    output_gps_altitude,
                     date_format,
                     time_format,
                 )
@@ -2347,7 +2469,7 @@ class MetadataExtractor:
         list_of_dates: list[str],
         list_of_offsets: list[str | None],
         list_of_images: list[str],
-        directory: str,
+        directory: str = "",
         date_format: str = "%m/%d/%Y",
         time_format: str = "%H:%M:%S",
     ) -> tuple[list[str], list[str]]:
@@ -2459,17 +2581,19 @@ class MetadataExtractor:
         img_series: list[str],
         data: dict,
         directory_path: str,
-        output_dimensions: bool,
-        output_filesize: bool,
-        output_make: bool,
-        output_model: bool,
-        output_software: bool,
-        output_lens_model: bool,
-        output_aperture: bool,
-        output_exposure_time: bool,
-        output_focal_length: bool,
-        output_iso: bool,
-        output_gps: bool,
+        output_dimensions: bool = False,
+        output_filesize: bool = False,
+        output_make: bool = False,
+        output_model: bool = False,
+        output_software: bool = False,
+        output_lens_model: bool = False,
+        output_aperture: bool = False,
+        output_exposure_time: bool = False,
+        output_focal_length: bool = False,
+        output_iso: bool = False,
+        output_orientation: bool = False,
+        output_gps: bool = False,
+        output_gps_altitude: bool = False,
         date_format: str = "%m/%d/%Y",
         time_format: str = "%H:%M:%S",
     ) -> None:
@@ -2501,9 +2625,13 @@ class MetadataExtractor:
                 df_data["Focal Length"] = data["Focal_Lengths"]
             if output_iso:
                 df_data["ISO"] = data["ISOs"]
+            if output_orientation:
+                df_data["Orientation"] = data["Orientations"]
             if output_gps:
                 df_data["GPS Latitude"] = data["GPS_Latitudes"]
                 df_data["GPS Longitude"] = data["GPS_Longitudes"]
+                if output_gps_altitude:
+                    df_data["GPS Altitude"] = data["GPS_Altitudes"]
             df = pd.DataFrame(df_data)  # Create DataFrame
             if self.sort_method in ("Date (Oldest)", "Date (Newest)"):
                 raw_ts = data.get("Sort_Timestamps")
@@ -2552,8 +2680,8 @@ class MetadataExtractor:
         output_path: Path,
         total_processed: int,
         total_skipped: int,
-        output_summary: bool = False,
         date_format: str = "%m/%d/%Y",
+        output_summary: bool = False,
     ) -> None:
         """Creates Excel, CSV, JSON, and Markdown File(s) using self.results DataFrame(s). Displays total images processed and skipped, as well as writes a warning log if needed."""
         try:
@@ -2809,6 +2937,10 @@ class MetadataExtractor:
             text="Coordinates may reveal sensitive location information",
             foreground="gray",
         )
+        self.gps_altitude_var = tk.BooleanVar(value=False)
+        self.gps_altitude_checkbox = tk.Checkbutton(
+            self.extra_scan_options_frame, text="GPS Altitude", variable=self.gps_altitude_var
+        )
         self.hidden_var = tk.BooleanVar(value=False)
         self.hidden_checkbox = tk.Checkbutton(
             self.extra_scan_options_frame, text="Include Hidden Files", variable=self.hidden_var
@@ -2850,6 +2982,10 @@ class MetadataExtractor:
         )
         self.iso_var = tk.BooleanVar(value=False)
         self.iso_checkbox = tk.Checkbutton(self.extra_exif_frame, text="ISO", variable=self.iso_var)
+        self.orientation_var = tk.BooleanVar(value=False)
+        self.orientation_checkbox = tk.Checkbutton(
+            self.extra_exif_frame, text="Orientation", variable=self.orientation_var
+        )
         self.filesize_var = tk.BooleanVar(value=False)
         self.filesize_checkbox = tk.Checkbutton(self.extra_exif_frame, text="File Size", variable=self.filesize_var)
         self.extra_exif_options = [
@@ -2863,6 +2999,7 @@ class MetadataExtractor:
             self.focal_length_checkbox,
             self.iso_checkbox,
             self.filesize_checkbox,
+            self.orientation_checkbox,
         ]
         self.source_path_var = tk.StringVar()
         self.output_path_var = tk.StringVar()

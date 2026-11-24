@@ -15,6 +15,8 @@ _EXTRA_OFF = dict(
     output_focal_length=False,
     output_iso=False,
     output_gps=False,
+    output_gps_altitude=False,
+    output_orientation=False,
 )
 
 # Shared defaults for dataframe creation
@@ -24,6 +26,8 @@ _DF_OFF = dict(
     output_focal_length=False,
     output_iso=False,
     output_gps=False,
+    output_gps_altitude=False,
+    output_orientation=False,
 )
 
 
@@ -46,6 +50,8 @@ def test_empty_scan_data_has_all_expected_keys(extractor):
         "ISOs",
         "GPS_Latitudes",
         "GPS_Longitudes",
+        "GPS_Altitudes",
+        "Orientations",
         "Sort_Timestamps",
     }
     assert set(data.keys()) == expected
@@ -71,7 +77,9 @@ def _scan_extras(extractor, tmp_path, media_files, **extras):
         output_exposure_time=extras.get("exposure_time", False),
         output_focal_length=extras.get("focal_length", False),
         output_iso=extras.get("iso", False),
+        output_orientation=extras.get("orientation", False),
         output_gps=False,
+        output_gps_altitude=False,
     )
     return ok, data
 
@@ -233,7 +241,9 @@ def test_create_dataframe_empty_data_skips_sheet(extractor, tmp_path):
         False,  # output_exposure_time
         False,  # output_focal_length
         False,  # output_iso
+        False,  # output_orientation
         False,  # output_gps
+        False,  # output_gps_altitude
     )
     assert len(extractor.results) == 0
 

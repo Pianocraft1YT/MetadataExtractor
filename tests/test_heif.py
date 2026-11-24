@@ -9,8 +9,8 @@ import metadata
 from tests.conftest import make_jpeg_with_exif
 from tests.helpers import find_scan, sort_scan
 
-_ALL_FLAGS_OFF = (False,) * 12
-_ALL_FLAGS_ON = (True,) * 12
+_ALL_FLAGS_OFF = (False,) * 14
+_ALL_FLAGS_ON = (True,) * 14
 
 _EXTRA_OFF = dict(
     output_utc=False,
