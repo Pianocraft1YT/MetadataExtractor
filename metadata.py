@@ -1301,6 +1301,7 @@ class MetadataExtractor:
         self.cancel_button.config(state="normal")
         self.set_directory_button.config(state="disabled")
         self.set_output_button.config(state="disabled")
+        self.reset_settings_button.config(state="disabled")
         threading.Thread(
             target=self._run_scan_threaded,
             args=(cfg,),
@@ -1393,6 +1394,7 @@ class MetadataExtractor:
                 self.cancel_button.config(state="disabled")
                 self.set_directory_button.config(state="normal")
                 self.set_output_button.config(state="normal")
+                self.reset_settings_button.config(state="normal")
                 self._active_filetype = None
                 cancelled = self.cancel_event.is_set()
                 if cancelled:
@@ -1433,6 +1435,69 @@ class MetadataExtractor:
         self.last_warnings_log = None
         self.view_log_button.config(state="disabled")
         self._cleanup_pending = False
+
+    def reset_settings(self) -> None:
+        """Reset all settings to default by deleting SETTINGS_PATH."""
+        if messagebox.askyesno("Reset Settings?", "Reset all settings to defaults and clear saved preferences?"):
+            try:
+                SETTINGS_PATH.unlink(missing_ok=True)
+                self.directory_path = None
+                self.output_path = None
+                self.maxdepth = 0
+                self.sort_method = "Timestamp"
+                self._update_path_labels()
+                self.hyperlink_var.set(True)
+                self.include_undateable_var.set(True)
+                for var in [
+                    self.keepopen_var,
+                    self.open_folder_var,
+                    self.recursive_var,
+                    self.summary_var,
+                    self.video_rows_var,
+                    self.hidden_var,
+                    self.utc_var,
+                    self.gps_var,
+                    self.gps_altitude_var,
+                    self.date_range_var,
+                    self.extra_exif_var,
+                    self.dimensions_var,
+                    self.filesize_var,
+                    self.make_var,
+                    self.model_var,
+                    self.software_var,
+                    self.lens_model_var,
+                    self.aperture_var,
+                    self.exposure_time_var,
+                    self.focal_length_var,
+                    self.iso_var,
+                    self.orientation_var,
+                    self.debug_var,
+                ]:
+                    var.set(False)
+                self.filetype_var.set("Excel")
+                self.user_mode_var.set("Basic")
+                self.sort_methods_var.set("Timestamp")
+                self.media_filter_combobox.set("All Media")
+                self.date_format_combobox.set("MM/DD/YYYY")
+                self.time_format_combobox.set("24-Hour (HH:MM:SS)")
+                self.start_date_entry.set_date(None)
+                self.end_date_entry.set_date(None)
+                for entry in [self.name_entry, self.modifier_entry, self.maxdepth_entry, self.burst_cutoff_entry]:
+                    entry.delete(0, "end")
+                    entry.config(foreground="gray")
+                self.name_entry.insert(0, "Filename (default output.filetype)")
+                self.modifier_entry.insert(0, "Starting index (Img # Series)")
+                self.maxdepth_entry.insert(0, "Recursion Depth (#)")
+                self.burst_cutoff_entry.insert(0, "Photo grouping cutoff (default 2 seconds)")
+                self.recursive_input()
+                self.gps_warning()
+                self.date_range()
+                self.extra_exif()
+                self.user_mode()
+            except OSError:
+                messagebox.showerror(
+                    "Setting Reset Failed", f"{SETTINGS_PATH} couldn't be removed. Manual removal may work."
+                )
 
     def _clear_scan_cache(self) -> None:
         """Clears _photo_cache, _video_cache, and _scan_cache_flags."""
@@ -2893,6 +2958,7 @@ class MetadataExtractor:
         self.cancel_button = tk.Button(self.actions_frame, command=self.cancel, text="Cancel", state="disabled")
         self.set_directory_button = tk.Button(self.folders_frame, command=self.set_dir, text="Set folder with images")
         self.set_output_button = tk.Button(self.folders_frame, command=self.set_output, text="Set output folder")
+        self.reset_settings_button = tk.Button(self.actions_frame, command=self.reset_settings, text="Reset Settings")
         self.keepopen_var = tk.BooleanVar(value=False)
         self.keepopen_checkbox = tk.Checkbutton(
             self.open_options_frame, text="Keep Open After Scan", variable=self.keepopen_var
@@ -3078,7 +3144,7 @@ class MetadataExtractor:
         self.maxdepth = 0
         # For cancel event (set by cancel(), checked in loops, cleared in check_recursive)
         self.cancel_event = threading.Event()
-        # Guard so _clean_up can't fire twice through nested dialogs
+        # Guard sfo _clean_up can't fire twice through nested dialogs
         self._cleanup_pending = False
         # For ETA
         self.time_started = None
@@ -3147,6 +3213,7 @@ class MetadataExtractor:
         self.execute_button.pack()
         self.cancel_button.pack(after=self.execute_button)
         self.view_log_button.pack(after=self.cancel_button)
+        self.reset_settings_button.pack(after=self.view_log_button)
         self.progress_bar.pack()  # First in progress_frame
         self.directory_label.pack()
         self.scanned_label.pack()

@@ -86,3 +86,5 @@ Created from new tags/releases and old tags/releases from past repo.
 | v4.7.0 | 2026-11-23 | UI Redesign -> Two column format with LabelFrames |
 | v4.8.0 | 2026-11-23 | Time Format (24h, 12h), Media Type Filter |
 | v4.9.0 | 2026-11-24 | GPS Altitude, Orientation |
+| v4.10.0 | 2026-11-24 | Summary Sheet `File Size` Column and Hyperlinks |
+| v4.11.0 | 2026-11-24 | Reset Settings Button |

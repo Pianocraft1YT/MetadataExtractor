@@ -24,10 +24,10 @@ Release History/Roadmap found here: https://github.com/Pianocraft1YT/MetadataExt
 - **Optional extra metadata columns (Advanced)** via **Extra Metadata**: `Image Dimensions`, `File Size`, `Camera Make`, `Camera Model`, `Software`, `Lens Model`, `FNumber / Aperture`, `Exposure Time`, `Focal Length`, `Orientation` and `ISO` — each individually toggleable.
 - **Optional GPS coordinates (Advanced)**: `GPS Latitude` and `GPS Longitude` from the GPS IFD as signed decimal degrees (6-decimal precision), with an on-screen privacy notice when enabled, along with a **GPS Altitude** option.
 - **Clickable hyperlinks**: Links filenames in the `Files` column to the files on disk in Excel (`file:///` URIs) and Markdown (`[name](<url>)`). Unsupported in CSV and JSON.
-- **Optional Summary Sheet**: Includes item totals, items dated/undated, and series groups, as well as earliest/latest date in each folder.
+- **Optional Summary Sheet**: Includes item totals, items dated/undated, and series groups, as well as earliest/latest date in each folder and total file size.
 - **Clean UI**: Two-column UI with LabelFrames, checkbuttons, comboboxes, buttons, radiobuttons, entries, labels, and progressbar widgets.
 - **Path visibility, auto-open, & `warnings.log` viewer**: Displays truncated `Source:` and `Output:` paths in the main window, optionally opens the output folder on completion (**Auto-Open Output Folder**), and provides a **View warnings.log** button whenever warnings are written.
-- **Persistent settings**: Saves UI options and folder selections to `~/.metadata-extractor/settings.json` (Debug Mode is never persisted).
+- **Persistent settings**: Saves UI options and folder selections to `~/.metadata-extractor/settings.json` (Debug Mode is never persisted). Resettable via `Reset Settings` button.
 
 ## Output formats
 
