@@ -26,15 +26,13 @@ import struct
 import sys
 import threading
 import time
-import tkinter as tk
 import traceback
 from collections import defaultdict
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
-from typing import Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 import openpyxl
 import pandas as pd
@@ -42,10 +40,31 @@ from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 from PIL import Image
-from tk_date_entry import DateEntry
 
 from video_metadata import extract_video_metadata
 
+if TYPE_CHECKING:
+    import tkinter as tk
+    from tkinter import filedialog, messagebox, ttk
+
+    from tk_date_entry import DateEntry
+
+    GUI_SUPPORTED = True
+else:
+    try:
+        import tkinter as tk
+        from tkinter import filedialog, messagebox, ttk
+
+        from tk_date_entry import DateEntry
+
+        GUI_SUPPORTED = True
+    except ImportError:
+        tk = None
+        filedialog = None
+        messagebox = None
+        ttk = None
+        DateEntry = None
+        GUI_SUPPORTED = False
 try:
     import pillow_heif
 
@@ -189,49 +208,49 @@ class _CliVar(Generic[_T]):
 class MetadataExtractor:
 
     # Cosmetic only, adds placeholder text in entry boxes
-    def nameFocusIn(self, event: tk.Event) -> None:
+    def nameFocusIn(self, event: "tk.Event") -> None:
         """Clears default text for name_entry on user focus in."""
         if self.name_entry.get() == "Filename (default output.filetype)":
             self.name_entry.delete(0, "end")
             self.name_entry.config(foreground="black")
 
-    def nameFocusOut(self, event: tk.Event) -> None:
+    def nameFocusOut(self, event: "tk.Event") -> None:
         """Inserts default text for name_entry on user focus out if blank."""
         if self.name_entry.get() == "":
             self.name_entry.insert(0, "Filename (default output.filetype)")
             self.name_entry.config(foreground="gray")
 
-    def modifierFocusIn(self, event: tk.Event) -> None:
+    def modifierFocusIn(self, event: "tk.Event") -> None:
         """Clears default text for modifier_entry on user focus in."""
         if self.modifier_entry.get() == "Starting index (Img # Series)":
             self.modifier_entry.delete(0, "end")
             self.modifier_entry.config(foreground="black")
 
-    def modifierFocusOut(self, event: tk.Event) -> None:
+    def modifierFocusOut(self, event: "tk.Event") -> None:
         """Inserts default text for modifier_entry on user focus out if blank."""
         if self.modifier_entry.get() == "":
             self.modifier_entry.insert(0, "Starting index (Img # Series)")
             self.modifier_entry.config(foreground="gray")
 
-    def maxDepthFocusIn(self, event: tk.Event) -> None:
+    def maxDepthFocusIn(self, event: "tk.Event") -> None:
         """Clears default text for maxdepth_entry on user focus in."""
         if self.maxdepth_entry.get() == "Recursion Depth (#)":
             self.maxdepth_entry.delete(0, "end")
             self.maxdepth_entry.config(foreground="black")
 
-    def maxDepthFocusOut(self, event: tk.Event) -> None:
+    def maxDepthFocusOut(self, event: "tk.Event") -> None:
         """Inserts default text for maxdepth_entry on user focus out if blank."""
         if self.maxdepth_entry.get() == "":
             self.maxdepth_entry.insert(0, "Recursion Depth (#)")
             self.maxdepth_entry.config(foreground="gray")
 
-    def burstCutoffFocusIn(self, event: tk.Event) -> None:
+    def burstCutoffFocusIn(self, event: "tk.Event") -> None:
         """Clears default text for burst_cutoff_entry on user focus in."""
         if self.burst_cutoff_entry.get() == "Photo grouping cutoff (default 2 seconds)":
             self.burst_cutoff_entry.delete(0, "end")
             self.burst_cutoff_entry.config(foreground="black")
 
-    def burstCutoffFocusOut(self, event: tk.Event) -> None:
+    def burstCutoffFocusOut(self, event: "tk.Event") -> None:
         """Inserts default text for burst_cutoff_entry on user focus out if blank."""
         if self.burst_cutoff_entry.get() == "":
             self.burst_cutoff_entry.insert(0, "Photo grouping cutoff (default 2 seconds)")
@@ -3023,6 +3042,8 @@ class MetadataExtractor:
         self.total_files = 0
 
         if not self._headless:
+            if not GUI_SUPPORTED:
+                raise RuntimeError("GUI mode requires tkinter and tk-date-entry.")
             self.root = tk.Tk()
             self.root.title("Metadata Extractor")
             self.columns_frame = tk.Frame(self.root)

@@ -363,7 +363,9 @@ def test_cli_hidden_and_videos_only_media_filter(tmp_path):
 
     out_hidden = tmp_path / "hidden.json"
     assert metadata.run_cli(["-i", str(src), "-o", str(out_hidden), "-H", "-M", "photos", "-q"]) == 0
-    assert [r["Files"] for r in json.loads(out_hidden.read_text(encoding="utf-8"))["sheets"]["Sheet"]] == [".hidden.jpg"]
+    assert [r["Files"] for r in json.loads(out_hidden.read_text(encoding="utf-8"))["sheets"]["Sheet"]] == [
+        ".hidden.jpg"
+    ]
 
     out_videos = tmp_path / "videos.json"
     assert metadata.run_cli(["-i", str(src), "-o", str(out_videos), "-M", "videos", "-q"]) == 0
