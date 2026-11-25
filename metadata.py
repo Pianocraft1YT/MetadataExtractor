@@ -99,11 +99,13 @@ EXIF_CAMERA_MAKE = 271
 EXIF_CAMERA_MODEL = 272
 EXIF_ORIENTATION = 274
 EXIF_SOFTWARE = 305
-EXIF_LENS_MODEL = 42036
-EXIF_APERTURE = 33437
 EXIF_EXPOSURE_TIME = 33434
-EXIF_FOCAL_LENGTH = 37386
+EXIF_APERTURE = 33437
 EXIF_ISO = 34855
+EXIF_EXPOSURE_BIAS = 37380
+EXIF_FOCAL_LENGTH = 37386
+EXIF_FOCAL_LENGTH_35MM = 41989
+EXIF_LENS_MODEL = 42036
 
 # General Constants
 SHEET_NAME_MAX_CHARS = 31
@@ -184,6 +186,8 @@ class ScanConfig:
     output_focal_length: bool = False
     output_iso: bool = False
     output_orientation: bool = False
+    output_exposure_bias: bool = False
+    output_focal_length_35mm: bool = False
     output_gps: bool = False
     output_gps_altitude: bool = False
     output_video_rows: bool = False
@@ -443,7 +447,9 @@ class MetadataExtractor:
     def _read_photo_entry(
         self,
         path: Path,
-        flags: tuple[bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool] | None,
+        flags: (
+            tuple[bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool] | None
+        ),
     ) -> tuple[datetime | None, bool, str | None, dict[str, Any] | None, str | None]:
         """Extracts photo metadata based on flag state in flags, returns dict of values or None."""
         if flags is not None:
@@ -459,12 +465,15 @@ class MetadataExtractor:
             output_focal_length = flags[9]
             output_iso = flags[10]
             output_orientation = flags[11]
-            output_gps = flags[12]
-            output_gps_altitude = flags[13]
+            output_exposure_bias = flags[12]
+            output_focal_length_35mm = flags[13]
+            output_gps = flags[14]
+            output_gps_altitude = flags[15]
         else:
             output_utc = output_dimensions = output_filesize = output_make = output_model = False
             output_software = output_lens_model = output_aperture = output_gps_altitude = False
             output_exposure_time = output_focal_length = output_iso = output_gps = output_orientation = False
+            output_exposure_bias = output_focal_length_35mm = False
         offset = None
         dimensions = None
         filesize = None
@@ -477,6 +486,8 @@ class MetadataExtractor:
         focal_length = None
         iso = None
         orientation = None
+        exposure_bias = None
+        focal_length_35mm = None
         gps_latitude = None
         gps_longitude = None
         gps_altitude = None
@@ -523,6 +534,14 @@ class MetadataExtractor:
                     iso = self._format_iso(self._exif_get(EXIF_ISO, general_ifd, exif_data))
                 if output_orientation:
                     orientation = self._format_orientation(exif_data.get(EXIF_ORIENTATION))
+                if output_exposure_bias:
+                    exposure_bias = self._format_exposure_bias(
+                        self._exif_get(EXIF_EXPOSURE_BIAS, general_ifd, exif_data)
+                    )
+                if output_focal_length_35mm:
+                    focal_length_35mm = self._format_focal_length(
+                        self._exif_get(EXIF_FOCAL_LENGTH_35MM, general_ifd, exif_data)
+                    )
                 if output_gps and gps_ifd:
                     lat_ref = gps_ifd.get(1)
                     lat = gps_ifd.get(2)
@@ -544,7 +563,7 @@ class MetadataExtractor:
                                 gps_altitude = None
                         else:
                             ref = "+"
-                        if gps_altitude:
+                        if gps_altitude is not None:
                             gps_altitude = self._format_gps_altitude(gps_altitude, ref)
 
                 fields = {
@@ -563,6 +582,8 @@ class MetadataExtractor:
                     "GPS_Longitudes": gps_longitude,
                     "GPS_Altitudes": gps_altitude,
                     "Orientations": orientation,
+                    "Exposure_Biases": exposure_bias,
+                    "Focal_Lengths_35mm": focal_length_35mm,
                 }
             else:
                 fields = None
@@ -573,7 +594,9 @@ class MetadataExtractor:
     def _read_raw_photo_entry(
         self,
         path: Path,
-        flags: tuple[bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool] | None,
+        flags: (
+            tuple[bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool] | None
+        ),
     ) -> tuple[datetime | None, bool, str | None, dict[str, Any] | None, str | None]:
         try:
             if flags is not None:
@@ -589,12 +612,15 @@ class MetadataExtractor:
                 output_focal_length = flags[9]
                 output_iso = flags[10]
                 output_orientation = flags[11]
-                output_gps = flags[12]
-                output_gps_altitude = flags[13]
+                output_exposure_bias = flags[12]
+                output_focal_length_35mm = flags[13]
+                output_gps = flags[14]
+                output_gps_altitude = flags[15]
             else:
                 output_utc = output_dimensions = output_filesize = output_make = output_model = False
                 output_software = output_lens_model = output_aperture = output_gps_altitude = False
                 output_exposure_time = output_focal_length = output_iso = output_gps = output_orientation = False
+                output_exposure_bias = output_focal_length_35mm = False
             offset = None
             dimensions = None
             filesize = None
@@ -607,6 +633,8 @@ class MetadataExtractor:
             focal_length = None
             iso = None
             orientation = None
+            exposure_bias = None
+            focal_length_35mm = None
             gps_latitude = None
             gps_longitude = None
             gps_altitude = None
@@ -662,6 +690,12 @@ class MetadataExtractor:
                     raw_values = getattr(orientation_tag, "values", None)
                     orientation = raw_values[0] if isinstance(raw_values, (list, tuple)) and raw_values else raw_values
                     orientation = self._format_orientation(orientation)
+                if output_exposure_bias:
+                    exposure_bias = self._format_exposure_bias(self._raw_rational(tags.get("EXIF ExposureBiasValue")))
+                if output_focal_length_35mm:
+                    focal_length_35mm = self._format_focal_length(
+                        self._raw_rational(tags.get("EXIF FocalLengthIn35mmFilm"))
+                    )
                 if output_gps:
                     lat_tag = tags.get("GPS GPSLatitude")
                     lat_ref = self._raw_tag_str(tags, "GPS GPSLatitudeRef")
@@ -706,6 +740,8 @@ class MetadataExtractor:
                     "GPS_Longitudes": gps_longitude,
                     "GPS_Altitudes": gps_altitude,
                     "Orientations": orientation,
+                    "Exposure_Biases": exposure_bias,
+                    "Focal_Lengths_35mm": focal_length_35mm,
                 }
             else:
                 fields = None
@@ -971,6 +1007,16 @@ class MetadataExtractor:
         if rounded > 1 and abs(inv - rounded) / inv < 0.01:
             return f"1/{rounded}"  # 0.004 -> "1/250", 0.5 -> "1/2"
         return f"{round(v,2):g}s"  # 0.3 -> "0.3s" (not "1/3")
+
+    def _format_exposure_bias(self, value: Any) -> str | None:
+        """Format an EXIF ExposureBiasValue rational as '+0.7 EV', '-0.3 EV', or '0 EV'."""
+        v = self._rational_to_float(value)
+        if v is None or not math.isfinite(v):
+            return None
+        rounded = round(v, 2)
+        if rounded == 0:
+            return "0 EV"
+        return f"{'+' if rounded > 0 else ''}{rounded:g} EV"
 
     def _format_focal_length(self, value: Any) -> str | None:
         """Format a focal length to "23mm" style."""
@@ -1406,6 +1452,8 @@ class MetadataExtractor:
                 cfg.output_focal_length,
                 cfg.output_iso,
                 cfg.output_orientation,
+                cfg.output_exposure_bias,
+                cfg.output_focal_length_35mm,
                 cfg.output_gps,
                 cfg.output_gps_altitude,
                 cfg.output_video_rows,
@@ -1536,6 +1584,8 @@ class MetadataExtractor:
                     self.focal_length_var,
                     self.iso_var,
                     self.orientation_var,
+                    self.exposure_bias_var,
+                    self.focal_length_35mm_var,
                     self.debug_var,
                 ]:
                     var.set(False)
@@ -1601,6 +1651,8 @@ class MetadataExtractor:
             "GPS_Altitudes": [],
             "Sort_Timestamps": [],
             "Orientations": [],
+            "Focal_Lengths_35mm": [],
+            "Exposure_Biases": [],
         }
 
     # Saves settings to a JSON file at SETTINGS_PATH
@@ -1668,6 +1720,8 @@ class MetadataExtractor:
                 "Summary": self.summary_var.get(),
                 "Date Format": self.date_format_var.get(),
                 "Time Format": self.time_format_var.get(),
+                "Exposure Bias": self.exposure_bias_var.get(),
+                "Focal Length (35mm)": self.focal_length_35mm_var.get(),
             }
             SETTINGS_PATH.write_text(json.dumps(settings, indent=2), encoding="utf-8")
         except (OSError, ValueError, TypeError, AttributeError, tk.TclError):
@@ -1705,6 +1759,8 @@ class MetadataExtractor:
                 "Video Rows": self.video_rows_var,
                 "Summary": self.summary_var,
                 "Orientation": self.orientation_var,
+                "Exposure Bias": self.exposure_bias_var,
+                "Focal Length (35mm)": self.focal_length_35mm_var,
             }
             data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
             for key, value in data.items():
@@ -1870,6 +1926,8 @@ class MetadataExtractor:
         output_focal_length: bool = False,
         output_iso: bool = False,
         output_orientation: bool = False,
+        output_exposure_bias: bool = False,
+        output_focal_length_35mm: bool = False,
         output_gps: bool = False,
         output_gps_altitude: bool = False,
     ) -> bool:
@@ -1887,6 +1945,8 @@ class MetadataExtractor:
             output_focal_length,
             output_iso,
             output_orientation,
+            output_exposure_bias,
+            output_focal_length_35mm,
             output_gps,
             output_gps_altitude,
         )
@@ -1956,6 +2016,8 @@ class MetadataExtractor:
         output_focal_length: bool = False,
         output_iso: bool = False,
         output_orientation: bool = False,
+        output_exposure_bias: bool = False,
+        output_focal_length_35mm: bool = False,
         output_gps: bool = False,
         output_gps_altitude: bool = False,
         output_video_rows: bool = False,
@@ -1989,6 +2051,8 @@ class MetadataExtractor:
                 output_focal_length,
                 output_iso,
                 output_orientation,
+                output_exposure_bias,
+                output_focal_length_35mm,
                 output_gps,
                 output_gps_altitude,
             )
@@ -2063,6 +2127,8 @@ class MetadataExtractor:
                     output_focal_length,
                     output_iso,
                     output_orientation,
+                    output_exposure_bias,
+                    output_focal_length_35mm,
                     output_gps,
                     output_gps_altitude,
                     output_video_rows,
@@ -2160,6 +2226,8 @@ class MetadataExtractor:
         output_focal_length = False
         output_iso = False
         output_orientation = False
+        output_exposure_bias = False
+        output_focal_length_35mm = False
         start_date = None
         end_date = None
         date_format = self.date_format_combobox.get() if user_mode == "Advanced" else "MM/DD/YYYY"
@@ -2201,6 +2269,8 @@ class MetadataExtractor:
                 output_focal_length = self.focal_length_var.get()
                 output_iso = self.iso_var.get()
                 output_orientation = self.orientation_var.get()
+                output_exposure_bias = self.exposure_bias_var.get()
+                output_focal_length_35mm = self.focal_length_35mm_var.get()
             if date_range:
                 include_undateable = self.include_undateable_var.get()
                 start_date = self.start_date_entry.get_date()
@@ -2288,6 +2358,8 @@ class MetadataExtractor:
             output_focal_length=output_focal_length,
             output_iso=output_iso,
             output_orientation=output_orientation,
+            output_exposure_bias=output_exposure_bias,
+            output_focal_length_35mm=output_focal_length_35mm,
             output_gps=output_gps,
             output_gps_altitude=output_gps_altitude,
             output_video_rows=output_video_rows,
@@ -2335,6 +2407,8 @@ class MetadataExtractor:
         output_focal_length: bool = False,
         output_iso: bool = False,
         output_orientation: bool = False,
+        output_exposure_bias: bool = False,
+        output_focal_length_35mm: bool = False,
         output_gps: bool = False,
         output_gps_altitude: bool = False,
         output_video_rows: bool = False,
@@ -2361,6 +2435,8 @@ class MetadataExtractor:
                     output_focal_length,
                     output_iso,
                     output_orientation,
+                    output_exposure_bias,
+                    output_focal_length_35mm,
                     output_gps,
                     output_gps_altitude,
                 )
@@ -2440,6 +2516,8 @@ class MetadataExtractor:
                                 output_focal_length,
                                 output_iso,
                                 output_orientation,
+                                output_exposure_bias,
+                                output_focal_length_35mm,
                                 output_gps,
                                 output_gps_altitude,
                             )
@@ -2527,6 +2605,8 @@ class MetadataExtractor:
                             output_focal_length,
                             output_iso,
                             output_orientation,
+                            output_exposure_bias,
+                            output_focal_length_35mm,
                             output_gps,
                             output_gps_altitude,
                         )
@@ -2570,6 +2650,8 @@ class MetadataExtractor:
                     output_focal_length,
                     output_iso,
                     output_orientation,
+                    output_exposure_bias,
+                    output_focal_length_35mm,
                     output_gps,
                     output_gps_altitude,
                     date_format,
@@ -2741,6 +2823,8 @@ class MetadataExtractor:
         output_focal_length: bool = False,
         output_iso: bool = False,
         output_orientation: bool = False,
+        output_exposure_bias: bool = False,
+        output_focal_length_35mm: bool = False,
         output_gps: bool = False,
         output_gps_altitude: bool = False,
         date_format: str = "%m/%d/%Y",
@@ -2776,6 +2860,10 @@ class MetadataExtractor:
                 df_data["ISO"] = data["ISOs"]
             if output_orientation:
                 df_data["Orientation"] = data["Orientations"]
+            if output_exposure_bias:
+                df_data["Exposure Bias"] = data["Exposure_Biases"]
+            if output_focal_length_35mm:
+                df_data["Focal Length (35mm)"] = data["Focal_Lengths_35mm"]
             if output_gps:
                 df_data["GPS Latitude"] = data["GPS_Latitudes"]
                 df_data["GPS Longitude"] = data["GPS_Longitudes"]
@@ -2840,6 +2928,7 @@ class MetadataExtractor:
                 self.results.insert(0, (summary_df, summary_name, _))
             files_written = 0
             filetype = self._active_filetype or self.filetype_var.get()
+            proceed = True
             # Check for empty results before prompting so the user isn't asked to overwrite for nothing
             if not self.results:
                 if total_processed == 0 and total_skipped == 0:
@@ -3200,19 +3289,6 @@ class MetadataExtractor:
             )
             self.filesize_var = tk.BooleanVar(value=False)
             self.filesize_checkbox = tk.Checkbutton(self.extra_exif_frame, text="File Size", variable=self.filesize_var)
-            self.extra_exif_options = [
-                self.dimensions_checkbox,
-                self.make_checkbox,
-                self.model_checkbox,
-                self.software_checkbox,
-                self.lens_model_checkbox,
-                self.aperture_checkbox,
-                self.exposure_checkbox,
-                self.focal_length_checkbox,
-                self.iso_checkbox,
-                self.filesize_checkbox,
-                self.orientation_checkbox,
-            ]
             self.source_path_var = tk.StringVar()
             self.output_path_var = tk.StringVar()
             self.source_path_label = tk.Label(self.folders_frame, foreground="gray", textvariable=self.source_path_var)
@@ -3242,6 +3318,30 @@ class MetadataExtractor:
                 state="readonly",
                 textvariable=self.media_filter_var,
             )
+            self.exposure_bias_var = tk.BooleanVar(value=False)
+            self.exposure_bias_checkbox = tk.Checkbutton(
+                self.extra_exif_frame, text="Exposure Bias", variable=self.exposure_bias_var
+            )
+            self.focal_length_35mm_var = tk.BooleanVar(value=False)
+            self.focal_length_35mm_checkbox = tk.Checkbutton(
+                self.extra_exif_frame, text="Focal Length (35mm)", variable=self.focal_length_35mm_var
+            )
+            # Extra EXIF checkboxes
+            self.extra_exif_options = [
+                self.dimensions_checkbox,
+                self.make_checkbox,
+                self.model_checkbox,
+                self.software_checkbox,
+                self.lens_model_checkbox,
+                self.aperture_checkbox,
+                self.exposure_checkbox,
+                self.focal_length_checkbox,
+                self.iso_checkbox,
+                self.filesize_checkbox,
+                self.orientation_checkbox,
+                self.exposure_bias_checkbox,
+                self.focal_length_35mm_checkbox,
+            ]
             # Progress bar widgets
             self.current_directory = tk.StringVar()
             self.scanned_count = tk.StringVar()
@@ -3393,6 +3493,8 @@ def run_cli(argv: list[str] | None = None) -> int:
         output_focal_length = True
         output_iso = True
         output_orientation = True
+        output_exposure_bias = True
+        output_focal_length_35mm = True
     else:
         output_dimensions = args.dimensions
         output_filesize = args.filesize
@@ -3405,6 +3507,8 @@ def run_cli(argv: list[str] | None = None) -> int:
         output_focal_length = args.focal_length
         output_iso = args.iso
         output_orientation = args.orientation
+        output_exposure_bias = args.exposure_bias
+        output_focal_length_35mm = args.focal_length_35mm
     output_video_rows = args.videorows or (media_filter == "Videos Only")
     output_utc = args.utc
     output_gps = args.gps or args.gps_altitude
@@ -3430,6 +3534,8 @@ def run_cli(argv: list[str] | None = None) -> int:
         output_focal_length,
         output_iso,
         output_orientation,
+        output_exposure_bias,
+        output_focal_length_35mm,
         output_gps,
         output_gps_altitude,
         output_video_rows,
@@ -3533,6 +3639,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-M", "--media", choices=["all", "photos", "videos", "raw"], default="all", help="Fiter by media type"
     )
+    parser.add_argument("-eb", "--exposure-bias", action="store_true", help="Output Exposure Bias")
+    parser.add_argument("-fl35mm", "--focal-length-35mm", action="store_true", help="Output Focal Length (35mm)")
     return parser
 
 

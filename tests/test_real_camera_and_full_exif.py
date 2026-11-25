@@ -22,6 +22,8 @@ _ALL_EXTRAS_ON = dict(
     output_focal_length=True,
     output_iso=True,
     output_orientation=True,
+    output_exposure_bias=True,
+    output_focal_length_35mm=True,
     output_gps=True,
     output_gps_altitude=True,
 )
@@ -60,6 +62,8 @@ def test_kitchen_sink_full_exif_end_to_end(extractor, tmp_path):
     assert row["Focal Length"] == "50mm"
     assert row["ISO"] == 400
     assert row["Orientation"] == "Rotated 90° CW"
+    assert row["Exposure Bias"] == "-0.3 EV"
+    assert row["Focal Length (35mm)"] == "50mm"
     assert row["GPS Latitude"] == "48.856667"
     assert row["GPS Longitude"] == "2.351944"
     assert row["GPS Altitude"] == "124.5 m"
@@ -93,6 +97,8 @@ def test_real_camera_iphone_jpeg_subifds_end_to_end(extractor, tmp_path):
     assert row["Software"] == "26.6"
     assert row["Lens Model"] == "iPhone 12 Pro back triple camera 4.2mm f/1.6"
     assert row["Orientation"] == "Rotated 90° CW"
+    assert row["Exposure Bias"] == "+2.06 EV"
+    assert pd.notna(row["Focal Length (35mm)"]) and str(row["Focal Length (35mm)"]).endswith("mm")
     assert row["GPS Latitude"] == "49.234000"
     assert row["GPS Longitude"] == "-104.123000"
     assert pd.notna(row["Aperture / FNumber"])

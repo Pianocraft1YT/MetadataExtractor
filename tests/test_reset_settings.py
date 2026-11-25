@@ -45,6 +45,8 @@ def test_reset_settings_deletes_file_and_restores_all_defaults(extractor, tmp_pa
         extractor.focal_length_var,
         extractor.iso_var,
         extractor.orientation_var,
+        extractor.exposure_bias_var,
+        extractor.focal_length_35mm_var,
         extractor.debug_var,
     ):
         var.set(True)
@@ -105,6 +107,8 @@ def test_reset_settings_deletes_file_and_restores_all_defaults(extractor, tmp_pa
         extractor.focal_length_var,
         extractor.iso_var,
         extractor.orientation_var,
+        extractor.exposure_bias_var,
+        extractor.focal_length_35mm_var,
         extractor.debug_var,
     ):
         assert var.get() is False
