@@ -15,6 +15,7 @@
 # Releases: https://github.com/Pianocraft1YT/MetadataExtractor/releases/
 
 # Imports
+import argparse
 import itertools
 import json
 import math
@@ -33,7 +34,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 import openpyxl
 import pandas as pd
@@ -171,6 +172,20 @@ class ScanConfig:
     directory_path: Path | None = None
 
 
+_T = TypeVar("_T")
+
+
+class _CliVar(Generic[_T]):
+    def __init__(self, value: _T) -> None:
+        self._value: _T = value
+
+    def get(self) -> _T:
+        return self._value
+
+    def set(self, value: _T) -> None:
+        self._value = value
+
+
 class MetadataExtractor:
 
     # Cosmetic only, adds placeholder text in entry boxes
@@ -230,8 +245,7 @@ class MetadataExtractor:
         else:
             self.gps_warning_label.pack_forget()
             self.gps_altitude_checkbox.pack_forget()
-        self.root.update_idletasks()
-        self.root.geometry(f"{self.root.winfo_reqwidth()}x{self.root.winfo_reqheight()}")
+        self._refresh_window()
 
     def debug_warning(self) -> None:
         """Prompts user with askokcancel dialog when debug_checkbox is checked, and explains what debug mode does."""
@@ -250,8 +264,7 @@ class MetadataExtractor:
             self.maxdepth_entry.pack(after=self.recursive_checkbox)
         else:
             self.maxdepth_entry.pack_forget()
-        self.root.update_idletasks()  # flush pending layout
-        self.root.geometry(f"{self.root.winfo_reqwidth()}x{self.root.winfo_reqheight()}")  # fixed width, auto height
+        self._refresh_window()  # flush pending layout
 
     # Show extra metadata checkboxes when extra_exif_checkbox is checked
     def extra_exif(self) -> None:
@@ -265,8 +278,7 @@ class MetadataExtractor:
             for checkbox in self.extra_exif_options:
                 checkbox.pack_forget()
             self.extra_exif_frame.pack_forget()
-        self.root.update_idletasks()
-        self.root.geometry(f"{self.root.winfo_reqwidth()}x{self.root.winfo_reqheight()}")
+        self._refresh_window()
 
     # Show starting date and ending date calendar widgets on checkbox click only
     def date_range(self) -> None:
@@ -287,8 +299,7 @@ class MetadataExtractor:
             self.end_date_entry.pack_forget()
             self.date_notice_label.pack_forget()
             self.date_frame.pack_forget()
-        self.root.update_idletasks()  # flush pending layout
-        self.root.geometry(f"{self.root.winfo_reqwidth()}x{self.root.winfo_reqheight()}")  # fixed width, auto height
+        self._refresh_window()  # flush pending layout
 
     def user_mode(self) -> None:
         """Displays advanced_mode_frame when advanced mode radio is selected."""
@@ -332,12 +343,10 @@ class MetadataExtractor:
 
             self.debug_checkbox.pack(padx=8, pady=2)
 
-            self.root.update_idletasks()
-            self.root.geometry(f"{self.root.winfo_reqwidth()}x{self.root.winfo_reqheight()}")
+            self._refresh_window()
         else:
             self.advanced_mode_frame.pack_forget()
-            self.root.update_idletasks()
-            self.root.geometry(f"{self.root.winfo_reqwidth()}x{self.root.winfo_reqheight()}")
+            self._refresh_window()
 
     # Updates path label variables
     def _update_path_labels(self) -> None:
@@ -347,10 +356,10 @@ class MetadataExtractor:
 
     # Opens warnings.log
     def _view_warnings_log(self):
-        if self.last_warnings_log and self.last_warnings_log.is_file():
+        if self.last_warnings_log and self.last_warnings_log.is_file() and not self._headless:
             self._open_path(self.last_warnings_log, False)
         else:
-            messagebox.showinfo("Log file not found.", message="Log file not found.")
+            self._notify_info("Log file not found.", message="Log file not found.")
 
     # Sort helper
     @staticmethod
@@ -722,9 +731,41 @@ class MetadataExtractor:
             return True
         return messagebox.askyesno("Overwrite?", f"{path}\nalready exists. Overwrite?")
 
+    def _should_overwrite(self, path: Path) -> bool:
+        if not path.exists():
+            return True
+        if self._headless:
+            if not self._cli_overwrite:
+                print(
+                    f"Error: {path.as_posix()} already exists (pass --overwrite to replace).",
+                    file=sys.stderr,
+                )
+                return False
+            return True
+        return self._confirm_overwrite(path)
+
+    def _notify_info(self, title: str, message: str) -> None:
+        if self._headless:
+            if not self._cli_quiet:
+                print(message)
+        else:
+            messagebox.showinfo(title, message=message)
+
+    def _notify_error(self, title: str, message: str) -> None:
+        if self._headless:
+            print(f"Error ({title}): {message}", file=sys.stderr)
+        else:
+            messagebox.showerror(title, message=message)
+
+    def _notify_warning(self, title: str, message: str) -> None:
+        if self._headless:
+            print(f"Warning ({title}): {message}", file=sys.stderr)
+        else:
+            messagebox.showwarning(title, message=message)
+
     def _safe_after(self, callback: Callable[..., object], *args: Any) -> None:
         """Queue a callback on the main thread. Drops it silently if the root is gone."""
-        if self._destroyed:
+        if self._destroyed or self._headless or self.root is None:
             return
 
         def _run() -> None:
@@ -1053,7 +1094,7 @@ class MetadataExtractor:
     def _format_gps_altitude(self, altitude: float | None, ref: str) -> str | None:
         """Turns GPS altitude rational into str."""
         altitude = self._rational_to_float(altitude)
-        if altitude is not None:
+        if altitude is not None and math.isfinite(altitude):
             if ref == "-":
                 altitude *= -1.0
             return f"{altitude:.1f} m"
@@ -1292,6 +1333,11 @@ class MetadataExtractor:
                 self.progress_var.set(0)
             self.current_directory.set(str(current_dir)[-30:])  # Truncate to not be too long, last 30 characters
 
+    def _refresh_window(self) -> None:
+        if self.root is not None:
+            self.root.update_idletasks()
+            self.root.geometry(f"{self.root.winfo_reqwidth()}x{self.root.winfo_reqheight()}")
+
     # Starts the worker thread (called from main thread)
     def _start_scan(self, cfg: ScanConfig) -> None:
         """Sets _cleanup_pending, flip button states, spawns scan worker."""
@@ -1404,7 +1450,7 @@ class MetadataExtractor:
     # Closing behavior
     def _on_close(self) -> None:
         """Saves settings and closes program."""
-        if self._destroyed:
+        if self._destroyed or self._headless or self.root is None:
             return
         self._destroyed = True
         self.cancel_event.set()
@@ -1495,7 +1541,7 @@ class MetadataExtractor:
                 self.extra_exif()
                 self.user_mode()
             except OSError:
-                messagebox.showerror(
+                self._notify_error(
                     "Setting Reset Failed", f"{SETTINGS_PATH} couldn't be removed. Manual removal may work."
                 )
 
@@ -1607,9 +1653,7 @@ class MetadataExtractor:
             SETTINGS_PATH.write_text(json.dumps(settings, indent=2), encoding="utf-8")
         except (OSError, ValueError, TypeError, AttributeError, tk.TclError):
             try:
-                messagebox.showerror(
-                    "Setting Save Error", message=f"Your settings could not be saved at {SETTINGS_PATH}"
-                )
+                self._notify_error("Setting Save Error", message=f"Your settings could not be saved at {SETTINGS_PATH}")
             except tk.TclError:
                 pass
 
@@ -2124,9 +2168,7 @@ class MetadataExtractor:
             elif val.isascii() and val.isdigit() and int(val) > 0:
                 modifier = int(val) - 1
             else:
-                messagebox.showerror(
-                    "Numbers only.", message="Starting index must be a whole number greater than zero."
-                )
+                self._notify_error("Numbers only.", message="Starting index must be a whole number greater than zero.")
                 return
             if self.extra_exif_var.get():
                 output_dimensions = self.dimensions_var.get()
@@ -2145,7 +2187,7 @@ class MetadataExtractor:
                 start_date = self.start_date_entry.get_date()
                 end_date = self.end_date_entry.get_date()
                 if not (start_date or end_date):
-                    messagebox.showinfo(
+                    self._notify_info(
                         "Date Range Unset",
                         message="Date Range is checked, but no date(s) were input. Proceeding without.",
                     )
@@ -2154,17 +2196,17 @@ class MetadataExtractor:
                     self.date_range()
                 else:
                     if start_date and end_date and start_date > end_date:
-                        messagebox.showerror("Invalid range", "Start date must be on or before end date.")
+                        self._notify_error("Invalid range", "Start date must be on or before end date.")
                         return
         if debug:  # Debug writes to ~/Downloads, but doesn't overwrite the user's saved setting
             effective_output = Path.home() / "Downloads"
         else:
             effective_output = self.output_path
             if effective_output is None:
-                messagebox.showinfo("No output path.", message="No output path was set, and debug is not checked.")
+                self._notify_info("No output path.", message="No output path was set, and debug is not checked.")
                 return
         if directory_path is None:  # Validating paths
-            messagebox.showerror(  # If no output/directory path was set, error to allow for changes
+            self._notify_error(  # If no output/directory path was set, error to allow for changes
                 "Image directory not set.", message="Please set an image/video directory path."
             )
             return
@@ -2173,20 +2215,18 @@ class MetadataExtractor:
             if val.isascii() and val.isdigit() and int(val) > 0:  # Make sure starting index is valid digit
                 self.maxdepth = int(val)  # We start at 1 by default
             elif val == "Recursion Depth (#)" or val == "":  # Placeholder or empty is rejected.
-                messagebox.showinfo(
+                self._notify_info(
                     "Recursion Depth not set.", message="Recursion Depth not set, defaulting to 1 subfolder."
                 )
                 self.maxdepth = 1
             else:
-                messagebox.showerror(
-                    "Numbers only.", message="Recursion Depth must be a whole number greater than zero."
-                )
+                self._notify_error("Numbers only.", message="Recursion Depth must be a whole number greater than zero.")
                 return
         else:
             self.maxdepth = 0
         if (
             filetype == "CSV" or filetype == "JSON"
-        ) and self.hyperlink_var.get():  # CSV doesn't have hyperlinks, ask if they want to continue or change options
+        ) and self.hyperlink_var.get():  # CSV and JSON don't have hyperlinks, ask if they want to continue or change options
             proceed = messagebox.askyesno(
                 "Hyperlinks Unsupported.",
                 message="Hyperlinks are Excel/Markdown only. Please select Excel/Markdown for hyperlinks. Proceed without?",
@@ -2199,10 +2239,10 @@ class MetadataExtractor:
         elif self.is_number(cutoff_text):
             cutoff = float(cutoff_text)
             if not math.isfinite(cutoff) or cutoff < 0:
-                messagebox.showerror("Invalid cutoff.", message="Burst cutoff must be a non-negative finite number.")
+                self._notify_error("Invalid cutoff.", message="Burst cutoff must be a non-negative finite number.")
                 return
         else:
-            messagebox.showerror("Numbers only.", message="Burst cutoff must be a number.")
+            self._notify_error("Numbers only.", message="Burst cutoff must be a number.")
             return
         name = self.name_entry.get().strip()
         if name and name != "Filename (default output.filetype)":
@@ -2784,15 +2824,15 @@ class MetadataExtractor:
             # Check for empty results before prompting so the user isn't asked to overwrite for nothing
             if not self.results:
                 if total_processed == 0 and total_skipped == 0:
-                    messagebox.showerror(
+                    self._notify_error(
                         "Empty directory", "No photos or videos were found. Please select a valid directory."
                     )
                     self.current_directory.set("No Files")
                 else:
-                    messagebox.showerror("No data", "No valid photos with metadata were found.")
+                    self._notify_error("No data", "No valid photos with metadata were found.")
             else:
-                proceed = not (filetype in ("Excel", "JSON") and output_path.exists()) or messagebox.askyesno(
-                    "Overwrite?", message=output_path.as_posix() + " \nalready exists. Overwrite?"
+                proceed = not (filetype in ("Excel", "JSON") and output_path.exists()) or self._should_overwrite(
+                    output_path
                 )
                 if proceed:
                     # Data was found
@@ -2816,7 +2856,7 @@ class MetadataExtractor:
                                     output_path.with_suffix("").as_posix()
                                     + f"_{self._sanitize_for_filename(sheet_name, used_filenames)}.csv"
                                 )
-                            if not self._confirm_overwrite(csv_path):
+                            if not self._should_overwrite(csv_path):
                                 continue
                             sheet_df.to_csv(csv_path, index=False)
                             files_written += 1
@@ -2838,7 +2878,7 @@ class MetadataExtractor:
                                     output_path.with_suffix("").as_posix()
                                     + f"_{self._sanitize_for_filename(sheet_name, used_filenames)}.md"
                                 )
-                            if not self._confirm_overwrite(md_path):
+                            if not self._should_overwrite(md_path):
                                 continue
                             md_path.write_text(
                                 self._dataframe_to_txt(sheet_df, directory, hyperlinks=self.hyperlink_var.get()),
@@ -2849,7 +2889,7 @@ class MetadataExtractor:
                         msg = f"\nFiles written: {files_written}"
                         if self.cancel_event.is_set():
                             msg += " (cancelled)"
-                        messagebox.showinfo(
+                        self._notify_info(
                             "Success!",
                             message="Images: "
                             + str(total_processed)
@@ -2867,9 +2907,9 @@ class MetadataExtractor:
                             self.progress_var.set(100)
                             self.percentage_done.set("100%")
                     else:
-                        messagebox.showinfo("No output.", message="No files were written.")
+                        self._notify_info("No output.", message="No files were written.")
                 else:  # Proceed is False; output errors then close
-                    messagebox.showinfo("Cancelled", message="File not overwritten. Cancelled successfully.")
+                    self._notify_info("Cancelled", message="File not overwritten. Cancelled successfully.")
             if self.collected_warnings:
                 output = ""
                 # Writes error messages from the dictionary collected_warnings
@@ -2903,14 +2943,15 @@ class MetadataExtractor:
                         log_path = output_path.parent / "warnings.log"
                         log_path.write_text(output, encoding="utf-8")
                         self.last_warnings_log = log_path
-                        if not self._destroyed:
+                        if not self._destroyed and not self._headless:
                             self.view_log_button.config(state="normal")
                         summary = f"{len(self.collected_warnings)} warning categories.\n\nFull details: {log_path.as_posix()}\n\nPlease verify any issues"
-                        messagebox.showwarning("Warning(s)", message=summary)
+                        self._notify_warning("Warning(s)", message=summary)
                 except OSError:
-                    messagebox.showerror("Log Error", message=f"Couldn't write log file to {log_path}.")
-            if self.open_folder_var.get() and proceed:
+                    self._notify_error("Log Error", message=f"Couldn't write log file to {log_path}.")
+            if self.open_folder_var.get() and proceed and not self._headless:
                 self._open_path(output_path, True)
+            self._last_files_written = files_written
             if not self.keepopen_var.get():  # Checks to close program or not
                 self._on_close()
         except OSError as e:
@@ -2919,199 +2960,24 @@ class MetadataExtractor:
                 if filetype in ("CSV", "Markdown") and len(self.results) > 1
                 else output_path.as_posix()
             )
-            messagebox.showerror(
+            self._notify_error(
                 "Error writing output",
                 f"Is another program using {err_target}?\n\nError: {e}",
             )
             if not self.keepopen_var.get():
                 self._on_close()
         except Exception as e:  # noqa: BLE001
-            messagebox.showerror("Unexpected error", f"{e}\n\n{traceback.format_exc()}")
+            self._notify_error("Unexpected error", f"{e}\n\n{traceback.format_exc()}")
             if not self.keepopen_var.get():
                 self._on_close()
 
     # Initialization function when constructed
-    def __init__(self) -> None:
+    def __init__(self, headless: bool = False) -> None:
         """Initializes all Tkinter objects, core variables, and loads previous settings, if applicable."""
-        self.root = tk.Tk()
-        self.root.title("Metadata Extractor")
-        self.columns_frame = tk.Frame(self.root)
-        self.basic_mode_frame = tk.Frame(self.columns_frame)
-        self.advanced_mode_frame = tk.Frame(self.columns_frame)
-        self.file_options_frame = tk.LabelFrame(self.basic_mode_frame, text="File Options", padx=8, pady=6)
-        self.sort_methods_frame = tk.LabelFrame(
-            self.advanced_mode_frame, text="Sort Method (default Timestamp)", padx=8, pady=6
-        )
-        self.date_frame = tk.LabelFrame(self.advanced_mode_frame, text="Date Range", padx=8, pady=6)
-        self.extra_exif_frame = tk.LabelFrame(self.advanced_mode_frame, text="Extra Metadata", padx=8, pady=6)
-        self.actions_frame = tk.LabelFrame(self.basic_mode_frame, text="Actions", padx=8, pady=6)
-        self.folders_frame = tk.LabelFrame(self.basic_mode_frame, text="Folders", padx=8, pady=6)
-        self.progress_frame = tk.LabelFrame(self.basic_mode_frame, text="Progress", padx=8, pady=6)
-        self.open_options_frame = tk.LabelFrame(self.basic_mode_frame, text="Open Options", padx=8, pady=6)
-        self.scan_options_frame = tk.LabelFrame(self.basic_mode_frame, text="Scan Options", padx=8, pady=6)
-        self.extra_scan_options_frame = tk.LabelFrame(
-            self.advanced_mode_frame, text="Extra Scan Options", padx=8, pady=6
-        )
-        self.date_format_frame = tk.LabelFrame(self.extra_scan_options_frame, text="Date Format", padx=8, pady=6)
-        self.time_format_frame = tk.LabelFrame(self.extra_scan_options_frame, text="Time Format", padx=8, pady=6)
-        self.execute_button = tk.Button(self.actions_frame, command=self.initialize, text="Execute")
-        self.cancel_button = tk.Button(self.actions_frame, command=self.cancel, text="Cancel", state="disabled")
-        self.set_directory_button = tk.Button(self.folders_frame, command=self.set_dir, text="Set folder with images")
-        self.set_output_button = tk.Button(self.folders_frame, command=self.set_output, text="Set output folder")
-        self.reset_settings_button = tk.Button(self.actions_frame, command=self.reset_settings, text="Reset Settings")
-        self.keepopen_var = tk.BooleanVar(value=False)
-        self.keepopen_checkbox = tk.Checkbutton(
-            self.open_options_frame, text="Keep Open After Scan", variable=self.keepopen_var
-        )
-        self.open_folder_var = tk.BooleanVar(value=False)
-        self.open_folder_checkbox = tk.Checkbutton(
-            self.open_options_frame, text="Auto-Open Output Folder", variable=self.open_folder_var
-        )
-        self.recursive_var = tk.BooleanVar(value=False)
-        self.recursive_checkbox = tk.Checkbutton(
-            self.scan_options_frame, text="Recursive Mode", variable=self.recursive_var, command=self.recursive_input
-        )
-        self.video_rows_var = tk.BooleanVar(value=False)
-        self.video_rows_checkbox = tk.Checkbutton(
-            self.extra_scan_options_frame, text="Create Video Rows", variable=self.video_rows_var
-        )
-        self.utc_var = tk.BooleanVar(value=False)
-        self.utc_checkbox = tk.Checkbutton(self.extra_scan_options_frame, text="Time in UTC", variable=self.utc_var)
-        self.debug_var = tk.BooleanVar(value=False)
-        self.debug_checkbox = tk.Checkbutton(
-            self.advanced_mode_frame, text="Debug Mode", variable=self.debug_var, command=self.debug_warning
-        )
-        self.filetype_var = tk.StringVar(value="Excel")
-        self.sort_methods_var = tk.StringVar(value="Timestamp")
-        self.hyperlink_var = tk.BooleanVar(value=True)
-        self.hyperlink_checkbox = tk.Checkbutton(
-            self.scan_options_frame, text="Add Hyperlinks", variable=self.hyperlink_var
-        )
-        self.burst_cutoff_entry = tk.Entry(self.scan_options_frame, width=40, foreground="gray")
-        self.burst_cutoff_entry.insert(0, "Photo grouping cutoff (default 2 seconds)")
-        self.name_entry = tk.Entry(self.file_options_frame, width=30, foreground="gray")
-        self.name_entry.insert(0, "Filename (default output.filetype)")
-        self.modifier_entry = tk.Entry(self.extra_scan_options_frame, width=30, foreground="gray")
-        self.modifier_entry.insert(0, "Starting index (Img # Series)")
-        self.maxdepth_entry = tk.Entry(self.scan_options_frame, width=20, foreground="gray")
-        self.maxdepth_entry.insert(0, "Recursion Depth (#)")
-        self.date_range_var = tk.BooleanVar(value=False)
-        self.date_range_checkbox = tk.Checkbutton(
-            self.extra_scan_options_frame,
-            text="Date Range (Local Time)",
-            variable=self.date_range_var,
-            command=self.date_range,
-        )
-        self.include_undateable_var = tk.BooleanVar(value=True)
-        self.include_undateable_checkbox = tk.Checkbutton(
-            self.date_frame, text="Include undateable files", variable=self.include_undateable_var
-        )
-        self.start_date_entry = DateEntry(self.date_frame, date_pattern="%Y/%m/%d", value=None)
-        self.end_date_entry = DateEntry(self.date_frame, date_pattern="%Y/%m/%d", value=None)
-        self.date_notice_label = tk.Label(self.date_frame, text="One date required; two dates accepted")
-        self.start_date_label = tk.Label(self.date_frame, text="Start Date")
-        self.end_date_label = tk.Label(self.date_frame, text="End Date")
-        self.name_entry.bind("<FocusIn>", self.nameFocusIn)
-        self.name_entry.bind("<FocusOut>", self.nameFocusOut)
-        self.modifier_entry.bind("<FocusIn>", self.modifierFocusIn)
-        self.modifier_entry.bind("<FocusOut>", self.modifierFocusOut)
-        self.maxdepth_entry.bind("<FocusIn>", self.maxDepthFocusIn)
-        self.maxdepth_entry.bind("<FocusOut>", self.maxDepthFocusOut)
-        self.burst_cutoff_entry.bind("<FocusIn>", self.burstCutoffFocusIn)
-        self.burst_cutoff_entry.bind("<FocusOut>", self.burstCutoffFocusOut)
-        self.gps_var = tk.BooleanVar(value=False)
-        self.gps_checkbox = tk.Checkbutton(
-            self.extra_scan_options_frame, text="GPS", variable=self.gps_var, command=self.gps_warning
-        )
-        self.gps_warning_label = tk.Label(
-            self.extra_scan_options_frame,
-            text="Coordinates may reveal sensitive location information",
-            foreground="gray",
-        )
-        self.gps_altitude_var = tk.BooleanVar(value=False)
-        self.gps_altitude_checkbox = tk.Checkbutton(
-            self.extra_scan_options_frame, text="GPS Altitude", variable=self.gps_altitude_var
-        )
-        self.hidden_var = tk.BooleanVar(value=False)
-        self.hidden_checkbox = tk.Checkbutton(
-            self.extra_scan_options_frame, text="Include Hidden Files", variable=self.hidden_var
-        )
-        # User modes (basic or advanced)
-        self.user_modes_frame = tk.LabelFrame(self.basic_mode_frame, text="Mode", padx=8, pady=8)
-        self.user_modes = ["Basic", "Advanced"]
-        self.user_mode_var = tk.StringVar(value="Basic")
-        # Extra EXIF checkboxes
-        self.extra_exif_var = tk.BooleanVar(value=False)
-        self.extra_exif_checkbox = tk.Checkbutton(
-            self.extra_scan_options_frame, text="Extra Metadata", variable=self.extra_exif_var, command=self.extra_exif
-        )
-        self.dimensions_var = tk.BooleanVar(value=False)
-        self.dimensions_checkbox = tk.Checkbutton(
-            self.extra_exif_frame, text="Image Dimensions", variable=self.dimensions_var
-        )
-        self.make_var = tk.BooleanVar(value=False)
-        self.make_checkbox = tk.Checkbutton(self.extra_exif_frame, text="Camera Make", variable=self.make_var)
-        self.model_var = tk.BooleanVar(value=False)
-        self.model_checkbox = tk.Checkbutton(self.extra_exif_frame, text="Camera Model", variable=self.model_var)
-        self.software_var = tk.BooleanVar(value=False)
-        self.software_checkbox = tk.Checkbutton(self.extra_exif_frame, text="Software", variable=self.software_var)
-        self.lens_model_var = tk.BooleanVar(value=False)
-        self.lens_model_checkbox = tk.Checkbutton(
-            self.extra_exif_frame, text="Lens Model", variable=self.lens_model_var
-        )
-        self.aperture_var = tk.BooleanVar(value=False)
-        self.aperture_checkbox = tk.Checkbutton(
-            self.extra_exif_frame, text="FNumber / Aperture", variable=self.aperture_var
-        )
-        self.exposure_time_var = tk.BooleanVar(value=False)
-        self.exposure_checkbox = tk.Checkbutton(
-            self.extra_exif_frame, text="Exposure Time", variable=self.exposure_time_var
-        )
-        self.focal_length_var = tk.BooleanVar(value=False)
-        self.focal_length_checkbox = tk.Checkbutton(
-            self.extra_exif_frame, text="Focal Length", variable=self.focal_length_var
-        )
-        self.iso_var = tk.BooleanVar(value=False)
-        self.iso_checkbox = tk.Checkbutton(self.extra_exif_frame, text="ISO", variable=self.iso_var)
-        self.orientation_var = tk.BooleanVar(value=False)
-        self.orientation_checkbox = tk.Checkbutton(
-            self.extra_exif_frame, text="Orientation", variable=self.orientation_var
-        )
-        self.filesize_var = tk.BooleanVar(value=False)
-        self.filesize_checkbox = tk.Checkbutton(self.extra_exif_frame, text="File Size", variable=self.filesize_var)
-        self.extra_exif_options = [
-            self.dimensions_checkbox,
-            self.make_checkbox,
-            self.model_checkbox,
-            self.software_checkbox,
-            self.lens_model_checkbox,
-            self.aperture_checkbox,
-            self.exposure_checkbox,
-            self.focal_length_checkbox,
-            self.iso_checkbox,
-            self.filesize_checkbox,
-            self.orientation_checkbox,
-        ]
-        self.source_path_var = tk.StringVar()
-        self.output_path_var = tk.StringVar()
-        self.source_path_label = tk.Label(self.folders_frame, foreground="gray", textvariable=self.source_path_var)
-        self.output_path_label = tk.Label(self.folders_frame, foreground="gray", textvariable=self.output_path_var)
-        self.last_warnings_log: Path | None = None
-        self.view_log_button = tk.Button(
-            self.actions_frame, text="View warnings.log", command=self._view_warnings_log, state="disabled"
-        )
-        self.summary_var = tk.BooleanVar(value=False)
-        self.summary_checkbox = tk.Checkbutton(self.scan_options_frame, text="Summary Sheet", variable=self.summary_var)
-        self.date_formats = ["MM/DD/YYYY", "YYYY-MM-DD", "DD/MM/YYYY"]
-        self.date_format_var = tk.StringVar(value=self.date_formats[0])
-        self.date_format_combobox = ttk.Combobox(
-            self.date_format_frame, values=self.date_formats, state="readonly", textvariable=self.date_format_var
-        )
-        self.time_formats = ["24-Hour (HH:MM:SS)", "12-Hour (hh:mm:ss AM/PM)"]
-        self.time_format_var = tk.StringVar(value="24-Hour (HH:MM:SS)")
-        self.time_format_combobox = ttk.Combobox(
-            self.time_format_frame, values=self.time_formats, state="readonly", textvariable=self.time_format_var
-        )
+        self._headless = headless
+        self._cli_overwrite = False
+        self._cli_quiet = False
+        self._last_files_written = 0
         # Set default sheet name
         self.current_sheet_name = "Sheet"
         # Collect warnings
@@ -3129,13 +2995,6 @@ class MetadataExtractor:
         self.extensions = [".xlsx", ".csv", ".json", ".md"]
         # For media filter
         self.media_filters = ["All Media", "Photos Only", "Videos Only", "RAW Only"]
-        self.media_filter_var = tk.StringVar(value=self.media_filters[0])
-        self.media_filter_combobox = ttk.Combobox(
-            self.extra_scan_options_frame,
-            values=self.media_filters,
-            state="readonly",
-            textvariable=self.media_filter_var,
-        )
         # For sorting
         self.sort_methods = ["Timestamp", "Date (Oldest)", "Date (Newest)"]
         self.sort_method = "Timestamp"
@@ -3159,29 +3018,246 @@ class MetadataExtractor:
         self._photo_cache = None
         self._video_cache = None
         self._scan_cache_flags = None
-        # Progress bar widgets
-        self.current_directory = tk.StringVar()
-        self.scanned_count = tk.StringVar()
-        self.skipped_count = tk.StringVar()
-        self.percentage_done = tk.StringVar()
-        self.eta = tk.StringVar()
-        self.elapsed_time = tk.StringVar()
-        self.progress_var = tk.DoubleVar(value=0)
-        self.progress_bar = ttk.Progressbar(self.progress_frame, variable=self.progress_var)
-        self.directory_label = tk.Label(self.progress_frame, textvariable=self.current_directory)
-        self.scanned_label = tk.Label(self.progress_frame, textvariable=self.scanned_count)
-        self.percent_label = tk.Label(self.progress_frame, textvariable=self.percentage_done)
-        self.skipped_label = tk.Label(self.progress_frame, textvariable=self.skipped_count)
-        self.eta_label = tk.Label(self.progress_frame, textvariable=self.eta)
-        self.total_files = 0
-        self.elapsed_label = tk.Label(self.progress_frame, textvariable=self.elapsed_time)
+        # For filetype and file counts
         self._active_filetype: str | None = None
-        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
-        self._load_settings()
-        self._update_path_labels()
+        self.total_files = 0
+
+        if not self._headless:
+            self.root = tk.Tk()
+            self.root.title("Metadata Extractor")
+            self.columns_frame = tk.Frame(self.root)
+            self.basic_mode_frame = tk.Frame(self.columns_frame)
+            self.advanced_mode_frame = tk.Frame(self.columns_frame)
+            self.file_options_frame = tk.LabelFrame(self.basic_mode_frame, text="File Options", padx=8, pady=6)
+            self.sort_methods_frame = tk.LabelFrame(
+                self.advanced_mode_frame, text="Sort Method (default Timestamp)", padx=8, pady=6
+            )
+            self.date_frame = tk.LabelFrame(self.advanced_mode_frame, text="Date Range", padx=8, pady=6)
+            self.extra_exif_frame = tk.LabelFrame(self.advanced_mode_frame, text="Extra Metadata", padx=8, pady=6)
+            self.actions_frame = tk.LabelFrame(self.basic_mode_frame, text="Actions", padx=8, pady=6)
+            self.folders_frame = tk.LabelFrame(self.basic_mode_frame, text="Folders", padx=8, pady=6)
+            self.progress_frame = tk.LabelFrame(self.basic_mode_frame, text="Progress", padx=8, pady=6)
+            self.open_options_frame = tk.LabelFrame(self.basic_mode_frame, text="Open Options", padx=8, pady=6)
+            self.scan_options_frame = tk.LabelFrame(self.basic_mode_frame, text="Scan Options", padx=8, pady=6)
+            self.extra_scan_options_frame = tk.LabelFrame(
+                self.advanced_mode_frame, text="Extra Scan Options", padx=8, pady=6
+            )
+            self.date_format_frame = tk.LabelFrame(self.extra_scan_options_frame, text="Date Format", padx=8, pady=6)
+            self.time_format_frame = tk.LabelFrame(self.extra_scan_options_frame, text="Time Format", padx=8, pady=6)
+            self.execute_button = tk.Button(self.actions_frame, command=self.initialize, text="Execute")
+            self.cancel_button = tk.Button(self.actions_frame, command=self.cancel, text="Cancel", state="disabled")
+            self.set_directory_button = tk.Button(
+                self.folders_frame, command=self.set_dir, text="Set folder with images"
+            )
+            self.set_output_button = tk.Button(self.folders_frame, command=self.set_output, text="Set output folder")
+            self.reset_settings_button = tk.Button(
+                self.actions_frame, command=self.reset_settings, text="Reset Settings"
+            )
+            self.keepopen_var = tk.BooleanVar(value=False)
+            self.keepopen_checkbox = tk.Checkbutton(
+                self.open_options_frame, text="Keep Open After Scan", variable=self.keepopen_var
+            )
+            self.open_folder_var = tk.BooleanVar(value=False)
+            self.open_folder_checkbox = tk.Checkbutton(
+                self.open_options_frame, text="Auto-Open Output Folder", variable=self.open_folder_var
+            )
+            self.recursive_var = tk.BooleanVar(value=False)
+            self.recursive_checkbox = tk.Checkbutton(
+                self.scan_options_frame,
+                text="Recursive Mode",
+                variable=self.recursive_var,
+                command=self.recursive_input,
+            )
+            self.video_rows_var = tk.BooleanVar(value=False)
+            self.video_rows_checkbox = tk.Checkbutton(
+                self.extra_scan_options_frame, text="Create Video Rows", variable=self.video_rows_var
+            )
+            self.utc_var = tk.BooleanVar(value=False)
+            self.utc_checkbox = tk.Checkbutton(self.extra_scan_options_frame, text="Time in UTC", variable=self.utc_var)
+            self.debug_var = tk.BooleanVar(value=False)
+            self.debug_checkbox = tk.Checkbutton(
+                self.advanced_mode_frame, text="Debug Mode", variable=self.debug_var, command=self.debug_warning
+            )
+            self.filetype_var = tk.StringVar(value="Excel")
+            self.sort_methods_var = tk.StringVar(value="Timestamp")
+            self.hyperlink_var = tk.BooleanVar(value=True)
+            self.hyperlink_checkbox = tk.Checkbutton(
+                self.scan_options_frame, text="Add Hyperlinks", variable=self.hyperlink_var
+            )
+            self.burst_cutoff_entry = tk.Entry(self.scan_options_frame, width=40, foreground="gray")
+            self.burst_cutoff_entry.insert(0, "Photo grouping cutoff (default 2 seconds)")
+            self.name_entry = tk.Entry(self.file_options_frame, width=30, foreground="gray")
+            self.name_entry.insert(0, "Filename (default output.filetype)")
+            self.modifier_entry = tk.Entry(self.extra_scan_options_frame, width=30, foreground="gray")
+            self.modifier_entry.insert(0, "Starting index (Img # Series)")
+            self.maxdepth_entry = tk.Entry(self.scan_options_frame, width=20, foreground="gray")
+            self.maxdepth_entry.insert(0, "Recursion Depth (#)")
+            self.date_range_var = tk.BooleanVar(value=False)
+            self.date_range_checkbox = tk.Checkbutton(
+                self.extra_scan_options_frame,
+                text="Date Range (Local Time)",
+                variable=self.date_range_var,
+                command=self.date_range,
+            )
+            self.include_undateable_var = tk.BooleanVar(value=True)
+            self.include_undateable_checkbox = tk.Checkbutton(
+                self.date_frame, text="Include undateable files", variable=self.include_undateable_var
+            )
+            self.start_date_entry = DateEntry(self.date_frame, date_pattern="%Y/%m/%d", value=None)
+            self.end_date_entry = DateEntry(self.date_frame, date_pattern="%Y/%m/%d", value=None)
+            self.date_notice_label = tk.Label(self.date_frame, text="One date required; two dates accepted")
+            self.start_date_label = tk.Label(self.date_frame, text="Start Date")
+            self.end_date_label = tk.Label(self.date_frame, text="End Date")
+            self.name_entry.bind("<FocusIn>", self.nameFocusIn)
+            self.name_entry.bind("<FocusOut>", self.nameFocusOut)
+            self.modifier_entry.bind("<FocusIn>", self.modifierFocusIn)
+            self.modifier_entry.bind("<FocusOut>", self.modifierFocusOut)
+            self.maxdepth_entry.bind("<FocusIn>", self.maxDepthFocusIn)
+            self.maxdepth_entry.bind("<FocusOut>", self.maxDepthFocusOut)
+            self.burst_cutoff_entry.bind("<FocusIn>", self.burstCutoffFocusIn)
+            self.burst_cutoff_entry.bind("<FocusOut>", self.burstCutoffFocusOut)
+            self.gps_var = tk.BooleanVar(value=False)
+            self.gps_checkbox = tk.Checkbutton(
+                self.extra_scan_options_frame, text="GPS", variable=self.gps_var, command=self.gps_warning
+            )
+            self.gps_warning_label = tk.Label(
+                self.extra_scan_options_frame,
+                text="Coordinates may reveal sensitive location information",
+                foreground="gray",
+            )
+            self.gps_altitude_var = tk.BooleanVar(value=False)
+            self.gps_altitude_checkbox = tk.Checkbutton(
+                self.extra_scan_options_frame, text="GPS Altitude", variable=self.gps_altitude_var
+            )
+            self.hidden_var = tk.BooleanVar(value=False)
+            self.hidden_checkbox = tk.Checkbutton(
+                self.extra_scan_options_frame, text="Include Hidden Files", variable=self.hidden_var
+            )
+            # User modes (basic or advanced)
+            self.user_modes_frame = tk.LabelFrame(self.basic_mode_frame, text="Mode", padx=8, pady=8)
+            self.user_modes = ["Basic", "Advanced"]
+            self.user_mode_var = tk.StringVar(value="Basic")
+            # Extra EXIF checkboxes
+            self.extra_exif_var = tk.BooleanVar(value=False)
+            self.extra_exif_checkbox = tk.Checkbutton(
+                self.extra_scan_options_frame,
+                text="Extra Metadata",
+                variable=self.extra_exif_var,
+                command=self.extra_exif,
+            )
+            self.dimensions_var = tk.BooleanVar(value=False)
+            self.dimensions_checkbox = tk.Checkbutton(
+                self.extra_exif_frame, text="Image Dimensions", variable=self.dimensions_var
+            )
+            self.make_var = tk.BooleanVar(value=False)
+            self.make_checkbox = tk.Checkbutton(self.extra_exif_frame, text="Camera Make", variable=self.make_var)
+            self.model_var = tk.BooleanVar(value=False)
+            self.model_checkbox = tk.Checkbutton(self.extra_exif_frame, text="Camera Model", variable=self.model_var)
+            self.software_var = tk.BooleanVar(value=False)
+            self.software_checkbox = tk.Checkbutton(self.extra_exif_frame, text="Software", variable=self.software_var)
+            self.lens_model_var = tk.BooleanVar(value=False)
+            self.lens_model_checkbox = tk.Checkbutton(
+                self.extra_exif_frame, text="Lens Model", variable=self.lens_model_var
+            )
+            self.aperture_var = tk.BooleanVar(value=False)
+            self.aperture_checkbox = tk.Checkbutton(
+                self.extra_exif_frame, text="FNumber / Aperture", variable=self.aperture_var
+            )
+            self.exposure_time_var = tk.BooleanVar(value=False)
+            self.exposure_checkbox = tk.Checkbutton(
+                self.extra_exif_frame, text="Exposure Time", variable=self.exposure_time_var
+            )
+            self.focal_length_var = tk.BooleanVar(value=False)
+            self.focal_length_checkbox = tk.Checkbutton(
+                self.extra_exif_frame, text="Focal Length", variable=self.focal_length_var
+            )
+            self.iso_var = tk.BooleanVar(value=False)
+            self.iso_checkbox = tk.Checkbutton(self.extra_exif_frame, text="ISO", variable=self.iso_var)
+            self.orientation_var = tk.BooleanVar(value=False)
+            self.orientation_checkbox = tk.Checkbutton(
+                self.extra_exif_frame, text="Orientation", variable=self.orientation_var
+            )
+            self.filesize_var = tk.BooleanVar(value=False)
+            self.filesize_checkbox = tk.Checkbutton(self.extra_exif_frame, text="File Size", variable=self.filesize_var)
+            self.extra_exif_options = [
+                self.dimensions_checkbox,
+                self.make_checkbox,
+                self.model_checkbox,
+                self.software_checkbox,
+                self.lens_model_checkbox,
+                self.aperture_checkbox,
+                self.exposure_checkbox,
+                self.focal_length_checkbox,
+                self.iso_checkbox,
+                self.filesize_checkbox,
+                self.orientation_checkbox,
+            ]
+            self.source_path_var = tk.StringVar()
+            self.output_path_var = tk.StringVar()
+            self.source_path_label = tk.Label(self.folders_frame, foreground="gray", textvariable=self.source_path_var)
+            self.output_path_label = tk.Label(self.folders_frame, foreground="gray", textvariable=self.output_path_var)
+            self.last_warnings_log: Path | None = None
+            self.view_log_button = tk.Button(
+                self.actions_frame, text="View warnings.log", command=self._view_warnings_log, state="disabled"
+            )
+            self.summary_var = tk.BooleanVar(value=False)
+            self.summary_checkbox = tk.Checkbutton(
+                self.scan_options_frame, text="Summary Sheet", variable=self.summary_var
+            )
+            self.date_formats = ["MM/DD/YYYY", "YYYY-MM-DD", "DD/MM/YYYY"]
+            self.date_format_var = tk.StringVar(value=self.date_formats[0])
+            self.date_format_combobox = ttk.Combobox(
+                self.date_format_frame, values=self.date_formats, state="readonly", textvariable=self.date_format_var
+            )
+            self.time_formats = ["24-Hour (HH:MM:SS)", "12-Hour (hh:mm:ss AM/PM)"]
+            self.time_format_var = tk.StringVar(value="24-Hour (HH:MM:SS)")
+            self.time_format_combobox = ttk.Combobox(
+                self.time_format_frame, values=self.time_formats, state="readonly", textvariable=self.time_format_var
+            )
+            self.media_filter_var = tk.StringVar(value=self.media_filters[0])
+            self.media_filter_combobox = ttk.Combobox(
+                self.extra_scan_options_frame,
+                values=self.media_filters,
+                state="readonly",
+                textvariable=self.media_filter_var,
+            )
+            # Progress bar widgets
+            self.current_directory = tk.StringVar()
+            self.scanned_count = tk.StringVar()
+            self.skipped_count = tk.StringVar()
+            self.percentage_done = tk.StringVar()
+            self.eta = tk.StringVar()
+            self.elapsed_time = tk.StringVar()
+            self.progress_var = tk.DoubleVar(value=0)
+            self.progress_bar = ttk.Progressbar(self.progress_frame, variable=self.progress_var)
+            self.directory_label = tk.Label(self.progress_frame, textvariable=self.current_directory)
+            self.scanned_label = tk.Label(self.progress_frame, textvariable=self.scanned_count)
+            self.percent_label = tk.Label(self.progress_frame, textvariable=self.percentage_done)
+            self.skipped_label = tk.Label(self.progress_frame, textvariable=self.skipped_count)
+            self.eta_label = tk.Label(self.progress_frame, textvariable=self.eta)
+            self.elapsed_label = tk.Label(self.progress_frame, textvariable=self.elapsed_time)
+            self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+            self._load_settings()
+            self._update_path_labels()
+        else:
+            self.root = None
+            self.filetype_var = _CliVar("")
+            self.hyperlink_var = _CliVar(False)
+            self.open_folder_var = _CliVar(False)
+            self.keepopen_var = _CliVar(True)
+            self.current_directory = _CliVar("")
+            self.scanned_count = _CliVar("")
+            self.skipped_count = _CliVar("")
+            self.percentage_done = _CliVar("")
+            self.eta = _CliVar("")
+            self.elapsed_time = _CliVar("")
+            self.progress_var = _CliVar(0.0)
 
     # After initialization
     def run(self) -> None:
+        if self._headless or self.root is None:
+            return
+        assert isinstance(self.filetype_var, tk.StringVar)
         """Displays main window and widgets."""
         # Pack main widgets
         self.columns_frame.pack(fill="both", expand=True)
@@ -3227,7 +3303,221 @@ class MetadataExtractor:
         self.root.mainloop()
 
 
+def run_cli(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    directory_path = Path(args.input)
+    output_path = Path(args.output)
+    if not directory_path.is_dir():
+        print("Input must be a directory.", file=sys.stderr)
+        return 1
+    if not output_path.parent.is_dir():
+        print("Output path parent must be a directory.", file=sys.stderr)
+        return 1
+    if not (math.isfinite(args.cutoff) and args.cutoff >= 0):
+        print("Cutoff must be greater or equal to 0 seconds.", file=sys.stderr)
+        return 1
+    if args.maxdepth is not None:
+        if args.maxdepth < 1:
+            print("Maxdepth must be greater or equal to 1 subfolder.", file=sys.stderr)
+            return 1
+        maxdepth = args.maxdepth
+    elif args.recursive:
+        maxdepth = 1
+    else:
+        maxdepth = 0
+    if args.modifier < 0:
+        print("Starting index (modifier) cannot be less than 0.", file=sys.stderr)
+        return 1
+    try:
+        start_date = date.fromisoformat(args.start_date) if args.start_date else None
+        end_date = date.fromisoformat(args.end_date) if args.end_date else None
+    except ValueError:
+        print("Start and end dates must be in YYYY-MM-DD format.", file=sys.stderr)
+        return 1
+    date_range = bool(start_date or end_date)
+    if start_date and end_date and start_date > end_date:
+        print("Start date must be earlier than end date.", file=sys.stderr)
+        return 1
+    app = MetadataExtractor(headless=True)
+    app._cli_overwrite = args.overwrite
+    app._cli_quiet = args.quiet
+    app.maxdepth = maxdepth
+    sort_method = {"timestamp": "Timestamp", "oldest": "Date (Oldest)", "newest": "Date (Newest)"}[args.sort]
+    app.sort_method = sort_method
+    fmt_map = {"excel": "Excel", "csv": "CSV", "json": "JSON", "markdown": "Markdown"}
+    ext_map = {".xlsx": "Excel", ".csv": "CSV", ".json": "JSON", ".md": "Markdown"}
+    if args.filetype is not None:
+        filetype = fmt_map[args.filetype.lower()]
+    else:
+        filetype = ext_map.get(output_path.suffix.lower(), "Excel")
+    app.filetype_var.set(filetype)
+    app._active_filetype = filetype
+    if not args.hyperlinks:
+        hyperlinks = (filetype in ("Excel", "Markdown")) if args.hyperlinks is None else args.hyperlinks
+    else:
+        hyperlinks = args.hyperlinks
+    app.hyperlink_var.set(hyperlinks)
+    date_format = {"MM/DD/YYYY": "%m/%d/%Y", "YYYY-MM-DD": "%Y-%m-%d", "DD/MM/YYYY": "%d/%m/%Y"}[args.date_format]
+    time_format = {"24h": "%H:%M:%S", "12h": "%I:%M:%S %p"}[args.time_format]
+    media_filter = {"all": "All Media", "photos": "Photos Only", "videos": "Videos Only", "raw": "RAW Only"}[args.media]
+    if args.all == True:
+        output_dimensions = True
+        output_filesize = True
+        output_make = True
+        output_model = True
+        output_software = True
+        output_lens_model = True
+        output_aperture = True
+        output_exposure_time = True
+        output_focal_length = True
+        output_iso = True
+        output_orientation = True
+    else:
+        output_dimensions = args.dimensions
+        output_filesize = args.filesize
+        output_make = args.make
+        output_model = args.model
+        output_software = args.software
+        output_lens_model = args.lens
+        output_aperture = args.aperture
+        output_exposure_time = args.exposure
+        output_focal_length = args.focal_length
+        output_iso = args.iso
+        output_orientation = args.orientation
+    output_video_rows = args.videorows or (media_filter == "Videos Only")
+    output_utc = args.utc
+    output_gps = args.gps or args.gps_altitude
+    output_gps_altitude = args.gps_altitude
+    include_hiddens = args.hidden
+    include_undateable = args.include_undateable
+    modifier = args.modifier
+    cutoff = args.cutoff
+    final_output = output_path.parent / app.clean_name(output_path.name)
+    processed, skipped = app.find_directories(
+        directory_path,
+        modifier,
+        cutoff,
+        output_utc,
+        output_dimensions,
+        output_filesize,
+        output_make,
+        output_model,
+        output_software,
+        output_lens_model,
+        output_aperture,
+        output_exposure_time,
+        output_focal_length,
+        output_iso,
+        output_orientation,
+        output_gps,
+        output_gps_altitude,
+        output_video_rows,
+        include_hiddens,
+        include_undateable,
+        media_filter,
+        date_range,
+        date_format,
+        time_format,
+        start_date,
+        end_date,
+        progress_callback=None,
+    )
+    app.create_sheet(final_output, processed, skipped, date_format, args.summary)
+    return 0 if app._last_files_written > 0 else 1
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="Metadata Extractor", description="Extract metadata from media files.")
+    parser.add_argument("-i", "--input", required=True, help="Folder to scan")
+    parser.add_argument("-o", "--output", required=True, help="Output file path")
+    parser.add_argument(
+        "-f",
+        "--filetype",
+        choices=["excel", "csv", "json", "markdown"],
+        required=False,
+        type=str.lower,
+        default=None,
+        help="File output type",
+    )
+    parser.add_argument("-y", "--overwrite", action="store_true", help="Force overwrites files")
+    parser.add_argument(
+        "-hl",
+        "--hyperlinks",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Adds hyperlinks to Excel and Markdown files",
+    )
+    parser.add_argument("-s", "--summary", action="store_true", help="Add summary of scan")
+    parser.add_argument("-q", "--quiet", action="store_true", help="Supress non-error stdout")
+    parser.add_argument(
+        "-r",
+        "--recursive",
+        action="store_true",
+        help="Enables recursive mode to --maxdepth subfolders, default 1 if unspecified",
+    )
+    parser.add_argument(
+        "-md", "--maxdepth", required=False, type=int, default=None, help="Sets maxdepth for recursive mode"
+    )
+    parser.add_argument(
+        "-c", "--cutoff", required=False, type=float, default=2.0, help="Sets photo grouping cutoff in seconds"
+    )
+    parser.add_argument(
+        "-m", "--modifier", required=False, type=int, default=0, help="Sets starting index modifier for Img # Series"
+    )
+    parser.add_argument("-vr", "--videorows", action="store_true", help="Adds video row output")
+    parser.add_argument("-H", "--hidden", action="store_true", help="Includes hidden files")
+    parser.add_argument("-u", "--utc", action="store_true", help="Output time in UTC")
+    parser.add_argument(
+        "-S",
+        "--sort",
+        required=False,
+        default="timestamp",
+        choices=["timestamp", "oldest", "newest"],
+        help="Sort output by this method",
+    )
+    parser.add_argument(
+        "-df",
+        "--date-format",
+        required=False,
+        default="MM/DD/YYYY",
+        choices=["MM/DD/YYYY", "YYYY-MM-DD", "DD/MM/YYYY"],
+        help="Format output dates",
+    )
+    parser.add_argument(
+        "-t", "--time-format", required=False, default="24h", choices=["24h", "12h"], help="Format output times"
+    )
+    parser.add_argument("-sd", "--start-date", required=False, default=None, help="Filter files to be after this date")
+    parser.add_argument("-ed", "--end-date", required=False, default=None, help="Filter files to be before this date")
+    parser.add_argument(
+        "-iu",
+        "--include-undateable",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Include undateable files",
+    )
+    parser.add_argument("-d", "--dimensions", action="store_true", help="Output media dimensions")
+    parser.add_argument("-fs", "--filesize", action="store_true", help="Output file size")
+    parser.add_argument("-mk", "--make", action="store_true", help="Output camera manufacturer")
+    parser.add_argument("-mo", "--model", action="store_true", help="Output camera model")
+    parser.add_argument("-sft", "--software", action="store_true", help="Output processing software")
+    parser.add_argument("-l", "--lens", action="store_true", help="Output lens model")
+    parser.add_argument("-apt", "--aperture", action="store_true", help="Output aperture (f-number)")
+    parser.add_argument("-e", "--exposure", action="store_true", help="Output exposure time / shutter speed")
+    parser.add_argument("-fl", "--focal-length", action="store_true", help="Output focal length")
+    parser.add_argument("-iso", "--iso", action="store_true", help="Output ISO sensitivity")
+    parser.add_argument("-or", "--orientation", action="store_true", help="Output image orientation")
+    parser.add_argument("-a", "--all", action="store_true", help="Output all available EXIF data")
+    parser.add_argument("-g", "--gps", action="store_true", help="Output GPS location")
+    parser.add_argument("-ga", "--gps-altitude", action="store_true", help="Output GPS Altitude")
+    parser.add_argument(
+        "-M", "--media", choices=["all", "photos", "videos", "raw"], default="all", help="Fiter by media type"
+    )
+    return parser
+
+
 # Always runs
 if __name__ == "__main__":
-    app = MetadataExtractor()  # Java: MetadataExtractor app = new MetadataExtractor(); (Constructor)
+    if len(sys.argv) > 1:
+        sys.exit(run_cli(sys.argv[1:]))
+    app = MetadataExtractor(headless=False)  # Java: MetadataExtractor app = new MetadataExtractor(); (Constructor)
     app.run()

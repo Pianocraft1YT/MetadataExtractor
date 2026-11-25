@@ -24,10 +24,11 @@ Release History/Roadmap found here: https://github.com/Pianocraft1YT/MetadataExt
 - **Optional extra metadata columns (Advanced)** via **Extra Metadata**: `Image Dimensions`, `File Size`, `Camera Make`, `Camera Model`, `Software`, `Lens Model`, `FNumber / Aperture`, `Exposure Time`, `Focal Length`, `Orientation` and `ISO` — each individually toggleable.
 - **Optional GPS coordinates (Advanced)**: `GPS Latitude` and `GPS Longitude` from the GPS IFD as signed decimal degrees (6-decimal precision), with an on-screen privacy notice when enabled, along with a **GPS Altitude** option.
 - **Clickable hyperlinks**: Links filenames in the `Files` column to the files on disk in Excel (`file:///` URIs) and Markdown (`[name](<url>)`). Unsupported in CSV and JSON.
-- **Optional Summary Sheet**: Includes item totals, items dated/undated, and series groups, as well as earliest/latest date in each folder and total file size.
+- **Optional Summary Sheet**: Includes item totals, items dated/undated, series groups, earliest/latest dates, and total folder/workbook `File Size`, with clickable `Source Path` folder hyperlinks in Excel.
 - **Clean UI**: Two-column UI with LabelFrames, checkbuttons, comboboxes, buttons, radiobuttons, entries, labels, and progressbar widgets.
 - **Path visibility, auto-open, & `warnings.log` viewer**: Displays truncated `Source:` and `Output:` paths in the main window, optionally opens the output folder on completion (**Auto-Open Output Folder**), and provides a **View warnings.log** button whenever warnings are written.
-- **Persistent settings**: Saves UI options and folder selections to `~/.metadata-extractor/settings.json` (Debug Mode is never persisted). Resettable via `Reset Settings` button.
+- **Persistent settings & one-click reset**: Saves UI options and folder selections to `~/.metadata-extractor/settings.json` (Debug Mode is never persisted), with a **Reset Settings** button to clear saved preferences and restore factory defaults.
+- **GUI & Headless CLI modes**: Launches the desktop Tkinter UI when run with no arguments, or runs completely headlessly via `argparse` flags for terminal and scripted workflows.
 
 ## Output formats
 
@@ -67,7 +68,59 @@ CSV and Markdown can't nest multiple sheets inside a single file, so in recursiv
 5. Switch to **Advanced** if you want **Debug Mode**, **Create Video Rows**, custom **Starting index**, **Sort Method**, **Date Range (Local Time)**, **Include Hidden Files**, **Time in UTC**, **GPS**, **Date Format**, **Time Format** or **Extra Metadata** columns.
 6. Choose **Excel**, **CSV**, **JSON**, or **Markdown** output format.
 7. Click **Execute**. A live progress bar tracks the scan; if any warnings are logged, click **View warnings.log** afterward to inspect them.
+---
+## Command-Line Interface (CLI)
 
+Passing any argument runs Metadata Extractor headlessly without opening a window or modifying your saved GUI `settings.json`:
+
+```bash
+python metadata.py -i ./Photos -o ./report.xlsx
+```
+
+### Common Examples
+
+```bash
+# Recursive Excel export with Summary Sheet and UTC conversion
+python metadata.py -i ./Trips -o ./trips.xlsx -r -md 2 -s -u -y
+
+# Export all EXIF metadata + GPS + Altitude to JSON quietly
+python metadata.py -i ./Camera -o ./shoot.json -a -ga -q
+
+# Filter by local date range, RAW only, sorted oldest-first, 12-hour time
+python metadata.py -i ./RAW -o ./may.csv -M raw -sd 2024-05-01 -ed 2024-05-31 -S oldest -t 12h
+```
+
+### CLI Options
+
+| Flag | Description |
+|---|---|
+| `-i`, `--input` | Source folder to scan *(required)* |
+| `-o`, `--output` | Output file path *(required)* |
+| `-f`, `--filetype` | `excel`, `csv`, `json`, or `markdown` (inferred from `--output` extension if omitted) |
+| `-y`, `--overwrite` | Overwrite existing output files (without this, existing files fail with exit code `1`) |
+| `-hl`, `--hyperlinks` / `--no-hyperlinks` | Toggle clickable file/folder links (defaults on for Excel/Markdown) |
+| `-s`, `--summary` | Include Summary Sheet on multi-folder scans |
+| `-q`, `--quiet` | Suppress non-error stdout messages |
+| `-r`, `--recursive` | Scan subfolders (defaults to depth `1` unless `-md` is set) |
+| `-md`, `--maxdepth` | Maximum recursion depth (`>= 1`) |
+| `-c`, `--cutoff` | Burst grouping cutoff in seconds (default `2.0`) |
+| `-m`, `--modifier` | Starting index offset for `Img # Series` (default `0`) |
+| `-vr`, `--videorows` | Emit output rows for timestamped `.mp4`/`.mov` videos |
+| `-H`, `--hidden` | Include hidden files and folders |
+| `-u`, `--utc` | Convert timestamps to UTC using EXIF offsets |
+| `-S`, `--sort` | `timestamp` (default), `oldest`, or `newest` |
+| `-df`, `--date-format` | `MM/DD/YYYY` (default), `YYYY-MM-DD`, or `DD/MM/YYYY` |
+| `-t`, `--time-format` | `24h` (default) or `12h` |
+| `-sd`, `--start-date` / `-ed`, `--end-date` | Local date filter bounds (`YYYY-MM-DD`) |
+| `-iu`, `--include-undateable` / `--no-include-undateable` | Include or exclude files without timestamps when filtering by date (default on) |
+| `-M`, `--media` | `all` (default), `photos`, `videos`, or `raw` |
+| `-g`, `--gps` / `-ga`, `--gps-altitude` | Export GPS Latitude/Longitude (and GPS Altitude; `-ga` enables `-g`) |
+| `-a`, `--all` | Enable all extra EXIF columns (`-d`, `-fs`, `-mk`, `-mo`, `-sft`, `-l`, `-apt`, `-e`, `-fl`, `-iso`, `-or`) |
+| `-d`, `-fs`, `-mk`, `-mo`, `-sft`, `-l`, `-apt`, `-e`, `-fl`, `-iso`, `-or` | Individual Extra EXIF flags (`--dimensions`, `--filesize`, `--make`, `--model`, `--software`, `--lens`, `--aperture`, `--exposure`, `--focal-length`, `--iso`, `--orientation`) |
+
+**Exit codes:** `0` = files written successfully, `1` = validation/overwrite/empty-scan/I/O error, `2` = invalid CLI arguments.
+
+---
 ## Building from Source
 
 To compile the standalone Windows executable:

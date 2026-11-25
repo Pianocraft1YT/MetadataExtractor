@@ -19,3 +19,6 @@ def test_format_gps_altitude_invalid_returns_none(extractor):
     assert extractor._format_gps_altitude(None, "+") is None
     assert extractor._format_gps_altitude((5, 0), "+") is None
     assert extractor._format_gps_altitude("not-a-number", "+") is None
+    assert extractor._format_gps_altitude(float("nan"), "+") is None
+    assert extractor._format_gps_altitude(float("inf"), "+") is None
+    assert extractor._format_gps_altitude(float("-inf"), "-") is None

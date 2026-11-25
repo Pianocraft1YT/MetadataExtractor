@@ -2,7 +2,7 @@
 A quaint table for release information.
 Created from new tags/releases and old tags/releases from past repo.
 
-# Full tag history — 80 tags
+# Full tag history — 83 tags
 
 | Version | Date (Y/M/D) | Summary |
 |---|---|---|
@@ -88,3 +88,4 @@ Created from new tags/releases and old tags/releases from past repo.
 | v4.9.0 | 2026-11-24 | GPS Altitude, Orientation |
 | v4.10.0 | 2026-11-24 | Summary Sheet `File Size` Column and Hyperlinks |
 | v4.11.0 | 2026-11-24 | Reset Settings Button |
+| **v5.0.0** | 2026-11-24 | **Headless CLI Mode** |
